@@ -7,6 +7,10 @@ paths:
   - "*.mjs"
   - "*.ts"
   - "*.tsx"
+  - "infra/cdk/**/*.js"
+  - "infra/cdk/**/*.mjs"
+  - "infra/cdk/**/*.ts"
+  - "infra/cdk/**/*.tsx"
 
 # EN: Skip generated, test-only, and documentation paths to keep alerts actionable.
 # CN: 跳过生成物、纯测试和文档路径，让告警更聚焦可行动代码。
