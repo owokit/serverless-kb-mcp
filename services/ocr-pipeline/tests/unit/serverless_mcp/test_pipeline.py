@@ -1,6 +1,6 @@
 """
 EN: Tests for ExtractionResultPersister covering manifest persistence, embed job dispatch, and fan-out by profile.
-CN: 同上。
+CN: 鍚屼笂銆?
 """
 
 from serverless_mcp.extract.pipeline import ExtractionResultPersister
@@ -13,11 +13,12 @@ from serverless_mcp.domain.models import (
     PersistedManifest,
     S3ObjectRef,
 )
+from serverless_mcp.storage.state.object_state_repository import DuplicateOrStaleEventError
 
 
 class _FakeExtractionService:
     # EN: Stand-in for ExtractionService returning a fixed manifest.
-    # CN: 杩斿洖鍥哄畾 manifest 鐨?ExtractionService 鏇胯韩銆?
+    # CN: 鏉╂柨娲栭崶鍝勭暰 manifest 閻?ExtractionService 閺囪儻闊╅妴?
     def build_embedding_requests(self, manifest, *, manifest_s3_uri):
         return [
             EmbeddingRequest(
@@ -44,7 +45,7 @@ class _FakeExtractionService:
 
 class _FakeManifestRepo:
     # EN: In-memory stand-in for ManifestRepository.
-    # CN: 同上。
+    # CN: 鍚屼笂銆?
     def __init__(self) -> None:
         self.cleanup_calls = []
         self.persist_calls = []
@@ -67,13 +68,23 @@ class _FakeManifestRepo:
 
 
 class _FakeObjectStateRepo:
-    # EN: In-memory stand-in for ObjectStateRepository.
-    # CN: 同上。
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        current_state: ObjectStateRecord | None = None,
+        mark_extract_done_error: Exception | None = None,
+    ) -> None:
         self.calls = []
+        self.current_state = current_state
+        self.mark_extract_done_error = mark_extract_done_error
+
+    def get_state(self, *, object_pk: str):
+        return self.current_state
 
     def mark_extract_done(self, source, manifest_s3_uri):
         self.calls.append(("mark_extract_done", source.document_uri, manifest_s3_uri))
+        if self.mark_extract_done_error is not None:
+            raise self.mark_extract_done_error
         return ObjectStateRecord(
             pk=source.object_pk,
             latest_version_id=source.version_id,
@@ -86,7 +97,7 @@ class _FakeObjectStateRepo:
 
 class _FakeDispatcher:
     # EN: Captures dispatched embedding jobs for assertion.
-    # CN: 同上。
+    # CN: 鍚屼笂銆?
     def __init__(self, *, fail: bool = False):
         self.jobs = []
         self.fail = fail
@@ -100,7 +111,7 @@ class _FakeDispatcher:
 def test_persister_persists_manifest_and_dispatches_embed_job() -> None:
     """
     EN: Persister persists manifest and dispatches embed job.
-    CN: 楠岃瘉 persister 鎸佷箙鍖?manifest 骞跺垎鍙?embed job銆?
+    CN: 妤犲矁鐦?persister 閹镐椒绠欓崠?manifest 楠炶泛鍨庨崣?embed job閵?
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
     dispatcher = _FakeDispatcher()
@@ -152,10 +163,199 @@ def test_persister_persists_manifest_and_dispatches_embed_job() -> None:
     assert dispatcher.jobs[0].previous_manifest_s3_uri is None
 
 
+
+def test_persister_skips_stale_state_before_manifest_persistence() -> None:
+    """
+    EN: Persister should short-circuit when the current state is already complete for another version.
+    CN: 当前状态已完成且不是同一版本时，persister 应直接跳过，不再持久化 manifest。
+    """
+    source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
+    current_state = ObjectStateRecord(
+        pk=source.object_pk,
+        latest_version_id="v2",
+        latest_sequencer="0002",
+        extract_status="EXTRACTED",
+        embed_status="PENDING",
+        latest_manifest_s3_uri="s3://manifest-bucket/manifests/v2.json",
+    )
+    manifest_repo = _FakeManifestRepo()
+    dispatcher = _FakeDispatcher()
+    persister = ExtractionResultPersister(
+        extraction_service=_FakeExtractionService(),
+        object_state_repo=_FakeObjectStateRepo(current_state=current_state),
+        manifest_repo=manifest_repo,
+        embed_dispatcher=dispatcher,
+        embedding_profiles=(
+            EmbeddingProfile(
+                profile_id="gemini-default",
+                provider="gemini",
+                model="gemini-embedding-2-preview",
+                dimension=3072,
+                vector_bucket_name="vector-bucket",
+                vector_index_name="index-gemini",
+                supported_content_kinds=("text", "image"),
+            ),
+        ),
+    )
+
+    outcome = persister.persist(
+        source=source,
+        manifest=ChunkManifest(
+            source=source,
+            doc_type="pdf",
+            chunks=[
+                ExtractedChunk(
+                    chunk_id="chunk#000001",
+                    chunk_type="page_text_chunk",
+                    text="hello",
+                    doc_type="pdf",
+                    token_estimate=2,
+                    page_no=1,
+                    page_span=(1, 1),
+                )
+            ],
+        ),
+        trace_id="trace-1",
+    )
+
+    assert outcome.chunk_count == 0
+    assert outcome.asset_count == 0
+    assert outcome.embedding_request_count == 0
+    assert outcome.object_state is current_state
+    assert manifest_repo.persist_calls == []
+    assert dispatcher.jobs == []
+
+
+def test_persister_skips_when_mark_extract_done_detects_duplicate_or_stale_event() -> None:
+    """
+    EN: Persister should surface a skip outcome when the final state write loses a race.
+    CN: 当最终状态写入丢失竞争时，persister 应返回跳过结果而不是抛错。
+    """
+    source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
+    current_state = ObjectStateRecord(
+        pk=source.object_pk,
+        latest_version_id=source.version_id,
+        latest_sequencer=source.sequencer,
+        extract_status="EXTRACTING",
+        embed_status="PENDING",
+    )
+    object_state_repo = _FakeObjectStateRepo(
+        current_state=current_state,
+        mark_extract_done_error=DuplicateOrStaleEventError(source.document_uri),
+    )
+    dispatcher = _FakeDispatcher()
+    persister = ExtractionResultPersister(
+        extraction_service=_FakeExtractionService(),
+        object_state_repo=object_state_repo,
+        manifest_repo=_FakeManifestRepo(),
+        embed_dispatcher=dispatcher,
+        embedding_profiles=(
+            EmbeddingProfile(
+                profile_id="gemini-default",
+                provider="gemini",
+                model="gemini-embedding-2-preview",
+                dimension=3072,
+                vector_bucket_name="vector-bucket",
+                vector_index_name="index-gemini",
+                supported_content_kinds=("text", "image"),
+            ),
+        ),
+    )
+
+    outcome = persister.persist(
+        source=source,
+        manifest=ChunkManifest(
+            source=source,
+            doc_type="pdf",
+            chunks=[
+                ExtractedChunk(
+                    chunk_id="chunk#000001",
+                    chunk_type="page_text_chunk",
+                    text="hello",
+                    doc_type="pdf",
+                    token_estimate=2,
+                )
+            ],
+        ),
+        trace_id="trace-1",
+    )
+
+    assert outcome.chunk_count == 0
+    assert outcome.asset_count == 0
+    assert outcome.embedding_request_count == 0
+    assert outcome.object_state.latest_version_id == source.version_id
+    assert object_state_repo.calls == [("mark_extract_done", source.document_uri, "s3://manifest-bucket/manifests/example.json")]
+    assert len(dispatcher.jobs) == 1
+
+
+def test_persister_rolls_back_manifest_when_embedding_request_build_fails() -> None:
+    """
+    EN: Persist should roll back a manifest if request construction fails after the manifest is written.
+    CN: 当 manifest 已写入但后续请求构建失败时，persist 应回滚 manifest。
+    """
+    class _FailingExtractionService:
+        def build_embedding_requests(self, manifest, *, manifest_s3_uri):
+            raise ValueError("bad embedding request")
+
+    source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
+    manifest_repo = _FakeManifestRepo()
+    persister = ExtractionResultPersister(
+        extraction_service=_FailingExtractionService(),
+        object_state_repo=_FakeObjectStateRepo(
+            current_state=ObjectStateRecord(
+                pk=source.object_pk,
+                latest_version_id=source.version_id,
+                latest_sequencer=source.sequencer,
+                extract_status="EXTRACTING",
+                embed_status="PENDING",
+            )
+        ),
+        manifest_repo=manifest_repo,
+        embed_dispatcher=_FakeDispatcher(),
+        embedding_profiles=(
+            EmbeddingProfile(
+                profile_id="gemini-default",
+                provider="gemini",
+                model="gemini-embedding-2-preview",
+                dimension=3072,
+                vector_bucket_name="vector-bucket",
+                vector_index_name="index-gemini",
+                supported_content_kinds=("text", "image"),
+            ),
+        ),
+    )
+
+    try:
+        persister.persist(
+            source=source,
+            manifest=ChunkManifest(
+                source=source,
+                doc_type="pdf",
+                chunks=[
+                    ExtractedChunk(
+                        chunk_id="chunk#000001",
+                        chunk_type="page_text_chunk",
+                        text="hello",
+                        doc_type="pdf",
+                        token_estimate=2,
+                    )
+                ],
+            ),
+            trace_id="trace-1",
+        )
+    except ValueError as exc:
+        assert str(exc) == "bad embedding request"
+    else:
+        raise AssertionError("embedding request validation failure should surface to the caller")
+
+    assert manifest_repo.persist_calls == [(source.document_uri, None)]
+    assert manifest_repo.rollback_calls == [(source.document_uri, "s3://manifest-bucket/manifests/example.json", None)]
+
+
 def test_persister_passes_previous_version_id_to_manifest_repo() -> None:
     """
     EN: Persister passes previous version id to manifest repo.
-    CN: 楠岃瘉 persister 灏?previous_version_id 浼犻€掔粰 manifest repo銆?
+    CN: 妤犲矁鐦?persister 鐏?previous_version_id 娴肩娀鈧帞绮?manifest repo閵?
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
     manifest_repo = _FakeManifestRepo()
@@ -208,7 +408,7 @@ def test_persister_passes_previous_version_id_to_manifest_repo() -> None:
 def test_persister_fans_out_jobs_by_profile() -> None:
     """
     EN: Persister fans out jobs by profile.
-    CN: 楠岃瘉 persister 鎸?profile 鎵囧嚭 embed job銆?
+    CN: 妤犲矁鐦?persister 閹?profile 閹靛洤鍤?embed job閵?
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
     dispatcher = _FakeDispatcher()
@@ -265,7 +465,7 @@ def test_persister_fans_out_jobs_by_profile() -> None:
 def test_persister_does_not_mark_extract_done_when_dispatch_fails() -> None:
     """
     EN: Persister does not mark extract done when dispatch fails.
-    CN: 同上。
+    CN: 鍚屼笂銆?
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
     object_state_repo = _FakeObjectStateRepo()
@@ -313,3 +513,6 @@ def test_persister_does_not_mark_extract_done_when_dispatch_fails() -> None:
 
     assert object_state_repo.calls == []
     assert persister._manifest_repo.rollback_calls == [(source.document_uri, "s3://manifest-bucket/manifests/example.json", None)]
+
+
+
