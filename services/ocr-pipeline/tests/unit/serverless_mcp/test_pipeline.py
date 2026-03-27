@@ -288,6 +288,70 @@ def test_persister_skips_when_mark_extract_done_detects_duplicate_or_stale_event
     assert len(dispatcher.jobs) == 1
 
 
+def test_persister_rolls_back_manifest_when_embedding_request_build_fails() -> None:
+    """
+    EN: Persist should roll back a manifest if request construction fails after the manifest is written.
+    CN: 当 manifest 已写入但后续请求构建失败时，persist 应回滚 manifest。
+    """
+    class _FailingExtractionService:
+        def build_embedding_requests(self, manifest, *, manifest_s3_uri):
+            raise ValueError("bad embedding request")
+
+    source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
+    manifest_repo = _FakeManifestRepo()
+    persister = ExtractionResultPersister(
+        extraction_service=_FailingExtractionService(),
+        object_state_repo=_FakeObjectStateRepo(
+            current_state=ObjectStateRecord(
+                pk=source.object_pk,
+                latest_version_id=source.version_id,
+                latest_sequencer=source.sequencer,
+                extract_status="EXTRACTING",
+                embed_status="PENDING",
+            )
+        ),
+        manifest_repo=manifest_repo,
+        embed_dispatcher=_FakeDispatcher(),
+        embedding_profiles=(
+            EmbeddingProfile(
+                profile_id="gemini-default",
+                provider="gemini",
+                model="gemini-embedding-2-preview",
+                dimension=3072,
+                vector_bucket_name="vector-bucket",
+                vector_index_name="index-gemini",
+                supported_content_kinds=("text", "image"),
+            ),
+        ),
+    )
+
+    try:
+        persister.persist(
+            source=source,
+            manifest=ChunkManifest(
+                source=source,
+                doc_type="pdf",
+                chunks=[
+                    ExtractedChunk(
+                        chunk_id="chunk#000001",
+                        chunk_type="page_text_chunk",
+                        text="hello",
+                        doc_type="pdf",
+                        token_estimate=2,
+                    )
+                ],
+            ),
+            trace_id="trace-1",
+        )
+    except ValueError as exc:
+        assert str(exc) == "bad embedding request"
+    else:
+        raise AssertionError("embedding request validation failure should surface to the caller")
+
+    assert manifest_repo.persist_calls == [(source.document_uri, None)]
+    assert manifest_repo.rollback_calls == [(source.document_uri, "s3://manifest-bucket/manifests/example.json", None)]
+
+
 def test_persister_passes_previous_version_id_to_manifest_repo() -> None:
     """
     EN: Persister passes previous version id to manifest repo.
