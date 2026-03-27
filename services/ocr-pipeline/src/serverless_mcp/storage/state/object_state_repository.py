@@ -17,6 +17,7 @@ from botocore.exceptions import ClientError
 
 from serverless_mcp.domain.models import ObjectStateRecord, S3ObjectRef, utc_now_iso
 
+_STATE_RECORD_TYPE = "STATE"
 _LOOKUP_RECORD_TYPE = "LOOKUP"
 _LOOKUP_RECORD_INDEX_NAME = "lookup-record-type-index"
 
@@ -74,6 +75,7 @@ class ObjectStateRepository:
         # EN: Boto3 DynamoDB client for conditional writes and consistent reads.
         # CN: 用于条件写入和一致性读取的 Boto3 DynamoDB 客户端。
         self._ddb = dynamodb_client
+        self._table_sort_key_name = self._resolve_table_sort_key_name()
 
     def queue_for_ingest(self, source: S3ObjectRef) -> ObjectStateRecord:
         """
@@ -134,7 +136,7 @@ class ObjectStateRepository:
             self._transact_state_and_lookup(
                 update_item={
                     "TableName": self._table_name,
-                    "Key": {"pk": {"S": record.pk}},
+                    "Key": self._build_state_key(record.pk),
                     "UpdateExpression": "SET " + ", ".join(update_parts),
                     "ConditionExpression": condition,
                     "ExpressionAttributeNames": expression_names,
@@ -290,7 +292,7 @@ class ObjectStateRepository:
             self._transact_state_and_lookup(
                 update_item={
                     "TableName": self._table_name,
-                    "Key": {"pk": {"S": source.object_pk}},
+                    "Key": self._build_state_key(source.object_pk),
                     "UpdateExpression": update_expression,
                     "ConditionExpression": condition,
                     "ExpressionAttributeNames": expression_names,
@@ -344,7 +346,7 @@ class ObjectStateRepository:
         """
         response = self._ddb.get_item(
             TableName=self._table_name,
-            Key={"pk": {"S": object_pk}},
+            Key=self._build_state_key(object_pk),
             ConsistentRead=True,
         )
         item = response.get("Item")
@@ -552,7 +554,7 @@ class ObjectStateRepository:
             self._transact_state_and_lookup(
                 update_item={
                     "TableName": self._table_name,
-                    "Key": {"pk": {"S": lookup.object_pk}},
+                    "Key": self._build_state_key(lookup.object_pk),
                     "UpdateExpression": "SET " + ", ".join(parts),
                     "ConditionExpression": condition,
                     "ExpressionAttributeNames": expression_names,
@@ -821,7 +823,7 @@ class ObjectStateRepository:
             self._transact_state_and_lookup(
                 update_item={
                     "TableName": self._table_name,
-                    "Key": {"pk": {"S": source.object_pk}},
+                    "Key": self._build_state_key(source.object_pk),
                     "UpdateExpression": "SET " + ", ".join(parts),
                     "ConditionExpression": "#latest_version_id = :version_id",
                     "ExpressionAttributeNames": expression_names,
@@ -894,13 +896,58 @@ class ObjectStateRepository:
         ):
             response = self._ddb.get_item(
                 TableName=self._table_name,
-                Key={"pk": {"S": pk}},
+                Key=self._build_lookup_key(pk),
                 ConsistentRead=True,
             )
             item = response.get("Item")
             if item:
                 return _deserialize_lookup_record(item)
         return None
+
+    def _resolve_table_sort_key_name(self) -> str | None:
+        """
+        EN: Inspect the DynamoDB table schema once and cache the sort key name when available.
+        CN: 在初始化时缓存表的 sort key，以便所有读写都使用同一种 key 形状。
+        """
+        describe_table = getattr(self._ddb, "describe_table", None)
+        if not callable(describe_table):
+            return None
+        try:
+            response = describe_table(TableName=self._table_name)
+        except Exception:
+            return None
+        key_schema = response.get("Table", {}).get("KeySchema", [])
+        for entry in key_schema:
+            if entry.get("KeyType") != "RANGE":
+                continue
+            attribute_name = entry.get("AttributeName")
+            if isinstance(attribute_name, str) and attribute_name:
+                return attribute_name
+        return None
+
+    def _build_state_key(self, object_pk: str) -> dict[str, dict[str, str]]:
+        """
+        EN: Build a DynamoDB key for an object_state record.
+        CN: 为 object_state 记录构建 DynamoDB key。
+        """
+        return self._build_table_key(object_pk, record_type=_STATE_RECORD_TYPE)
+
+    def _build_lookup_key(self, pk: str) -> dict[str, dict[str, str]]:
+        """
+        EN: Build a DynamoDB key for a lookup record.
+        CN: 为 lookup 记录构建 DynamoDB key。
+        """
+        return self._build_table_key(pk, record_type=_LOOKUP_RECORD_TYPE)
+
+    def _build_table_key(self, pk: str, *, record_type: str) -> dict[str, dict[str, str]]:
+        """
+        EN: Build a DynamoDB key that works for hash-only and composite-state tables.
+        CN: 构建同时适用于 hash-only 和复合主键的 DynamoDB key。
+        """
+        key: dict[str, dict[str, str]] = {"pk": {"S": pk}}
+        if self._table_sort_key_name:
+            key[self._table_sort_key_name] = {"S": record_type}
+        return key
 
 
 def _build_lookup_pk(*, bucket: str, key: str) -> str:
@@ -927,6 +974,7 @@ def _serialize_lookup_record(record: ObjectStateLookupRecord) -> dict[str, dict[
     item: dict[str, dict[str, str | bool]] = {
         "pk": {"S": record.pk},
         "record_type": {"S": _LOOKUP_RECORD_TYPE},
+        "sk": {"S": _LOOKUP_RECORD_TYPE},
         "object_pk": {"S": record.object_pk},
         "tenant_id": {"S": record.tenant_id},
         "bucket": {"S": record.bucket},
@@ -949,6 +997,8 @@ def _serialize_object_state(record: ObjectStateRecord) -> dict[str, dict[str, st
     """
     item: dict[str, dict[str, str | bool]] = {
         "pk": {"S": record.pk},
+        "record_type": {"S": _STATE_RECORD_TYPE},
+        "sk": {"S": _STATE_RECORD_TYPE},
         "latest_version_id": {"S": record.latest_version_id},
         "extract_status": {"S": record.extract_status},
         "embed_status": {"S": record.embed_status},

@@ -35,6 +35,20 @@ class _CapturingDynamoDbClient:
         return {}
 
 
+class _CompositeKeyCapturingDynamoDbClient(_CapturingDynamoDbClient):
+    # EN: Captures a table definition with a record_type sort key.
+    # CN: 鍚屼笂銆?
+    def describe_table(self, **_kwargs):
+        return {
+            "Table": {
+                "KeySchema": [
+                    {"AttributeName": "pk", "KeyType": "HASH"},
+                    {"AttributeName": "record_type", "KeyType": "RANGE"},
+                ]
+            }
+        }
+
+
 class _NoWriteDynamoDbClient:
     # EN: DynamoDB client that asserts no write operations are attempted.
     # CN: 同上。
@@ -154,6 +168,33 @@ def test_queue_for_ingest_persists_normalized_sequencer() -> None:
     assert dynamodb.transact_calls[0]["TransactItems"][0]["Update"]["ExpressionAttributeValues"][":sequencer"]["S"] == normalized
     assert dynamodb.transact_calls[0]["TransactItems"][1]["Put"]["Item"]["latest_sequencer"]["S"] == normalized
     assert dynamodb.transact_calls[0]["TransactItems"][1]["Put"]["Item"]["pk"]["S"] == "lookup-v2#bucket-a#docs%2Fguide.pdf"
+
+
+def test_queue_for_ingest_uses_table_sort_key_when_present() -> None:
+    """
+    EN: Queue for ingest should use the table sort key when the DynamoDB schema requires one.
+    CN: 当 DynamoDB 表需要 sort key 时，queue_for_ingest 应该自动带上它。
+    """
+    dynamodb = _CompositeKeyCapturingDynamoDbClient()
+    repo = ObjectStateRepository(table_name="object-state", dynamodb_client=dynamodb)
+    source = S3ObjectRef(
+        tenant_id="tenant-a",
+        bucket="bucket-a",
+        key="docs/guide.pdf",
+        version_id="v1",
+        sequencer="a",
+    )
+
+    record = repo.queue_for_ingest(source)
+
+    assert record.latest_sequencer == _normalize_sequencer("a")
+    assert dynamodb.transact_calls[0]["TransactItems"][0]["Update"]["Key"] == {
+        "pk": {"S": source.object_pk},
+        "record_type": {"S": "STATE"},
+    }
+    lookup_item = dynamodb.transact_calls[0]["TransactItems"][1]["Put"]["Item"]
+    assert lookup_item["record_type"]["S"] == "LOOKUP"
+    assert lookup_item["sk"]["S"] == "LOOKUP"
 
 
 class _ExistingStateRepository(ObjectStateRepository):
