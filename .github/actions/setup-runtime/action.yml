@@ -67,7 +67,7 @@ runs:
         python_version = os.environ.get("PYTHON_VERSION_OVERRIDE") or str(python.get("version", "")).strip()
         node_cache = str(node.get("cache", "npm")).strip() or "npm"
         node_cache_dependency_path = os.environ.get("NODE_CACHE_DEPENDENCY_PATH_OVERRIDE") or str(
-            config_path.parents[2] / "package-lock.json"
+            config_path.parents[2] / "infra" / "cdk" / "package-lock.json"
         )
 
         if not node_version:
