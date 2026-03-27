@@ -18,8 +18,8 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SERVICE_ROOT = REPO_ROOT / "mcp"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+SERVICE_ROOT = REPO_ROOT / "services" / "ocr-pipeline"
 SCRIPT_ROOT = Path(__file__).resolve().parent
 
 # EN: Insert script directory into sys.path for sibling module imports.
