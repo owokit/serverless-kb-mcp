@@ -4,6 +4,11 @@ CN: 兼容 OpenAI 的纯文本 embedding 客户端。
 """
 from __future__ import annotations
 
+import base64
+import json
+import struct
+
+import httpx
 from openai import OpenAI
 
 from serverless_mcp.domain.models import EmbeddingRequest
@@ -12,8 +17,8 @@ from serverless_mcp.embed.provider_urls import normalize_openai_base_url
 
 class OpenAIEmbeddingClient:
     """
-    EN: OpenAI-compatible embedding client that delegates to the official OpenAI SDK for text-only embeddings.
-    CN: 兼容 OpenAI 的 embedding 客户端，使用官方 OpenAI SDK 处理纯文本 embedding。
+    EN: OpenAI-compatible embedding client that delegates request execution to the official OpenAI SDK.
+    CN: 通过官方 OpenAI SDK 执行请求的 OpenAI 兼容 embedding 客户端。
     """
 
     def __init__(
@@ -49,7 +54,7 @@ class OpenAIEmbeddingClient:
 
     def embed_text(self, request: EmbeddingRequest) -> list[float]:
         """
-        EN: Generate an embedding vector for the given text-only request via the OpenAI API.
+        EN: Generate an embedding vector for the given text-only request.
         CN: 通过 OpenAI API 为给定的纯文本请求生成 embedding 向量。
 
         Args:
@@ -68,24 +73,28 @@ class OpenAIEmbeddingClient:
         if not request.text:
             raise ValueError("Text embedding request requires text")
 
-        response = self._client.embeddings.create(
+        response = self._client.embeddings.with_raw_response.create(
             model=self._model,
             input=request.text,
             dimensions=request.output_dimensionality,
+            encoding_format="float",
             timeout=self._timeout_seconds,
         )
-        data = response.data or []
+        payload = self._parse_response_payload(response.http_response)
+        data = payload.get("data") or []
         if not data:
             raise ValueError("OpenAI embedding response does not contain data")
-        embedding = data[0].embedding or []
+
+        first = data[0]
+        embedding = first.get("embedding") if isinstance(first, dict) else getattr(first, "embedding", None)
         if not embedding:
             raise ValueError("OpenAI embedding response does not contain embedding")
-        return [float(value) for value in embedding]
+        return self._coerce_embedding_values(embedding)
 
     def embed_bytes(self, *, payload: bytes, mime_type: str, request: EmbeddingRequest) -> list[float]:
         """
-        EN: Not supported – OpenAI client in this repository only handles text embeddings.
-        CN: 不支持，这个仓库里的 OpenAI 客户端只处理文本 embedding。
+        EN: Not supported - OpenAI client in this repository only handles text embeddings.
+        CN: 不支持，本仓库里的 OpenAI 客户端只处理文本 embedding。
 
         Raises:
             EN: ValueError always, because binary embedding is unsupported.
@@ -93,3 +102,37 @@ class OpenAIEmbeddingClient:
         """
         raise ValueError("OpenAI embedding client does not support binary content in this repository")
 
+    @staticmethod
+    def _parse_response_payload(response: httpx.Response) -> dict[str, object]:
+        """
+        EN: Parse an embedding response payload regardless of the response content type.
+        CN: 不管响应内容类型如何，都解析 embedding 响应载荷。
+        """
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            content_type = response.headers.get("content-type", "<missing>")
+            raise ValueError(
+                f"OpenAI embedding response is not valid JSON (content-type={content_type})"
+            ) from exc
+
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if not isinstance(payload, dict):
+            raise ValueError("OpenAI embedding response must be a JSON object")
+        return payload
+
+    @staticmethod
+    def _coerce_embedding_values(embedding: object) -> list[float]:
+        """
+        EN: Convert embedding values to a list of floats, accepting either numeric lists or base64 payloads.
+        CN: 将 embedding 值统一转成 float 列表，同时支持数值列表或 base64 载荷。
+        """
+        if isinstance(embedding, (list, tuple)):
+            return [float(value) for value in embedding]
+        if isinstance(embedding, str):
+            raw = base64.b64decode(embedding)
+            if len(raw) % 4 != 0:
+                raise ValueError("OpenAI embedding base64 payload length is invalid")
+            return [float(value) for value in struct.unpack(f"<{len(raw) // 4}f", raw)]
+        raise ValueError(f"OpenAI embedding response contains unsupported embedding type: {type(embedding).__name__}")
