@@ -55,6 +55,7 @@ export function renderStateMachineDefinition(lambdaFunctions: Map<LambdaFunction
     ['${SUBMIT_LAMBDA_ARN}', 'extract_submit'],
     ['${POLL_LAMBDA_ARN}', 'extract_poll'],
     ['${PERSIST_LAMBDA_ARN}', 'extract_persist'],
+    ['${MARK_FAILED_LAMBDA_ARN}', 'extract_mark_failed'],
   ];
   for (const [placeholder, key] of placeholders) {
     const fn = lambdaFunctions.get(key);
