@@ -12,7 +12,6 @@ from aws_lambda_powertools import Logger
 
 from serverless_mcp.runtime.embed_runtime import build_backfill_service
 from serverless_mcp.core.serialization import error_response
-from serverless_mcp.embed.backfill_request import build_backfill_request
 from serverless_mcp.runtime.observability import emit_trace
 
 _logger = Logger(service=os.environ.get("POWERTOOLS_SERVICE_NAME", "serverless-mcp-service"))
@@ -39,6 +38,8 @@ def lambda_handler(event: dict, _context) -> dict:
             error_message="profile_id is required for backfill worker",
         )
         return error_response(400, "profile_id is required for backfill worker")
+
+    from serverless_mcp.embed.backfill_request import build_backfill_request
 
     request = build_backfill_request(event)
     backfill_kwargs = {

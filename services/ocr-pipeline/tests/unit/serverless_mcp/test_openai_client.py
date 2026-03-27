@@ -1,28 +1,47 @@
 """
 EN: Tests for OpenAIEmbeddingClient SDK integration.
-CN: 娴嬭瘯 OpenAIEmbeddingClient SDK 闆嗘垚銆?
+CN: OpenAIEmbeddingClient SDK 集成测试。
 """
 
 from __future__ import annotations
 
-from serverless_mcp.embed import openai_client
+import json
+import types
+
+import httpx
+
 from serverless_mcp.domain.models import EmbeddingRequest
+from serverless_mcp.embed import openai_client
+
+
+class _FakeRawResponse:
+    def __init__(self, payload: dict[str, object], *, content_type: str = "text/plain") -> None:
+        self.http_response = httpx.Response(
+            200,
+            headers={"content-type": content_type},
+            content=json.dumps(payload).encode("utf-8"),
+        )
+
+
+class _FakeEmbeddings:
+    def __init__(self) -> None:
+        self.calls = []
+        self.with_raw_response = types.SimpleNamespace(create=self.create)
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return _FakeRawResponse({"data": [{"embedding": [0.1, 0.2]}]}, content_type="text/plain")
 
 
 class _FakeOpenAI:
     def __init__(self) -> None:
-        self.embeddings = self
-        self.calls = []
-
-    def create(self, **kwargs):
-        self.calls.append(kwargs)
-        return type("Response", (), {"data": [type("Embedding", (), {"embedding": [0.1, 0.2]})()]})()
+        self.embeddings = _FakeEmbeddings()
 
 
-def test_openai_embedding_client_uses_sdk_embeddings(monkeypatch) -> None:
+def test_openai_embedding_client_uses_raw_response_and_float_encoding(monkeypatch) -> None:
     """
-    EN: Openai embedding client uses sdk embeddings.
-    CN: 同上。
+    EN: OpenAI embedding client uses raw response parsing and float encoding.
+    CN: 验证 OpenAI embedding 客户端使用 raw response 解析和 float 编码。
     """
     captured = {}
     fake = _FakeOpenAI()
@@ -55,13 +74,13 @@ def test_openai_embedding_client_uses_sdk_embeddings(monkeypatch) -> None:
         "base_url": "https://api.openai.com/v1/",
         "timeout": 45,
     }
-    assert fake.calls == [
+    assert fake.embeddings.calls == [
         {
             "model": "text-embedding-3-small",
             "input": "hello world",
             "dimensions": 1536,
+            "encoding_format": "float",
             "timeout": 45,
         }
     ]
     assert vector == [0.1, 0.2]
-

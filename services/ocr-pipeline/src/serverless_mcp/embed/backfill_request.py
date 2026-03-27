@@ -31,9 +31,9 @@ def build_backfill_request(event: dict[str, Any], *, settings: Settings | None =
     EN: Parse the backfill invocation payload into a stable job request contract.
     CN: 将 backfill 调用负载解析为稳定的作业请求契约。
     """
-    active_settings = settings or load_settings()
     profile_id = str(event.get("profile_id") or "").strip()
     if not profile_id:
+        active_settings = settings or load_settings()
         profiles = list(get_write_profiles(active_settings))
         if len(profiles) != 1:
             raise ValueError("profile_id is required when more than one writable embedding profile is configured")
