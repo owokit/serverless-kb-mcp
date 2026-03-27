@@ -1,0 +1,23 @@
+name: serverless-ocr-s3vectors-mcp-codeql-javascript-typescript
+
+# EN: Restrict JavaScript/TypeScript CodeQL analysis to the repository areas that actually contain JS/TS code.
+# CN: 将 JavaScript/TypeScript CodeQL 分析限制在仓库里真正包含 JS/TS 代码的区域。
+paths:
+  - "*.js"
+  - "*.mjs"
+  - "*.ts"
+  - "*.tsx"
+
+# EN: Skip generated, test-only, and documentation paths to keep alerts actionable.
+# CN: 跳过生成物、纯测试和文档路径，让告警更聚焦可行动代码。
+paths-ignore:
+  - "**/node_modules"
+  - "**/coverage"
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.test.js"
+  - "**/*.test.mjs"
+  - "**/*.e2e.test.ts"
+  - "**/*.e2e.test.tsx"
+  - docs
+  - examples/workflows/workflow_reference_only

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Durable S3 Embed Pipeline"
+  short_description: "Design and explain the minimal durable pipeline built from S3 events, SQS, Ingest Lambda, Step Functions Standard, and Embed Lambda."
+  default_prompt: "Use $durable-s3-embed-pipeline to design or review the minimal durable S3 to OCR to embedding workflow for this project."

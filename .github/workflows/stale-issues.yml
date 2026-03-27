@@ -1,0 +1,72 @@
+# EN: Automatically close stale issues and PRs after 90 days of inactivity.
+# CN: 自动关闭超过 90 天无活动的 issue 和 PR。
+name: Stale Issues
+
+on:
+  schedule:
+    # EN: Run daily at 01:00 UTC.
+    # CN: 每天 UTC 01:00 运行。
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    # EN: Use the official stale action to mark and close inactive issues and PRs.
+    # CN: 使用官方 stale action 标记并关闭不活跃的 issue 和 PR。
+    name: Close stale issues and PRs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v10
+        with:
+          # EN: Days of inactivity before an issue is marked stale.
+          # CN: issue 无活动多少天后标记为 stale。
+          days-before-stale: 60
+
+          # EN: Days of inactivity after stale label before closing (60+30=90 days total).
+          # CN: 标记 stale 后再过多少天自动关闭（60+30=90 天总计）。
+          days-before-close: 30
+
+          # EN: Never auto-close PRs by default; set to 60 if needed.
+          # CN: 默认不自动关闭 PR；如需可改为 60。
+          days-before-pr-close: -1
+
+          # EN: Label applied when issue becomes stale.
+          # CN: 标记 stale 时打上的 label。
+          stale-issue-label: stale
+
+          # EN: Message posted when an issue is marked stale.
+          # CN: 标记 stale 时发布的评论。
+          stale-issue-message: >
+            This issue has been automatically marked as stale because it has not
+            had activity in the last 60 days. It will be closed in 30 days if no
+            further activity occurs. If this issue is still relevant, please
+            comment or remove the `stale` label. Thank you for your contributions!
+
+            本 issue 因超过 60 天无活动被自动标记为 stale。
+            若 30 天内仍无后续活动将自动关闭。
+            如本 issue 仍然有效，请评论或移除 `stale` 标签。感谢您的贡献！
+
+          # EN: Message posted when a stale issue is about to be closed.
+          # CN: 即将关闭 stale issue 时发布的评论。
+          close-issue-message: >
+            This issue has been automatically closed due to inactivity.
+            If you believe this is still relevant, please reopen or create a new issue.
+
+            本 issue 因持续无活动被自动关闭。
+            如仍认为有效，请重新打开或创建新 issue。
+
+          # EN: Only target issues with these labels (empty = all issues).
+          # CN: 仅针对含以下标签的 issue（留空 = 全部 issue）。
+          only-labels: ''
+
+          # EN: Issues with these labels are exempt from stale.
+          # CN: 含以下标签的 issue 免于 stale。
+          exempt-issue-labels: 'pinned,security,blocked'
+
+          # EN: Ignore issues with assignees to respect work-in-progress.
+          # CN: 跳过已分配人员的 issue，尊重进行中的工作。
+          exempt-all-assignees: true

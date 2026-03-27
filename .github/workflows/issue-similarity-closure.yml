@@ -1,0 +1,134 @@
+# EN: Close issues that have been marked as similar and left untouched for more than three days.
+# CN: 自动关闭那些已被标记为相似且超过三天未处理的 issue。
+name: Issue Similarity Closure
+
+on:
+  schedule:
+    # EN: Run every 3 hours so the cleanup window stays tight without excessive churn.
+    # CN: 每 3 小时运行一次，既保持清理及时，又避免过于频繁。
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+concurrency:
+  group: issue-similarity-closure-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  close:
+    # EN: Evaluate the label age in one API-driven pass and close only when the marker is old enough.
+    # CN: 通过一次 API 扫描评估标签年龄，仅在标记足够久时才关闭。
+    name: Close aged similar issues
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close aged similar issues
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const labelName = 'status: similar-issue';
+            const maxAgeMs = 3 * 24 * 60 * 60 * 1000;
+            const now = Date.now();
+            const closedIssues = [];
+            const skippedIssues = [];
+
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              labels: labelName,
+              sort: 'created',
+              direction: 'asc',
+              per_page: 100,
+            });
+
+            for (const item of issues) {
+              if (item.pull_request) {
+                continue;
+              }
+
+              const events = await github.paginate(github.rest.issues.listEvents, {
+                owner,
+                repo,
+                issue_number: item.number,
+                per_page: 100,
+              });
+
+              const labelEvents = events
+                .filter((event) => event.event === 'labeled' && event.label?.name === labelName)
+                .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
+
+              const latestLabelEvent = labelEvents[0] || null;
+              if (!latestLabelEvent) {
+                skippedIssues.push({ number: item.number, reason: 'missing_label_event' });
+                continue;
+              }
+
+              const ageMs = now - new Date(latestLabelEvent.created_at).getTime();
+              if (ageMs < maxAgeMs) {
+                skippedIssues.push({
+                  number: item.number,
+                  reason: 'too_recent',
+                  label_at: latestLabelEvent.created_at,
+                });
+                continue;
+              }
+
+              const ageDays = (ageMs / (24 * 60 * 60 * 1000)).toFixed(1);
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: item.number,
+                body: [
+                  `This issue has carried \`${labelName}\` for more than 3 days and is being closed automatically.`,
+                  '',
+                  `中文说明：该 issue 已被标记为 \`${labelName}\` 超过 3 天，现自动关闭。`,
+                  '',
+                  'If this was a false positive, reopen the issue or remove the label before the next cleanup run.',
+                  '',
+                  `如果这是误判，请重新打开 issue，或者在下一次清理前移除该标签。`,
+                  '',
+                  `Label age: ${ageDays} days`,
+                ].join('\n'),
+              });
+
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: item.number,
+                state: 'closed',
+              });
+
+              closedIssues.push({
+                number: item.number,
+                title: item.title,
+                label_at: latestLabelEvent.created_at,
+                age_days: ageDays,
+              });
+            }
+
+            const summaryLines = [
+              '# Issue Similarity Closure',
+              '',
+              `- Repository: \`${owner}/${repo}\``,
+              `- Label: \`${labelName}\``,
+              `- Closed issues: \`${closedIssues.length}\``,
+              `- Skipped issues: \`${skippedIssues.length}\``,
+              '',
+              '## Closed',
+              closedIssues.length
+                ? closedIssues.map((item) => `- #${item.number} (${item.age_days} days): ${item.title}`).join('\n')
+                : '- None',
+              '',
+              '## Skipped',
+              skippedIssues.length
+                ? skippedIssues.map((item) => `- #${item.number} (${item.reason})`).join('\n')
+                : '- None',
+            ].join('\n');
+
+            await core.summary.addRaw(summaryLines).write();
+

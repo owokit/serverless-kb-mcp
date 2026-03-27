@@ -1,0 +1,370 @@
+# EN: Detect deleted or renamed paths that are still being edited in parallel PRs.
+# CN: 检测已删除或已重命名路径是否仍被并行 PR 继续修改。
+name: PR Path Conflict Guard
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+  workflow_dispatch:
+    inputs:
+      pull_number:
+        description: PR number to inspect
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: pr-path-conflict-guard-${{ github.event.pull_request.number || github.event.inputs.pull_number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  path-conflict-guard:
+    # EN: Use only GitHub metadata so the scan stays safe on pull_request_target.
+    # CN: 只使用 GitHub 元数据，确保 pull_request_target 场景下的扫描安全。
+    name: Inspect PR path drift
+    runs-on: ubuntu-latest
+
+    steps:
+      # EN: Resolve the target PR without checking out any untrusted branch contents.
+      # CN: 直接解析目标 PR，不检出任何不可信分支内容。
+      - name: Inspect open PR paths
+        id: scan
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const marker = '<!-- codex-pr-path-conflict-guard -->';
+            const eventName = context.eventName;
+            const inputPullNumber = core.getInput('pull_number');
+            const resolvedPullNumber = eventName === 'workflow_dispatch'
+              ? Number.parseInt(inputPullNumber, 10)
+              : Number(context.payload.pull_request && context.payload.pull_request.number);
+
+            if (!Number.isInteger(resolvedPullNumber) || resolvedPullNumber <= 0) {
+              core.setFailed('Unable to resolve the target PR number.');
+              return;
+            }
+
+            function normalizePath(value) {
+              return String(value).replace(/\\/g, '/');
+            }
+
+            function makeProfile(files) {
+              const profile = {
+                destructivePaths: new Set(),
+                nonDestructivePaths: new Set(),
+              };
+
+              for (const file of files) {
+                const status = String(file.status || '').toLowerCase();
+                const filename = normalizePath(file.filename || '');
+                const previous = file.previous_filename ? normalizePath(file.previous_filename) : null;
+
+                if (!filename) {
+                  continue;
+                }
+
+                if (status === 'removed') {
+                  profile.destructivePaths.add(filename);
+                  continue;
+                }
+
+                if (status === 'renamed') {
+                  if (previous) {
+                    profile.destructivePaths.add(previous);
+                  }
+                  profile.nonDestructivePaths.add(filename);
+                  continue;
+                }
+
+                profile.nonDestructivePaths.add(filename);
+              }
+
+              return profile;
+            }
+
+            function intersect(left, right) {
+              const hits = [];
+              for (const item of left) {
+                if (right.has(item)) {
+                  hits.push(item);
+                }
+              }
+              return hits.sort((a, b) => a.localeCompare(b));
+            }
+
+            function compactPaths(paths, limit = 8) {
+              const shown = paths.slice(0, limit).map((path) => `\`${path}\``);
+              if (paths.length <= limit) {
+                return shown;
+              }
+              return [...shown, `...and ${paths.length - limit} more`];
+            }
+
+            function compactPR(pr) {
+              const title = pr.title ? ` ${pr.title}` : '';
+              return `#${pr.number}${title}`;
+            }
+
+            async function listFiles(prNumber) {
+              return await github.paginate(github.rest.pulls.listFiles, {
+                owner,
+                repo,
+                pull_number: prNumber,
+                per_page: 100,
+              });
+            }
+
+            async function getPull(prNumber) {
+              const response = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: prNumber,
+              });
+              return response.data;
+            }
+
+            async function findMarkerComment(issueNumber) {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: issueNumber,
+                per_page: 100,
+              });
+
+              for (const comment of comments.reverse()) {
+                const body = String(comment.body || '');
+                if (body.includes(marker)) {
+                  return comment;
+                }
+              }
+
+              return null;
+            }
+
+            async function syncComment(issueNumber, body) {
+              const existing = await findMarkerComment(issueNumber);
+
+              if (!body) {
+                if (existing && typeof existing.id === 'number') {
+                  await github.rest.issues.deleteComment({
+                    owner,
+                    repo,
+                    comment_id: existing.id,
+                  });
+                }
+                return;
+              }
+
+              if (existing && typeof existing.id === 'number') {
+                await github.rest.issues.updateComment({
+                  owner,
+                  repo,
+                  comment_id: existing.id,
+                  body,
+                });
+                return;
+              }
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body,
+              });
+            }
+
+            function buildCommentBody({
+              currentPull,
+              incomingConflicts,
+              outgoingConflicts,
+              scannedPullCount,
+            }) {
+              const lines = [
+                marker,
+                'Checkpoint',
+                `- Scanned ${scannedPullCount} open PR(s) on \`${currentPull.base.ref}\`.`,
+              ];
+
+              if (incomingConflicts.length > 0) {
+                lines.push('Change');
+                lines.push('- This PR still edits paths that other open PR(s) removed or renamed:');
+                for (const conflict of incomingConflicts) {
+                  lines.push(`  - ${compactPR(conflict.pull)}: ${compactPaths(conflict.paths).join(', ')}`);
+                }
+                lines.push('Remaining');
+                lines.push('- Rebase onto the latest target branch and migrate the edits if they are still needed.');
+                lines.push('Blocker');
+                lines.push('- Merge is blocked until the path drift is resolved.');
+              } else if (outgoingConflicts.length > 0) {
+                lines.push('Change');
+                lines.push('- This PR removes or renames paths that other open PR(s) still edit:');
+                for (const conflict of outgoingConflicts) {
+                  lines.push(`  - ${compactPR(conflict.pull)}: ${compactPaths(conflict.paths).join(', ')}`);
+                }
+                lines.push('Remaining');
+                lines.push('- Notify the owners of the affected PRs and coordinate the migration.');
+                lines.push('Blocker');
+                lines.push('- This PR is not blocked by the scan result, but it is creating path drift for parallel work.');
+              } else {
+                lines.push('Change');
+                lines.push('- No open PR path drift was detected.');
+                lines.push('Remaining');
+                lines.push('- Nothing to rebase for deleted or renamed paths.');
+                lines.push('Blocker');
+                lines.push('- None.');
+              }
+
+              lines.push('Evidence');
+              lines.push(`- Target PR: ${compactPR(currentPull)}`);
+              lines.push(`- Base branch: \`${currentPull.base.ref}\``);
+
+              return lines.join('\n');
+            }
+
+            const currentPull = await getPull(resolvedPullNumber);
+            const currentFiles = await listFiles(resolvedPullNumber);
+            const currentProfile = makeProfile(currentFiles);
+            const openPulls = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: 'open',
+              base: currentPull.base.ref,
+              per_page: 100,
+            });
+
+            const currentIncomingConflicts = [];
+            const currentOutgoingConflicts = [];
+            const siblingConflictMap = new Map();
+
+            for (const otherPull of openPulls) {
+              if (otherPull.number === resolvedPullNumber) {
+                continue;
+              }
+
+              const otherFiles = await listFiles(otherPull.number);
+              const otherProfile = makeProfile(otherFiles);
+
+              const incomingPaths = intersect(otherProfile.destructivePaths, currentProfile.nonDestructivePaths);
+              if (incomingPaths.length > 0) {
+                currentIncomingConflicts.push({
+                  pull: otherPull,
+                  paths: incomingPaths,
+                });
+              }
+
+              const outgoingPaths = intersect(currentProfile.destructivePaths, otherProfile.nonDestructivePaths);
+              if (outgoingPaths.length > 0) {
+                currentOutgoingConflicts.push({
+                  pull: otherPull,
+                  paths: outgoingPaths,
+                });
+
+                const existing = siblingConflictMap.get(otherPull.number) || {
+                  pull: otherPull,
+                  paths: new Set(),
+                };
+
+                for (const path of outgoingPaths) {
+                  existing.paths.add(path);
+                }
+
+                siblingConflictMap.set(otherPull.number, existing);
+              }
+            }
+
+            const siblingConflicts = Array.from(siblingConflictMap.values()).map((entry) => ({
+              pull: entry.pull,
+              paths: Array.from(entry.paths).sort((a, b) => a.localeCompare(b)),
+            }));
+
+            const currentCommentBody = buildCommentBody({
+              currentPull,
+              incomingConflicts: currentIncomingConflicts,
+              outgoingConflicts: currentOutgoingConflicts,
+              scannedPullCount: openPulls.length,
+            });
+
+            if (currentIncomingConflicts.length > 0 || currentOutgoingConflicts.length > 0) {
+              await syncComment(resolvedPullNumber, currentCommentBody);
+            } else {
+              await syncComment(resolvedPullNumber, null);
+            }
+
+            for (const sibling of siblingConflicts) {
+              const siblingBody = [
+                marker,
+                'Checkpoint',
+                '- Another open PR removes or renames paths that this PR still edits.',
+                'Change',
+                `- Conflicting PR: ${compactPR(currentPull)}`,
+                `- Paths: ${compactPaths(sibling.paths).join(', ')}`,
+                'Remaining',
+                '- Rebase onto the latest target branch and migrate the edits if they are still needed.',
+                'Blocker',
+                '- Merge is blocked until the path drift is resolved.',
+                'Evidence',
+                `- Affected PR: ${compactPR(sibling.pull)}`,
+                `- Base branch: \`${currentPull.base.ref}\``,
+              ].join('\n');
+
+              await syncComment(sibling.pull.number, siblingBody);
+            }
+
+            const report = {
+              workflow: 'PR Path Conflict Guard',
+              status: currentIncomingConflicts.length > 0 ? 'failed' : 'passed',
+              scanned_open_pr_count: openPulls.length,
+              target_pull: {
+                number: currentPull.number,
+                title: currentPull.title,
+                base: currentPull.base.ref,
+                html_url: currentPull.html_url,
+              },
+              current_incoming_conflicts: currentIncomingConflicts.map((conflict) => ({
+                number: conflict.pull.number,
+                title: conflict.pull.title,
+                html_url: conflict.pull.html_url,
+                paths: conflict.paths,
+              })),
+              current_outgoing_conflicts: currentOutgoingConflicts.map((conflict) => ({
+                number: conflict.pull.number,
+                title: conflict.pull.title,
+                html_url: conflict.pull.html_url,
+                paths: conflict.paths,
+              })),
+              sibling_notifications: siblingConflicts.map((conflict) => ({
+                number: conflict.pull.number,
+                title: conflict.pull.title,
+                html_url: conflict.pull.html_url,
+                paths: conflict.paths,
+              })),
+            };
+
+            fs.writeFileSync('pr-path-conflict-report.json', `${JSON.stringify(report, null, 2)}\n`);
+            console.log(JSON.stringify(report, null, 2));
+
+            if (currentIncomingConflicts.length > 0) {
+              core.setFailed('Open PR path drift was detected for this pull request.');
+            }
+
+      # EN: Keep a small JSON artifact so reviewers can inspect the exact path matches later.
+      # CN: 保留一份小型 JSON 产物，方便后续复查具体的路径命中情况。
+      - name: Upload path conflict report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr-path-conflict-report
+          path: pr-path-conflict-report.json
+          if-no-files-found: ignore

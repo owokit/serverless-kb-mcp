@@ -1,0 +1,237 @@
+# EN: Mark newly opened issues that closely resemble existing ones so triage can review them quickly.
+# CN: 当新 issue 与现有 issue 高度相似时自动打标，方便尽快进入人工分流。
+name: Issue Similarity Triage
+
+on:
+  issues:
+    # EN: Run the similarity check as soon as a new issue is opened.
+    # CN: 新 issue 一打开就执行相似度检查。
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number to evaluate
+        required: true
+        type: string
+
+permissions:
+  issues: write
+
+concurrency:
+  group: issue-similarity-triage-${{ github.event.issue.number || github.event.inputs.issue_number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    # EN: Keep the matching logic in one audited API-driven job.
+    # CN: 将相似度匹配逻辑收敛到一个可审计的 API 驱动 job 里。
+    name: Evaluate similar issues
+    runs-on: ubuntu-latest
+    steps:
+      - name: Detect similar issues
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const labelName = 'status: similar-issue';
+            const issueNumberInput = context.eventName === 'workflow_dispatch'
+              ? Number(core.getInput('issue_number'))
+              : Number(context.payload.issue?.number);
+            const similarityThreshold = 0.42;
+            const maxReportedMatches = 3;
+
+            if (!issueNumberInput || Number.isNaN(issueNumberInput)) {
+              core.setFailed('Unable to determine the issue number to evaluate.');
+              return;
+            }
+
+            const issue = await github.rest.issues.get({
+              owner,
+              repo,
+              issue_number: issueNumberInput,
+            });
+
+            const issueTitle = String(issue.data.title || '').trim();
+            if (!issueTitle) {
+              core.notice(`Issue #${issueNumberInput} has no title; skipping similarity check.`);
+              return;
+            }
+
+            // EN: Ensure the marker label exists before we try to apply it.
+            // CN: 在应用标记前先确保目标 label 已存在。
+            async function ensureLabel(name) {
+              try {
+                await github.request('GET /repos/{owner}/{repo}/labels/{name}', {
+                  owner,
+                  repo,
+                  name,
+                });
+                return;
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+              }
+
+              await github.request('POST /repos/{owner}/{repo}/labels', {
+                owner,
+                repo,
+                name,
+                color: 'fbca04',
+                description: 'Potentially similar issue; auto-closes after 3 days unless triaged. / 可能与现有 issue 相似；若 3 天内未处理则自动关闭。',
+              });
+            }
+
+            function normalize(text) {
+              return String(text || '')
+                .normalize('NFKC')
+                .toLowerCase()
+                .replace(/^\[[^\]]+\]\s*/g, '')
+                .replace(/https?:\/\/\S+/g, ' ')
+                .replace(/[^\p{Script=Han}\p{L}\p{N}]+/gu, ' ')
+                .trim();
+            }
+
+            function compact(text) {
+              return normalize(text).replace(/\s+/g, '');
+            }
+
+            function grams(text) {
+              const value = compact(text);
+              const out = new Set();
+              if (!value) {
+                return out;
+              }
+              if (value.length < 2) {
+                out.add(value);
+                return out;
+              }
+              for (let index = 0; index < value.length - 1; index += 1) {
+                out.add(value.slice(index, index + 2));
+              }
+              return out;
+            }
+
+            function tokens(text) {
+              const stopwords = new Set([
+                'issue',
+                'workflow',
+                'task',
+                'bug',
+                'feature',
+                'docs',
+                'document',
+                'triage',
+                'duplicate',
+                'similar',
+                'close',
+                'closed',
+                'open',
+              ]);
+              return new Set(
+                normalize(text)
+                  .split(/\s+/)
+                  .map((item) => item.trim())
+                  .filter((item) => item && !stopwords.has(item)),
+              );
+            }
+
+            function jaccard(left, right) {
+              if (left.size === 0 && right.size === 0) {
+                return 0;
+              }
+              let intersection = 0;
+              for (const value of left) {
+                if (right.has(value)) {
+                  intersection += 1;
+                }
+              }
+              const union = new Set([...left, ...right]).size;
+              return union === 0 ? 0 : intersection / union;
+            }
+
+            function scoreSimilarity(leftTitle, rightTitle) {
+              const leftNormalized = normalize(leftTitle);
+              const rightNormalized = normalize(rightTitle);
+              if (!leftNormalized || !rightNormalized) {
+                return 0;
+              }
+
+              const charScore = jaccard(grams(leftNormalized), grams(rightNormalized));
+              const tokenScore = jaccard(tokens(leftNormalized), tokens(rightNormalized));
+              const substringBoost = leftNormalized.includes(rightNormalized) || rightNormalized.includes(leftNormalized) ? 0.2 : 0;
+              return Math.max(charScore, tokenScore) + substringBoost;
+            }
+
+            const allIssues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'all',
+              sort: 'updated',
+              direction: 'desc',
+              per_page: 100,
+            });
+
+            const candidates = allIssues
+              .filter((item) => !item.pull_request && item.number !== issueNumberInput)
+              .map((item) => {
+                const score = scoreSimilarity(issueTitle, item.title || '');
+                return {
+                  number: item.number,
+                  title: item.title,
+                  score,
+                  state: item.state,
+                  html_url: item.html_url,
+                };
+              })
+              .filter((item) => item.score >= similarityThreshold)
+              .sort((left, right) => right.score - left.score)
+              .slice(0, maxReportedMatches);
+
+            const bestMatch = candidates[0] || null;
+            const markerLabelAlreadyPresent = (issue.data.labels || []).some((item) => item?.name === labelName);
+
+            if (!bestMatch) {
+              core.notice(`No similar issue found for #${issueNumberInput}.`);
+              if (markerLabelAlreadyPresent) {
+                core.notice(`Issue #${issueNumberInput} already has ${labelName}; leaving the existing label untouched.`);
+              }
+              return;
+            }
+
+            await ensureLabel(labelName);
+
+            if (!markerLabelAlreadyPresent) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: issueNumberInput,
+                labels: [labelName],
+              });
+            }
+
+            const lines = [
+              `This issue appears similar to existing issues and has been marked with \`${labelName}\`.`,
+              '',
+              '中文说明：',
+              `- 当前 issue 与已有 issue 高度相似，已自动打上 \`${labelName}\`。`,
+              '',
+              'Top matches:',
+              ...candidates.map((item) => `- #${item.number} (${item.state}, score ${item.score.toFixed(2)}): ${item.title} ${item.html_url}`),
+              '',
+              `If this is not a duplicate, remove the \`${labelName}\` label to stop the scheduled cleanup workflow.`,
+              '',
+              `如果不是重复 issue，请移除 \`${labelName}\` 标签，以阻止后续定时关闭 workflow。`,
+            ];
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: issueNumberInput,
+              body: lines.join('\n'),
+            });
+
+            core.notice(`Applied ${labelName} to issue #${issueNumberInput}; best match is #${bestMatch.number} (score ${bestMatch.score.toFixed(2)}).`);
+

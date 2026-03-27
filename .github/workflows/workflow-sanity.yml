@@ -1,0 +1,231 @@
+# EN: Catch workflow syntax and hygiene drift before heavier gates run.
+# CN: 在更重的门禁之前，先拦住 workflow 语法和卫生问题。
+name: Workflow Sanity
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: workflow-sanity-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sanity:
+    # EN: Run three independent hygiene checks in parallel via matrix strategy.
+    # CN: 使用矩阵并行运行三项独立的卫生检查。
+    name: Sanity (${{ matrix.check }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - check: tabs
+            report: workflow-tabs-report.json
+          - check: actionlint
+            report: workflow-actionlint-report.json
+          - check: inventory
+            report: workflow-inventory-report.json
+
+    steps:
+      # EN: Check out the exact repository snapshot under review.
+      # CN: 拉取当前审查中的仓库快照。
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        if: matrix.check != 'inventory'
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up runtime
+        if: matrix.check == 'inventory'
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-python: true
+
+      # EN: Sync the project environment before running the inventory script.
+      # CN: 在运行 inventory 脚本前同步项目环境。
+      - name: Sync Python environment
+        if: matrix.check == 'inventory'
+        run: |
+          set -euo pipefail
+          uv sync --locked --project services
+
+      # EN: Install actionlint from the official release archive.
+      # CN: 从官方发布包安装 actionlint。
+      - name: Install actionlint
+        if: matrix.check == 'actionlint'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTIONLINT_VERSION="1.7.11"
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          base_url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          curl -fsSL -o "${archive}" "${base_url}/${archive}"
+          curl -fsSL -o checksums.txt "${base_url}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          grep " ${archive}$" checksums.txt | sha256sum -c -
+          tar -xzf "${archive}" actionlint
+          sudo install -m 0755 actionlint /usr/local/bin/actionlint
+
+      - name: Run tabs sanity check
+        if: matrix.check == 'tabs'
+        env:
+          REPORT_PATH: ${{ matrix.report }}
+          PYTHON_SCRIPT: |
+            from __future__ import annotations
+
+            import json
+            import os
+            from pathlib import Path
+
+            repo_root = Path.cwd()
+            workflow_files = sorted((repo_root / ".github" / "workflows").glob("*.y*ml"))
+            findings: list[dict[str, object]] = []
+
+            for path in workflow_files:
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                for lineno, line in enumerate(text.splitlines(), start=1):
+                    if "\t" in line:
+                        findings.append(
+                            {
+                                "file": path.relative_to(repo_root).as_posix(),
+                                "line": lineno,
+                                "signal": "tab_character",
+                                "severity": "high",
+                                "snippet": line.rstrip(),
+                                "suggested_fix": "Replace tab characters with spaces in workflow YAML.",
+                            }
+                        )
+
+            report = {
+                "workflow": "Workflow Sanity",
+                "check": "tabs",
+                "status": "passed" if not findings else "failed",
+                "summary": {
+                    "files": len({finding["file"] for finding in findings}),
+                    "findings": len(findings),
+                },
+                "findings": findings,
+            }
+            Path(os.environ["REPORT_PATH"]).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            raise SystemExit(1 if findings else 0)
+        run: uv run --no-sync python -c "$PYTHON_SCRIPT"
+
+      - name: Run actionlint sanity check
+        if: matrix.check == 'actionlint'
+        env:
+          REPORT_PATH: ${{ matrix.report }}
+          PYTHON_SCRIPT: |
+            from __future__ import annotations
+
+            import json
+            import os
+            import subprocess
+            from pathlib import Path
+
+            completed = subprocess.run(
+                ["actionlint", "-config-file", ".github/actionlint.yaml"],
+                capture_output=True,
+                text=True,
+            )
+            output = "\n".join(part for part in (completed.stdout, completed.stderr) if part).strip()
+            findings = [
+                {
+                    "line": index,
+                    "message": line,
+                    "severity": "high",
+                }
+                for index, line in enumerate(output.splitlines(), start=1)
+                if line.strip()
+            ]
+            report = {
+                "workflow": "Workflow Sanity",
+                "check": "actionlint",
+                "status": "passed" if completed.returncode == 0 else "failed",
+                "summary": {
+                    "exit_code": completed.returncode,
+                    "findings": len(findings),
+                },
+                "findings": findings,
+                "raw_output": output,
+            }
+            Path(os.environ["REPORT_PATH"]).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            raise SystemExit(completed.returncode)
+        run: uv run --no-sync python -c "$PYTHON_SCRIPT"
+
+      - name: Run workflow inventory check
+        if: matrix.check == 'inventory'
+        env:
+          REPORT_PATH: ${{ matrix.report }}
+          PYTHON_SCRIPT: |
+            from __future__ import annotations
+
+            import json
+            import os
+            import subprocess
+            from pathlib import Path
+
+            completed = subprocess.run(
+                ["uv", "run", "--project", "services", "python", "tools/ci/validate_workflows.py"],
+                capture_output=True,
+                text=True,
+            )
+            try:
+                inventory = json.loads(completed.stdout)
+            except json.JSONDecodeError:
+                inventory = {
+                    "workflows": [],
+                    "errors": [completed.stdout.strip() or completed.stderr.strip() or "validate_workflows.py did not emit JSON"],
+                }
+
+            errors = inventory.get("errors") if isinstance(inventory, dict) else []
+            if not isinstance(errors, list):
+                errors = [str(errors)]
+            findings = [{"message": str(error), "severity": "high"} for error in errors if str(error).strip()]
+            report = {
+                "workflow": "Workflow Sanity",
+                "check": "inventory",
+                "status": "passed" if completed.returncode == 0 and not findings else "failed",
+                "summary": {
+                    "workflow_count": len(inventory.get("workflows", [])) if isinstance(inventory, dict) else 0,
+                    "findings": len(findings),
+                },
+                "findings": findings,
+                "inventory": inventory,
+            }
+            Path(os.environ["REPORT_PATH"]).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            raise SystemExit(0 if not findings and completed.returncode == 0 else 1)
+        run: uv run --project services python -c "$PYTHON_SCRIPT"
+
+      - name: Show report
+        if: failure()
+        run: cat "${{ matrix.report }}"
+
+      # EN: Persist a tiny report for each lane so the matrix makes failures explicit.
+      # CN: 为每个 lane 保存小型报告，便于矩阵任务明确暴露失败来源。
+      - name: Save report artifact
+        if: always()
+        run: cp "${{ matrix.report }}" "workflow-sanity-${{ matrix.check }}.json"
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: workflow-sanity-${{ matrix.check }}
+          path: workflow-sanity-${{ matrix.check }}.json
+          if-no-files-found: error

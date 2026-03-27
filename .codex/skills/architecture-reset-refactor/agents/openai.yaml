@@ -1,0 +1,4 @@
+interface:
+  display_name: "Architecture Reset Refactor"
+  short_description: "Inspect architecture first, then refactor boldly."
+  default_prompt: "Use $architecture-reset-refactor to inspect the current architecture before coding and refactor aggressively when the existing structure is no longer suitable."

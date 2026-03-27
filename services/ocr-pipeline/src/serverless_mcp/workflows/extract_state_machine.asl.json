@@ -1,0 +1,247 @@
+{
+  "Comment": "Version-aware extract workflow orchestrated by Step Functions Standard.",
+  "StartAt": "PrepareJob",
+  "States": {
+    "PrepareJob": {
+      "Type": "Task",
+      "Resource": "${PREPARE_LAMBDA_ARN}",
+      "Parameters": {
+        "job.$": "$.job",
+        "processing_state.$": "$.processing_state"
+      },
+      "Next": "RouteByExtension",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.failure",
+          "Next": "MarkFailed"
+        }
+      ]
+    },
+    "RouteByExtension": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.document_extension",
+          "StringEquals": "pdf",
+          "Next": "SubmitOcrJob"
+        }
+      ],
+      "Default": "SyncExtract"
+    },
+    "SyncExtract": {
+      "Type": "Task",
+      "Resource": "${SYNC_LAMBDA_ARN}",
+      "Parameters": {
+        "job.$": "$.job",
+        "processing_state.$": "$.processing_state"
+      },
+      "End": true,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.failure",
+          "Next": "MarkFailed"
+        }
+      ]
+    },
+    "SubmitOcrJob": {
+      "Type": "Task",
+      "Resource": "${SUBMIT_LAMBDA_ARN}",
+      "Parameters": {
+        "job.$": "$.job"
+      },
+      "ResultPath": "$.ocr_submission",
+      "Next": "WaitForOcr",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.failure",
+          "Next": "MarkFailed"
+        }
+      ]
+    },
+    "WaitForOcr": {
+      "Type": "Wait",
+      "SecondsPath": "$.poll_interval_seconds",
+      "Next": "PollOcrJob"
+    },
+    "PollOcrJob": {
+      "Type": "Task",
+      "Resource": "${POLL_LAMBDA_ARN}",
+      "Parameters": {
+        "job_id.$": "$.ocr_submission.job_id",
+        "poll_attempt.$": "$.poll_attempt"
+      },
+      "ResultPath": "$.ocr_status",
+      "Next": "RouteOcrStatus",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.failure",
+          "Next": "MarkFailed"
+        }
+      ]
+    },
+    "RouteOcrStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.ocr_status.state",
+          "StringEquals": "done",
+          "Next": "PersistOcrResult"
+        },
+        {
+          "Variable": "$.ocr_status.state",
+          "StringEquals": "failed",
+          "Next": "BuildOcrJobFailure"
+        }
+      ],
+      "Default": "CheckPollBudget"
+    },
+    "BuildOcrJobFailure": {
+      "Type": "Pass",
+      "Parameters": {
+        "job.$": "$.job",
+        "failure": {
+          "Error": "PaddleOCRJobFailed",
+          "Cause.$": "$.ocr_status.error_message"
+        }
+      },
+      "Next": "MarkFailed"
+    },
+    "CheckPollBudget": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.ocr_status.poll_attempt",
+          "NumericGreaterThanEqualsPath": "$.max_poll_attempts",
+          "Next": "BuildPollBudgetFailure"
+        }
+      ],
+      "Default": "PromotePollAttempt"
+    },
+    "PromotePollAttempt": {
+      "Type": "Pass",
+      "Parameters": {
+        "job.$": "$.job",
+        "processing_state.$": "$.processing_state",
+        "document_extension.$": "$.document_extension",
+        "poll_interval_seconds.$": "$.poll_interval_seconds",
+        "max_poll_attempts.$": "$.max_poll_attempts",
+        "poll_attempt.$": "$.ocr_status.poll_attempt",
+        "ocr_submission.$": "$.ocr_submission",
+        "ocr_status.$": "$.ocr_status"
+      },
+      "Next": "WaitForOcr"
+    },
+    "BuildPollBudgetFailure": {
+      "Type": "Pass",
+      "Parameters": {
+        "job.$": "$.job",
+        "failure": {
+          "Error": "PaddleOCRPollBudgetExceeded",
+          "Cause.$": "States.Format('PaddleOCR job {} did not finish within {} polls', $.ocr_submission.job_id, $.max_poll_attempts)"
+        }
+      },
+      "Next": "MarkFailed"
+    },
+    "PersistOcrResult": {
+      "Type": "Task",
+      "Resource": "${PERSIST_LAMBDA_ARN}",
+      "Parameters": {
+        "job.$": "$.job",
+        "processing_state.$": "$.processing_state",
+        "json_url.$": "$.ocr_status.json_url"
+      },
+      "End": true,
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.failure",
+          "Next": "MarkFailed"
+        }
+      ]
+    },
+    "MarkFailed": {
+      "Type": "Task",
+      "Resource": "${MARK_FAILED_LAMBDA_ARN}",
+      "Parameters": {
+        "job.$": "$.job",
+        "error.$": "$.failure.Error",
+        "cause.$": "$.failure.Cause"
+      },
+      "End": true
+    }
+  }
+}

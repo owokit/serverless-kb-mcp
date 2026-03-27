@@ -1,0 +1,20 @@
+{
+  "name": "infra-cdk",
+  "private": true,
+  "scripts": {
+    "synth": "cd ../.. && npm --prefix infra/cdk exec -- cdk synth",
+    "diff": "cd ../.. && npm --prefix infra/cdk exec -- cdk diff",
+    "deploy": "cd ../.. && npm --prefix infra/cdk exec -- cdk deploy --require-approval never",
+    "destroy": "cd ../.. && npm --prefix infra/cdk exec -- cdk destroy --force"
+  },
+  "dependencies": {
+    "aws-cdk": "^2.1113.0",
+    "aws-cdk-lib": "^2.244.0",
+    "constructs": "^10.6.0",
+    "ts-node": "^10.9.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^6.0.2"
+  }
+}

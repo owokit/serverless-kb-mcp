@@ -1,0 +1,143 @@
+# EN: Keep the public CI surface safe before heavier jobs run.
+# CN: 在更重的作业运行前，先保护公共 CI 入口面。
+name: Guardrails
+
+on:
+  workflow_run:
+    workflows:
+      - Workflow Sanity
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: guardrails-${{ github.event.workflow_run.id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guardrails:
+    # EN: Only run after Workflow Sanity succeeds or on manual dispatch.
+    # CN: 仅在 Workflow Sanity 通过或手动触发时运行。
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    # EN: Run two independent guardrail checks in parallel via matrix strategy.
+    # CN: 通过矩阵策略并行运行两种独立的护栏检查。
+    name: Guardrails (${{ matrix.check }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - check: secret_shapes
+            report: guardrails-secrets-report.json
+          - check: chinese_mojibake
+            report: guardrails-chinese-report.json
+
+    steps:
+      # EN: Check out the full history so the graph and path checks see the real repository state.
+      # CN: 拉取完整历史记录，确保图谱和路径检查看到真实的仓库状态。
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # EN: Keep each guardrail lane focused on a single, easy-to-diagnose hygiene class.
+      # CN: 让每条护栏检查都只负责一种、易于定位的问题类型。
+      - name: Run secret shape guardrail
+        if: matrix.check == 'secret_shapes'
+        env:
+          REPORT_PATH: ${{ matrix.report }}
+          PYTHON_SCRIPT: |
+            from __future__ import annotations
+
+            import json
+            import os
+            import re
+            import subprocess
+            from pathlib import Path
+
+            repo_root = Path.cwd()
+            secret_patterns = [
+                ("aws_access_key_id", re.compile(r"AKIA[0-9A-Z]{16}")),
+                ("aws_session_access_key", re.compile(r"ASIA[0-9A-Z]{16}")),
+                ("github_token", re.compile(r"gh[pousr]_[A-Za-z0-9_]{20,}")),
+                ("private_key_block", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")),
+            ]
+
+            try:
+                completed = subprocess.run(
+                    ["git", "ls-files", "*.py", "*.ts", "*.js", "*.mjs", "*.json", "*.md", "*.toml", "*.yml", "*.yaml", "*.ini"],
+                    cwd=repo_root,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                tracked = [
+                    Path(line)
+                    for line in completed.stdout.splitlines()
+                    if line and "tests" not in Path(line).parts
+                ]
+            except (OSError, subprocess.CalledProcessError):
+                tracked = [
+                    path.relative_to(repo_root)
+                    for path in repo_root.rglob("*")
+                    if path.is_file() and "tests" not in path.parts
+                ]
+
+            findings: list[dict[str, object]] = []
+            for rel_path in tracked:
+                path = repo_root / rel_path
+                if path.as_posix() == ".github/workflows/guardrails.yml":
+                    continue
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except (UnicodeDecodeError, OSError):
+                    continue
+
+                for lineno, line in enumerate(text.splitlines(), start=1):
+                    for signal, pattern in secret_patterns:
+                        if pattern.search(line):
+                            findings.append(
+                                {
+                                    "file": path.relative_to(repo_root).as_posix(),
+                                    "line": lineno,
+                                    "signal": signal,
+                                    "severity": "high",
+                                    "snippet": line.strip(),
+                                    "suggested_fix": "Remove the secret-shaped value and rotate or replace it before committing.",
+                                }
+                            )
+
+            report = {
+                "workflow": "Guardrails",
+                "check": "secret_shapes",
+                "status": "passed" if not findings else "failed",
+                "summary": {
+                    "files": len({finding["file"] for finding in findings}),
+                    "findings": len(findings),
+                },
+                "findings": findings,
+            }
+            Path(os.environ["REPORT_PATH"]).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            raise SystemExit(1 if findings else 0)
+        run: uv run --project services python -c "$PYTHON_SCRIPT"
+
+      - name: Run Chinese mojibake guardrail
+        if: matrix.check == 'chinese_mojibake'
+        run: uv run --project services python tools/ci/chinese_text_hygiene.py --report-path "${{ matrix.report }}" --check-name chinese_mojibake
+
+      # EN: Persist per-lane reports so the PR comment can point straight at the failing guardrail.
+      # CN: 按检查分别保存报告，让 PR 评论可以直接定位到失败的护栏。
+      - name: Upload guardrail report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: guardrails-${{ matrix.check }}-report
+          path: ${{ matrix.report }}
+          if-no-files-found: error
+
+      # EN: Comment the failure back on the linked PR so reviewers see the blocker immediately.
+      # CN: 将失败回写到关联 PR，方便审查者立即看到阻塞点。

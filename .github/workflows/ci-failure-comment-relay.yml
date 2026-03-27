@@ -1,0 +1,61 @@
+# EN: Repost public CI failures to the linked PR from a trusted workflow_run context.
+# CN: 在可信的 workflow_run 上下文中，将公开 CI 失败回评到关联 PR。
+name: CI Failure Comment Relay
+
+on:
+  workflow_run:
+    workflows:
+      - Workflow Sanity
+      - Guardrails
+      - Logic CI
+      - Contract CI
+      - Local Integration CI
+      - Security CI
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: ci-failure-comment-relay-${{ github.event.workflow_run.id }}
+  cancel-in-progress: true
+
+jobs:
+  comment-failure:
+    # EN: Only comment when the upstream workflow actually failed or was cancelled.
+    # CN: 只有在上游 workflow 真正失败或被取消时才回评。
+    if: ${{ github.event.workflow_run.conclusion != 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      # EN: Check out the trusted default branch so the shared helper comes from base branch code.
+      # CN: 检出受信任的默认分支，让共享 helper 来自 base 分支代码。
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.repository.default_branch }}
+
+      # EN: Use the repository's Python helper to keep failure comments uniform across all CI lanes.
+      # CN: 使用仓库内的 Python helper，保证所有 CI 分支的失败评论保持一致。
+      - name: Set up runtime
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-python: true
+
+      - name: Comment failure on linked PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_WORKFLOW: ${{ github.event.workflow_run.name }}
+          GITHUB_RUN_ID: ${{ github.event.workflow_run.id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          set -euo pipefail
+          uv run --project services python tools/ci/comment_pr_failure.py --workflow-name "$GITHUB_WORKFLOW"

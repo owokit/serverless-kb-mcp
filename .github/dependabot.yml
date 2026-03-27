@@ -1,0 +1,35 @@
+# EN: Dependabot configuration for the repository's supported dependency ecosystems.
+# CN: 仅覆盖本仓库实际使用的依赖生态，避免引入无关更新噪音。
+version: 2
+
+updates:
+  # EN: GitHub Actions dependency updates.
+  # CN: GitHub Actions 依赖更新。
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "github-actions"
+
+  # EN: npm dependency updates for the root frontend/tooling package.
+  # CN: 根目录前端与工具链的 npm 依赖更新。
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "npm"
+
+  # EN: pip dependency updates for the Python service package.
+  # CN: Python 服务包的 pip 依赖更新。
+  - package-ecosystem: "pip"
+    directory: "/mcp"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "pip"
+

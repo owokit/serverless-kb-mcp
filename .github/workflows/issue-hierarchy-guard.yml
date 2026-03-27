@@ -1,0 +1,184 @@
+# EN: Keep parent issues open until all sub-issues are closed, and auto-close them once the last child closes.
+# CN: 确保主 issue 只有在所有子 issue 关闭后才允许关闭，并在最后一个子 issue 关闭后自动收口。
+name: Issue Hierarchy Guard
+
+on:
+  issues:
+    # EN: Re-validate on close, reopen, create, and edit so hierarchy changes are caught quickly.
+    # CN: 在关闭、重开、创建和编辑时重新校验，尽快捕获层级变化。
+    types: [opened, edited, reopened, closed]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number to validate
+        required: true
+        type: string
+
+permissions:
+  issues: write
+
+concurrency:
+  group: issue-hierarchy-guard-${{ github.event.issue.number || github.event.inputs.issue_number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    # EN: Use GitHub's issue hierarchy endpoints to enforce parent/child closure rules.
+    # CN: 使用 GitHub issue 层级接口强制执行父子关闭规则。
+    name: Validate issue hierarchy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce sub-issue closure rule
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const eventName = context.eventName;
+            const issueNumber = eventName === 'workflow_dispatch'
+              ? Number(core.getInput('issue_number'))
+              : Number(context.payload.issue && context.payload.issue.number);
+
+            if (!issueNumber || Number.isNaN(issueNumber)) {
+              core.setFailed('Unable to determine the target issue number.');
+              return;
+            }
+
+            async function getIssue(number) {
+              const response = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}', {
+                owner,
+                repo,
+                issue_number: number,
+              });
+              return response.data;
+            }
+
+            async function getParent(number) {
+              try {
+                const response = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/parent', {
+                  owner,
+                  repo,
+                  issue_number: number,
+                });
+                return response.data;
+              } catch (error) {
+                if (error.status === 404) {
+                  return null;
+                }
+                throw error;
+              }
+            }
+
+            async function listSubIssues(number) {
+              const response = await github.paginate('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', {
+                owner,
+                repo,
+                issue_number: number,
+                per_page: 100,
+              });
+              return response;
+            }
+
+            async function collectOpenDescendants(number, seen = new Set()) {
+              if (seen.has(number)) {
+                return [];
+              }
+              seen.add(number);
+
+              const descendants = [];
+              const children = await listSubIssues(number);
+              for (const child of children) {
+                if (!child || typeof child.number !== 'number') {
+                  continue;
+                }
+                if (child.state === 'open') {
+                  descendants.push(child.number);
+                }
+                const nested = await collectOpenDescendants(child.number, seen);
+                descendants.push(...nested);
+              }
+              return descendants;
+            }
+
+            const issue = await getIssue(issueNumber);
+            const parent = await getParent(issueNumber);
+            const openDescendants = await collectOpenDescendants(issueNumber);
+
+            if (issue.state === 'closed' && openDescendants.length > 0) {
+              const preview = openDescendants.slice(0, 10).map((n) => `#${n}`).join(', ');
+              const suffix = openDescendants.length > 10 ? `, and ${openDescendants.length - 10} more` : '';
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body: [
+                  `This issue was reopened because it still has open sub-issues: ${preview}${suffix}.`,
+                  '',
+                  '主 issue 只有在所有子 issue 都关闭后才允许关闭。',
+                ].join('\n'),
+              });
+
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                state: 'open',
+              });
+
+              core.notice(`Reopened issue #${issueNumber} because open sub-issues still exist.`);
+              return;
+            }
+
+            if (parent && issue.state === 'closed' && parent.state === 'open') {
+              const parentOpenDescendants = await collectOpenDescendants(parent.number);
+
+              if (parentOpenDescendants.length === 0) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: parent.number,
+                  body: [
+                    `This parent issue was closed automatically because all of its sub-issues are now closed.`,
+                    '',
+                    '父 issue 的所有子 issue 都已关闭，因此已自动收口。',
+                  ].join('\n'),
+                });
+
+                await github.rest.issues.update({
+                  owner,
+                  repo,
+                  issue_number: parent.number,
+                  state: 'closed',
+                  state_reason: 'completed',
+                });
+
+                core.notice(`Closed parent issue #${parent.number} because no open sub-issues remain.`);
+                return;
+              }
+            }
+
+            if (parent && parent.state === 'closed' && issue.state !== 'closed') {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: parent.number,
+                body: [
+                  `This parent issue was reopened because sub-issue #${issueNumber} is still open.`,
+                  '',
+                  '主 issue 只有在所有子 issue 都关闭后才允许关闭。',
+                ].join('\n'),
+              });
+
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: parent.number,
+                state: 'open',
+              });
+
+              core.notice(`Reopened parent issue #${parent.number} because sub-issue #${issueNumber} is open.`);
+              return;
+            }
+
+            core.notice(`Issue #${issueNumber} passed hierarchy validation.`);

@@ -1,0 +1,33 @@
+approval_policy = "never"
+
+[mcp_servers.aws_knowledge_mcp]
+url = "https://knowledge-mcp.global.api.aws"
+
+[mcp_servers.azure_learn_mcp]
+url = "https://learn.microsoft.com/api/mcp"
+
+[mcp_servers.microsoft_docs_mcp]
+url = "https://learn.microsoft.com/api/mcp"
+
+[mcp_servers.cloudflare_docs_mcp]
+url = "https://docs.mcp.cloudflare.com/mcp"
+
+[mcp_servers.openaiDeveloperDocs]
+url = "https://developers.openai.com/mcp"
+
+[mcp_servers.claudeCodeDocs]
+url = "https://code.claude.com/docs/mcp"
+
+[mcp_servers.github]
+bearer_token_env_var = "GitHUB_MCP_CodeX_lqepoch"
+url = "https://api.githubcopilot.com/mcp/"
+
+[mcp_servers.playwright]
+type = "stdio"
+command = "npx"
+args = ["@playwright/mcp@latest"]
+enabled = true
+
+[mcp_servers."google-developer-knowledge"]
+url = "https://developerknowledge.googleapis.com/mcp"
+env_http_headers = { "X-Goog-Api-Key" = "Google_Knowledge_MCP" }

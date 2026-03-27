@@ -1,0 +1,48 @@
+# EN: Auto-label pull requests by the areas they touch.
+# CN: 根据 PR 触及的区域自动打标签。
+"area:ci":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+
+"documentation":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "docs/**"
+          - "README.md"
+
+"area:services":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "services/ocr-pipeline/**"
+          - "services/**"
+
+"area:scripts":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "tools/**"
+
+"area:tests":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "tests/**"
+          - "services/ocr-pipeline/tests/**"
+          - "tools/ci/tests/**"
+          - "examples/workflows/tests/**"
+
+"area:workflow-reference":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "examples/workflows/workflow_reference_only/**"
+
+"area:root-config":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".env.example"
+          - ".gitignore"
+          - "package.json"
+          - "infra/cdk/package.json"
+          - "package-lock.json"
+          - "pytest.ini"
+          - "services/pyproject.toml"
+          - "services/pytest.ini"

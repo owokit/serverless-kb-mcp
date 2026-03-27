@@ -1,0 +1,171 @@
+# EN: Build immutable release artifacts after local integration passes.
+# CN: 在本地集成通过后生成不可变的发布产物。
+name: Package Release
+
+on:
+  workflow_run:
+    workflows:
+      - Local Integration CI
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional release tag override
+        required: false
+        default: ""
+        type: string
+      publish_release:
+        description: Create a draft GitHub release after packaging
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: package-release-${{ github.event.workflow_run.id || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package-release:
+    # EN: Only run when Local Integration CI succeeds or on manual dispatch.
+    # CN: 仅在 Local Integration CI 通过或手动触发时运行。
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      # EN: Use the validated repository state as the packaging source of truth.
+      # CN: 使用已验证的仓库状态作为打包依据。
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download local integration report
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: local-integration-ci-report
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ./artifacts/local-integration
+
+      - name: Set up runtime
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-python: true
+
+      - name: Sync packaging tools
+        run: |
+          set -euo pipefail
+          uv sync --locked --project services
+
+      # EN: Build Lambda and layer archives without mixing in deployment side effects.
+      # CN: 生成 Lambda 和 layer 压缩包时不要混入部署副作用。
+      - name: Build release artifacts
+        run: |
+          set -euo pipefail
+          uv run --project services python ./tools/packaging/serverless_mcp/list_lambda_artifacts.py >> "$GITHUB_ENV"
+          uv run --project services python ./tools/packaging/serverless_mcp/list_layer_artifacts.py >> "$GITHUB_ENV"
+          uv run --project services python ./tools/packaging/serverless_mcp/build_lambda_artifacts.py \
+            --repo-name "${{ github.event.repository.name }}" \
+            --output-dir "./services/ocr-pipeline/dist" \
+            --functions "$FUNCTIONS"
+          uv run --project services python ./tools/packaging/serverless_mcp/build_layer_artifacts.py \
+            --repo-name "${{ github.event.repository.name }}" \
+            --output-dir "./services/ocr-pipeline/dist/layers" \
+            --layers "$LAYERS"
+
+      # EN: Derive release tags from the source branch so the packaged artifact stays traceable.
+      # CN: 从源分支派生 release tag，保证产物可追踪。
+      - name: Determine release metadata
+        id: metadata
+        run: |
+          set -euo pipefail
+
+          source_branch="${GITHUB_REF_NAME}"
+          source_sha="${GITHUB_SHA}"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ]; then
+            source_branch="${{ github.event.workflow_run.head_branch }}"
+            source_sha="${{ github.event.workflow_run.head_sha }}"
+          fi
+
+          release_tag="${{ inputs.release_tag }}"
+          if [ -z "$release_tag" ]; then
+            if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ] && [ "$source_branch" = "main" ]; then
+              release_tag="extract-worker-${source_sha}"
+            else
+              release_tag="extract-worker-manual-${GITHUB_RUN_NUMBER}"
+            fi
+          fi
+
+          should_publish="false"
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ] && [ "$source_branch" = "main" ]; then
+            should_publish="true"
+          fi
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${{ inputs.publish_release }}" = "true" ]; then
+            should_publish="true"
+          fi
+
+          {
+            echo "release_tag=$release_tag"
+            echo "should_publish=$should_publish"
+            echo "source_branch=$source_branch"
+            echo "source_sha=$source_sha"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write package metadata
+        env:
+          RELEASE_TAG: ${{ steps.metadata.outputs.release_tag }}
+          SOURCE_BRANCH: ${{ steps.metadata.outputs.source_branch }}
+          SOURCE_SHA: ${{ steps.metadata.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          uv run --project services python <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+
+          report = {
+              "workflow": "Package Release",
+              "release_tag": os.environ["RELEASE_TAG"],
+              "source_branch": os.environ.get("SOURCE_BRANCH"),
+              "source_sha": os.environ.get("SOURCE_SHA"),
+              "status": "prepared",
+          }
+          Path("package-release-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-release-artifacts
+          path: |
+            services/ocr-pipeline/dist/*.zip
+            services/ocr-pipeline/dist/layers/*.zip
+            package-release-report.json
+          if-no-files-found: error
+
+      # EN: Only publish a draft GitHub release when the metadata step determines it is appropriate.
+      # CN: 仅当元数据步骤判定合适时才发布 draft GitHub release。
+      - name: Create draft GitHub release
+        if: ${{ steps.metadata.outputs.should_publish == 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ steps.metadata.outputs.release_tag }}
+          name: ${{ steps.metadata.outputs.release_tag }}
+          draft: true
+          make_latest: false
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            services/ocr-pipeline/dist/*.zip
+            services/ocr-pipeline/dist/layers/*.zip
+            package-release-report.json

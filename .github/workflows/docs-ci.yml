@@ -1,0 +1,112 @@
+# EN: Keep documentation and workflow names aligned across the repository.
+# CN: 保持仓库内文档和 workflow 命名一致。
+name: Docs CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: docs-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs-ci:
+    # EN: Run directly on PRs or on manual dispatch.
+    # CN: 直接在 PR 或手动触发时运行。
+    runs-on: ubuntu-latest
+
+    steps:
+      # EN: Use the same repository snapshot that PR reviewers inspect.
+      # CN: 使用和 PR 审查一致的仓库快照。
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up runtime
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-python: true
+
+      - name: Sync docs tools
+        run: |
+          set -euo pipefail
+          uv sync --locked --project services
+
+      # EN: Compare the live workflow graph against the strategy doc and AGENTS guidance.
+      # CN: 将当前 workflow 图谱与策略文档和 AGENTS 约束进行比对。
+      - name: Validate workflow and documentation consistency
+        run: |
+          set -euo pipefail
+          uv run --project services python tools/ci/validate_workflows.py > docs-ci-workflow-report.json
+          uv run --project services python <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          docs = Path("docs/open-source-ci-strategy.md").read_text(encoding="utf-8")
+          agents = Path("AGENTS.md").read_text(encoding="utf-8")
+          expected = [
+              "Workflow Sanity",
+              "Guardrails",
+              "CI Failure Comment Relay",
+              "PR Path Conflict Guard",
+              "Logic CI",
+              "Contract CI",
+              "Local Integration CI",
+              "Docs CI",
+              "Security CI",
+              "Issue Hierarchy Guard",
+              "Package Release",
+                  "Prod Deploy",
+              "Destroy",
+              "Branch Lifecycle Cleanup",
+          ]
+          missing = [item for item in expected if item not in docs]
+          if "docs/open-source-ci-strategy.md" not in agents:
+              missing.append("AGENTS.md must reference docs/open-source-ci-strategy.md")
+          if "examples/workflows/workflow_reference_only/*" not in agents or "reference-only" not in agents:
+              missing.append("AGENTS.md must mark examples/workflows/workflow_reference_only/* as reference-only")
+          report = {
+              "workflow": "Docs CI",
+              "missing": missing,
+              "status": "passed" if not missing else "failed",
+          }
+          Path("docs-ci-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          if missing:
+              raise SystemExit(1)
+          PY
+
+      - name: Upload docs report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-ci-report
+          path: |
+            docs-ci-report.json
+            docs-ci-workflow-report.json
+          if-no-files-found: error
+
+      # EN: Write the docs failure back to the PR so the review thread always carries the blocker.
+      # CN: 将文档失败回写到 PR，确保审查线程里始终能看到阻塞点。
+      - name: Comment docs failure on the PR
+        if: failure()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_WORKFLOW: ${{ github.workflow }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          set -euo pipefail
+          uv run --project services python tools/ci/comment_pr_failure.py --workflow-name "$GITHUB_WORKFLOW"

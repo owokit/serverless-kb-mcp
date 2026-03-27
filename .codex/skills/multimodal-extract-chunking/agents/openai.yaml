@@ -1,0 +1,4 @@
+interface:
+  display_name: "Multimodal Extract Chunking"
+  short_description: "Define OCR flow, layout analysis, per-format extraction, and multimodal chunking rules for document ingestion."
+  default_prompt: "Use $multimodal-extract-chunking to design or review OCR, layout analysis, and chunking for mixed-format documents."

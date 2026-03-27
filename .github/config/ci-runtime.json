@@ -1,0 +1,9 @@
+{
+  "node": {
+    "version": "24",
+    "cache": "npm"
+  },
+  "python": {
+    "version": "3.14"
+  }
+}

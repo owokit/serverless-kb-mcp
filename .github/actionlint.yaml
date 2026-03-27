@@ -1,0 +1,11 @@
+# EN: Keep actionlint focused on workflow files while tolerating known intentional patterns.
+# CN: 让 actionlint 聚焦 workflow 文件，同时容忍少量已知的刻意写法。
+paths:
+  .github/workflows/**/*.{yml,yaml}:
+    ignore:
+      # EN: Ignore ShellCheck diagnostics emitted from inline shell blocks that are already reviewed separately.
+      # CN: 忽略内联 shell 块产生且已由其他检查覆盖的 ShellCheck 诊断。
+      - 'shellcheck reported issue in this script: SC2086:.+'
+      # EN: Ignore deliberate false guards used to keep disabled jobs explicit.
+      # CN: 忽略用于显式禁用任务的刻意 false 条件。
+      - 'constant expression "false" in condition'

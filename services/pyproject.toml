@@ -1,0 +1,26 @@
+[project]
+name = "serverless-ocr-s3vectors-mcp"
+version = "0.1.0"
+description = "Workspace root for the serverless OCR to S3 Vectors pipeline."
+requires-python = ">=3.12"
+dependencies = [
+  "serverless-mcp-service",
+]
+
+[dependency-groups]
+dev = [
+  "pip-audit>=2.9.0",
+  "pytest>=8.3.5",
+  "ruff>=0.12.0",
+]
+
+# EN: MCP server as editable install from mcp/ subdirectory
+# CN: MCP 服务器作为可编辑安装从新的服务子目录
+[tool.uv.sources]
+serverless-mcp-service = { path = "./ocr-pipeline", editable = true }
+
+[tool.ruff]
+exclude = [
+  "ocr-pipeline/tests",
+  "e2e",
+]

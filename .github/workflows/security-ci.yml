@@ -1,0 +1,152 @@
+# EN: Audit dependency and permission exposure for the public CI chain.
+# CN: 审计公共 CI 链中的依赖和权限暴露面。
+name: Security CI
+
+on:
+  workflow_run:
+    workflows:
+      - Workflow Sanity
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-ci-${{ github.event.workflow_run.id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-ci:
+    # EN: Only run after Workflow Sanity succeeds or on manual dispatch.
+    # CN: 仅在 Workflow Sanity 成功后或手动触发时运行。
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      # EN: Keep the audit tied to the exact repository state that will be merged.
+      # CN: 将审计绑定到实际会被合并的仓库状态。
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up runtime
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-python: true
+
+      - name: Sync security audit tools
+        run: |
+          set -euo pipefail
+          uv sync --locked --project services
+
+      # EN: Make sure installed Python packages are internally consistent before we trust the audit results.
+      # CN: 在信任审计结果之前，先确认已安装的 Python 包彼此一致。
+      - name: Check Python environment consistency
+        run: |
+          set -euo pipefail
+          uv run --project services python -m pip check
+
+      - name: Audit Python dependencies
+        run: |
+          set -euo pipefail
+          uv run --project services --locked pip-audit
+
+      # EN: Read workflow files directly so permission drift is caught before release or deploy jobs run.
+      # CN: 直接读取工作流文件，确保权限漂移在发布或部署前被发现。
+      - name: Audit workflow permissions
+        run: |
+          set -euo pipefail
+          uv run --project services python <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          import yaml
+
+          class Loader(yaml.SafeLoader):
+              pass
+
+          for key, resolvers in list(Loader.yaml_implicit_resolvers.items()):
+              Loader.yaml_implicit_resolvers[key] = [
+                  resolver for resolver in resolvers if resolver[0] != "tag:yaml.org,2002:bool"
+              ]
+
+          reports = []
+          violations = []
+          public_ci_readonly_workflows = {
+              "workflow-sanity.yml",
+              "guardrails.yml",
+              "logic-ci.yml",
+              "contract-ci.yml",
+              "local-integration-ci.yml",
+              "security-ci.yml",
+          }
+          failure_comment_relay_workflows = {"ci-failure-comment-relay.yml"}
+          for path in sorted(Path(".github/workflows").glob("*.yml")):
+              workflow = yaml.load(path.read_text(encoding="utf-8"), Loader=Loader) or {}
+              permissions = workflow.get("permissions") or {}
+              reports.append({"file": path.name, "permissions": permissions})
+              if path.name in public_ci_readonly_workflows:
+                  disallowed = {
+                      key: value
+                      for key, value in permissions.items()
+                      if str(value).lower() != "read"
+                  }
+                  if disallowed:
+                      violations.append(f"{path.name} must keep read-only permissions in the public CI chain")
+              if path.name == "docs-ci.yml":
+                  expected = {"contents": "read", "issues": "write", "pull-requests": "read"}
+                  missing = {key for key, value in expected.items() if permissions.get(key) != value}
+                  if missing:
+                      violations.append("docs-ci.yml must keep contents: read, issues: write, and pull-requests: read")
+                  disallowed = {
+                      key: value
+                      for key, value in permissions.items()
+                      if key not in expected and str(value).lower() != "read"
+                  }
+                  if disallowed:
+                      violations.append("docs-ci.yml must keep all other permissions read-only")
+              if path.name in failure_comment_relay_workflows:
+                  expected = {"contents": "read", "actions": "read", "issues": "write", "pull-requests": "read"}
+                  missing = {key for key, value in expected.items() if permissions.get(key) != value}
+                  if missing:
+                      violations.append(
+                          f"{path.name} must use contents: read, actions: read, issues: write, and pull-requests: read"
+                      )
+                  disallowed = {
+                      key: value
+                      for key, value in permissions.items()
+                      if key not in expected and str(value).lower() != "read"
+                  }
+                  if disallowed:
+                      violations.append(f"{path.name} must keep all other permissions read-only")
+              if path.name == "package-release.yml":
+                  if permissions.get("contents") != "write":
+                      violations.append("package-release.yml must keep contents: write for release publishing")
+                  if permissions.get("actions") != "read":
+                      violations.append("package-release.yml must keep actions: read")
+              if path.name in {"prod-deploy.yml", "destroy.yml"}:
+                  if "contents" not in permissions:
+                      violations.append(f"{path.name} must declare explicit permissions")
+
+          report = {"workflows": reports, "violations": violations, "status": "passed" if not violations else "failed"}
+          Path("security-permissions-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          if violations:
+              raise SystemExit(1)
+          PY
+
+      - name: Upload security report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: security-ci-report
+          path: security-permissions-report.json
+          if-no-files-found: error
+
+      # EN: Comment the audit failure on the PR so permission drift is visible where the change was proposed.
+      # CN: 将审计失败回写到 PR，方便在变更提出处看到权限漂移。

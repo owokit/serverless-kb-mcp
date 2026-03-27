@@ -1,0 +1,507 @@
+# EN: Reconcile PR branch lifecycle labels and delete eligible branches after the retention window.
+# CN: 统一收敛 PR 分支生命周期标签，并在保留期结束后删除符合条件的分支。
+name: Branch Lifecycle Cleanup
+
+on:
+  pull_request_target:
+    # EN: Reconcile labels and branch state whenever a PR is opened, updated, reopened, labeled, or closed.
+    # CN: 当 PR 打开、更新、重新打开、打标或关闭时，统一收敛标签与分支状态。
+    types: [opened, reopened, synchronize, closed, labeled, unlabeled]
+  schedule:
+    # EN: Run every 3 hours so label drift and stale branch cleanup stay tight without excessive churn.
+    # CN: 每 3 小时运行一次，在保持清理及时性的同时避免过度频繁。
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Preview only; set to false to apply label changes and delete eligible branches.'
+        required: false
+        default: 'true'
+      base_branch:
+        description: 'Primary branch to protect during cleanup.'
+        required: false
+        default: 'main'
+      retention_days:
+        description: 'Retention window before deleting closed, unmerged PR branches.'
+        required: false
+        default: '90'
+      protected_label:
+        description: 'Label that marks a PR branch as protected from deletion.'
+        required: false
+        default: 'branch:protected'
+      deletable_label:
+        description: 'Label that marks a closed PR branch as eligible for delayed deletion.'
+        required: false
+        default: 'branch:deletable'
+
+permissions:
+  contents: write
+  issues: write
+  # EN: PR label writes require pull request write permission even though the API call goes through the issues endpoint.
+  # CN: 尽管 API 走的是 issues 端点，但给 PR 写标签仍然需要 pull request 的写权限。
+  pull-requests: write
+
+concurrency:
+  group: branch-lifecycle-cleanup-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
+    # EN: Keep the reconciliation logic in one API-driven job for auditability and predictable permissions.
+    # CN: 将收敛逻辑集中在一个基于 API 的 job 中，便于审计并固定权限边界。
+    name: Reconcile branch lifecycle and cleanup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reconcile labels and cleanup branches
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const repoFullName = `${owner}/${repo}`;
+            const eventName = context.eventName;
+            const isSchedule = eventName === 'schedule';
+            const isDispatch = eventName === 'workflow_dispatch';
+            const isPullRequest = eventName === 'pull_request_target';
+            const currentPr = context.payload.pull_request ?? null;
+            const prAction = String(context.payload.action ?? '');
+            const currentPrIsSameRepo = currentPr?.head?.repo?.full_name === repoFullName;
+
+            const dryRun = isDispatch
+              ? String(context.payload.inputs?.dry_run ?? 'true').toLowerCase() !== 'false'
+              : false;
+
+            const baseBranch = String(context.payload.inputs?.base_branch ?? 'main');
+            const retentionDaysInput = Number.parseInt(String(context.payload.inputs?.retention_days ?? '90'), 10);
+            const retentionDays = Number.isFinite(retentionDaysInput) ? Math.max(retentionDaysInput, 0) : 90;
+            const retentionCutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+            const protectedLabelName = String(context.payload.inputs?.protected_label ?? 'branch:protected');
+            const deletableLabelName = String(context.payload.inputs?.deletable_label ?? 'branch:deletable');
+
+            const repoInfo = await github.rest.repos.get({
+              owner,
+              repo,
+            });
+            const protectedBranches = new Set(
+              [repoInfo.data.default_branch, baseBranch, 'main', 'master'].filter(Boolean),
+            );
+
+            const managedLabels = [
+              {
+                name: protectedLabelName,
+                color: '0e8a16',
+                description: 'Managed label for PR branches that must not be deleted automatically.',
+              },
+              {
+                name: deletableLabelName,
+                color: 'fbca04',
+                description: 'Managed label for closed PR branches that can be deleted after the retention window.',
+              },
+            ];
+
+            const ensureLabel = async ({ name, color, description }) => {
+              try {
+                const existing = await github.rest.issues.getLabel({
+                  owner,
+                  repo,
+                  name,
+                });
+                const currentColor = String(existing.data.color ?? '').toLowerCase();
+                const currentDescription = String(existing.data.description ?? '');
+                if (currentColor !== color || currentDescription !== description) {
+                  await github.rest.issues.updateLabel({
+                    owner,
+                    repo,
+                    name,
+                    color,
+                    description,
+                  });
+                  return 'updated';
+                }
+                return 'existing';
+              } catch (error) {
+                if (error.status === 404) {
+                  await github.rest.issues.createLabel({
+                    owner,
+                    repo,
+                    name,
+                    color,
+                    description,
+                  });
+                  return 'created';
+                }
+                throw error;
+              }
+            };
+
+            const loadLabels = async (issueNumber) => {
+              const labels = await github.paginate(github.rest.issues.listLabelsOnIssue, {
+                owner,
+                repo,
+                issue_number: issueNumber,
+                per_page: 100,
+              });
+              return new Set(labels.map((label) => label.name));
+            };
+
+            const addLabels = async (issueNumber, labels) => {
+              const uniqueLabels = [...new Set(labels)].filter(Boolean);
+              if (!uniqueLabels.length) {
+                return [];
+              }
+              if (!dryRun) {
+                await github.rest.issues.addLabels({
+                  owner,
+                  repo,
+                  issue_number: issueNumber,
+                  labels: uniqueLabels,
+                });
+              }
+              return uniqueLabels;
+            };
+
+            const removeLabels = async (issueNumber, labels) => {
+              const removed = [];
+              for (const label of [...new Set(labels)].filter(Boolean)) {
+                if (!dryRun) {
+                  try {
+                    await github.rest.issues.removeLabel({
+                      owner,
+                      repo,
+                      issue_number: issueNumber,
+                      name: label,
+                    });
+                  } catch (error) {
+                    if (error.status !== 404) {
+                      throw error;
+                    }
+                  }
+                }
+                removed.push(label);
+              }
+              return removed;
+            };
+
+            const branchExists = async (branchName) => {
+              try {
+                const branchInfo = await github.rest.repos.getBranch({
+                  owner,
+                  repo,
+                  branch: branchName,
+                });
+                return { exists: true, protected: Boolean(branchInfo.data.protected) };
+              } catch (error) {
+                if (error.status === 404) {
+                  return { exists: false, protected: false };
+                }
+                throw error;
+              }
+            };
+
+            const deleteBranch = async (branchName) => {
+              if (dryRun) {
+                return 'dry-run';
+              }
+              await github.rest.git.deleteRef({
+                owner,
+                repo,
+                ref: `heads/${branchName}`,
+              });
+              return 'deleted';
+            };
+
+            const ensureManagedLabels = [];
+            for (const label of managedLabels) {
+              ensureManagedLabels.push({
+                name: label.name,
+                status: await ensureLabel(label),
+              });
+            }
+
+            const openPulls = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const openHeadBranches = new Set(
+              openPulls
+                .filter((pr) => pr.head?.repo?.full_name === repoFullName)
+                .map((pr) => pr.head?.ref)
+                .filter(Boolean),
+            );
+            const shouldScanClosedPulls =
+              isSchedule || isDispatch || (isPullRequest && prAction === 'closed' && currentPr && currentPrIsSameRepo);
+            const closedPulls = shouldScanClosedPulls
+              ? await github.paginate(github.rest.pulls.list, {
+                  owner,
+                  repo,
+                  state: 'closed',
+                  per_page: 100,
+                })
+              : [];
+
+            const report = {
+              repository: repoFullName,
+              dry_run: dryRun,
+              event_name: eventName,
+              base_branch: baseBranch,
+              retention_days: retentionDays,
+              retention_cutoff: retentionCutoff.toISOString(),
+              protected_label: protectedLabelName,
+              deletable_label: deletableLabelName,
+              labels_bootstrapped: ensureManagedLabels,
+              label_additions: [],
+              label_removals: [],
+              deleted_branches: [],
+              skipped_branches: [],
+            };
+
+            const recordLabelChange = async (prNumber, added, removed) => {
+              if (added.length) {
+                report.label_additions.push({
+                  pr_number: prNumber,
+                  labels: added,
+                });
+              }
+              if (removed.length) {
+                report.label_removals.push({
+                  pr_number: prNumber,
+                  labels: removed,
+                });
+              }
+            };
+
+            const reconcileOpenPr = async (pr) => {
+              const labels = await loadLabels(pr.number);
+              const desiredAdd = [];
+              const desiredRemove = [];
+
+              if (!labels.has(protectedLabelName)) {
+                desiredAdd.push(protectedLabelName);
+              }
+              if (labels.has(deletableLabelName)) {
+                desiredRemove.push(deletableLabelName);
+              }
+
+              const added = await addLabels(pr.number, desiredAdd);
+              const removed = await removeLabels(pr.number, desiredRemove);
+              await recordLabelChange(pr.number, added, removed);
+            };
+
+            const reconcileClosedPr = async (pr) => {
+              const labels = await loadLabels(pr.number);
+              const desiredAdd = [];
+              const desiredRemove = [];
+              const isProtected = labels.has(protectedLabelName);
+              const isDeletable = labels.has(deletableLabelName);
+              const closedAt = pr.closed_at ? new Date(pr.closed_at) : null;
+              const ageMs = closedAt ? Date.now() - closedAt.getTime() : null;
+              const isPastRetention = ageMs !== null && ageMs >= retentionDays * 24 * 60 * 60 * 1000;
+
+              if (isProtected) {
+                desiredRemove.push(protectedLabelName);
+              }
+              if (!isDeletable) {
+                desiredAdd.push(deletableLabelName);
+              }
+
+              const added = await addLabels(pr.number, desiredAdd);
+              const removed = await removeLabels(pr.number, desiredRemove);
+              await recordLabelChange(pr.number, added, removed);
+
+              if (pr.merged_at) {
+                if (pr.head?.repo?.full_name !== repoFullName) {
+                  report.skipped_branches.push({
+                    branch: pr.head?.ref ?? '(unknown)',
+                    pr_number: pr.number,
+                    reason: 'fork_head_branch',
+                  });
+                  return;
+                }
+
+                const branchName = pr.head.ref;
+                if (protectedBranches.has(branchName)) {
+                  report.skipped_branches.push({
+                    branch: branchName,
+                    pr_number: pr.number,
+                    reason: 'protected_branch',
+                  });
+                  return;
+                }
+
+                const branchState = await branchExists(branchName);
+                if (!branchState.exists) {
+                  report.skipped_branches.push({
+                    branch: branchName,
+                    pr_number: pr.number,
+                    reason: 'branch_missing',
+                  });
+                  return;
+                }
+
+                if (branchState.protected) {
+                  report.skipped_branches.push({
+                    branch: branchName,
+                    pr_number: pr.number,
+                    reason: 'repository_protection',
+                  });
+                  return;
+                }
+
+                const deletionStatus = await deleteBranch(branchName);
+                report.deleted_branches.push({
+                  branch: branchName,
+                  pr_number: pr.number,
+                  reason: 'merged',
+                  mode: deletionStatus,
+                });
+                return;
+              }
+
+              if (pr.head?.repo?.full_name !== repoFullName) {
+                report.skipped_branches.push({
+                  branch: pr.head?.ref ?? '(unknown)',
+                  pr_number: pr.number,
+                  reason: 'fork_head_branch',
+                });
+                return;
+              }
+
+              const branchName = pr.head.ref;
+              if (openHeadBranches.has(branchName)) {
+                report.skipped_branches.push({
+                  branch: branchName,
+                  pr_number: pr.number,
+                  reason: 'open_pull_request',
+                });
+                return;
+              }
+
+              if (protectedBranches.has(branchName)) {
+                report.skipped_branches.push({
+                  branch: branchName,
+                  pr_number: pr.number,
+                  reason: 'protected_branch',
+                });
+                return;
+              }
+
+              const branchState = await branchExists(branchName);
+              if (!branchState.exists) {
+                report.skipped_branches.push({
+                  branch: branchName,
+                  pr_number: pr.number,
+                  reason: 'branch_missing',
+                });
+                return;
+              }
+
+              if (branchState.protected) {
+                report.skipped_branches.push({
+                  branch: branchName,
+                  pr_number: pr.number,
+                  reason: 'repository_protection',
+                });
+                return;
+              }
+
+              if (!isPastRetention) {
+                report.skipped_branches.push({
+                  branch: branchName,
+                  pr_number: pr.number,
+                  reason: 'retention_window',
+                });
+                return;
+              }
+
+              const deletionStatus = await deleteBranch(branchName);
+              report.deleted_branches.push({
+                branch: branchName,
+                pr_number: pr.number,
+                reason: 'aged_closed_unmerged',
+                mode: deletionStatus,
+              });
+            };
+
+            if (isSchedule || isDispatch) {
+              for (const pr of openPulls) {
+                await reconcileOpenPr(pr);
+              }
+            }
+
+            if (shouldScanClosedPulls) {
+              for (const pr of closedPulls) {
+                await reconcileClosedPr(pr);
+              }
+            } else if (isPullRequest && (prAction === 'opened' || prAction === 'reopened') && currentPr && currentPrIsSameRepo) {
+              await reconcileOpenPr(currentPr);
+            } else if (
+              isPullRequest &&
+              (prAction === 'labeled' || prAction === 'unlabeled') &&
+              currentPr &&
+              currentPrIsSameRepo
+            ) {
+              if (currentPr.state === 'closed') {
+                await reconcileClosedPr(currentPr);
+              } else {
+                await reconcileOpenPr(currentPr);
+              }
+            }
+
+            const summaryLines = [
+              '# Branch Lifecycle Cleanup',
+              '',
+              `- Repository: \`${report.repository}\``,
+              `- Event: \`${report.event_name}\``,
+              `- Mode: \`${report.dry_run ? 'dry-run' : 'apply'}\``,
+              `- Base branch: \`${report.base_branch}\``,
+              `- Retention window: \`${report.retention_days}\` days`,
+              `- Retention cutoff: \`${report.retention_cutoff}\``,
+              `- Protected label: \`${report.protected_label}\``,
+              `- Deletable label: \`${report.deletable_label}\``,
+              '',
+              '## Labels bootstrapped',
+              report.labels_bootstrapped.length
+                ? report.labels_bootstrapped.map((item) => `- \`${item.name}\`: ${item.status}`).join('\n')
+                : '- None',
+              '',
+              '## Label additions',
+              report.label_additions.length
+                ? report.label_additions.map((item) => `- #${item.pr_number}: ${item.labels.map((label) => `\`${label}\``).join(', ')}`).join('\n')
+                : '- None',
+              '',
+              '## Label removals',
+              report.label_removals.length
+                ? report.label_removals.map((item) => `- #${item.pr_number}: ${item.labels.map((label) => `\`${label}\``).join(', ')}`).join('\n')
+                : '- None',
+              '',
+              '## Deleted branches',
+              report.deleted_branches.length
+                ? report.deleted_branches.map((item) => `- \`${item.branch}\` via PR #${item.pr_number} (${item.reason}) [${item.mode}]`).join('\n')
+                : '- None',
+              '',
+              '## Skipped branches',
+              report.skipped_branches.length
+                ? report.skipped_branches.map((item) => `- \`${item.branch}\` via PR #${item.pr_number} (${item.reason})`).join('\n')
+                : '- None',
+              '',
+              '## Policy note',
+              '- GitHub labels are attached to the PR record, not to the branch ref itself.',
+              '- Open PR branches are kept protected by default; closed PRs normalize to `branch:deletable`, merged branches may be deleted immediately, and unmerged closed PR branches become deletable after the retention window.',
+            ].join('\n');
+
+            fs.writeFileSync('branch-lifecycle-cleanup-report.json', JSON.stringify(report, null, 2));
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summaryLines}\n`);
+            console.log(JSON.stringify(report, null, 2));
+      - name: Upload cleanup report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: branch-lifecycle-cleanup-report
+          path: branch-lifecycle-cleanup-report.json
+          if-no-files-found: error

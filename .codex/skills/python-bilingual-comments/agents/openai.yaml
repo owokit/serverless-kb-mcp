@@ -1,0 +1,4 @@
+interface:
+  display_name: "Python Bilingual Comments"
+  short_description: "Apply line-by-line English and Chinese comment conventions for Python modules, docstrings, and inline comments."
+  default_prompt: "Use $python-bilingual-comments to add or review bilingual Python comments with one English line followed by one Chinese line."

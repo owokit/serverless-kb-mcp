@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Delivery Guardrails"
+  short_description: "Plan architecture first, then place code cleanly."
+  default_prompt: "Use $project-delivery-guardrails to review architecture, file placement, and implementation order before changing code."

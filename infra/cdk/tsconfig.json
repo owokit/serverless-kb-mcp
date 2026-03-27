@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "strict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "ignoreDeprecations": "6.0",
+    "skipLibCheck": true,
+    "rootDir": ".",
+    "outDir": "../.cdk-out"
+  },
+  "include": ["bin/**/*.ts", "lib/**/*.ts"]
+}

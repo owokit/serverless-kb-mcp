@@ -1,0 +1,136 @@
+{
+  "name_prefix": "mcp-doc-pipeline-prod",
+  "repo_name": "serverless-ocr-s3vectors-mcp",
+  "defaults": {
+    "runtime": "python3.14",
+    "architecture": "x86_64",
+    "lambda_memory_size": 256,
+    "lambda_timeout_seconds": 60,
+    "source_intelligent_tiering_days": 1,
+    "source_noncurrent_days": 7,
+    "manifest_prefix": "",
+    "require_ingest_object_tags": true,
+    "ingest_tenant_tag_key": "tenant_id",
+    "ingest_language_tag_key": "language",
+    "paddle_api_base_url": "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs",
+    "paddle_ocr_model": "PaddleOCR-VL-1.5",
+    "paddle_poll_interval_seconds": 10,
+    "paddle_max_poll_attempts": 180,
+    "paddle_http_timeout_seconds": 60,
+    "paddle_status_timeout_seconds": 10,
+    "gemini_api_base_url": "https://generativelanguage.googleapis.com/",
+    "gemini_embedding_model": "gemini-embedding-2-preview",
+    "openai_embedding_model": "text-embedding-3-small",
+    "allow_unauthenticated_query": false,
+    "query_tenant_claim": "tenant_id",
+    "remote_mcp_default_tenant_id": "lookup",
+    "query_max_top_k": 20,
+    "query_max_neighbor_expand": 2,
+    "cloudfront_url_ttl_seconds": 900,
+    "api_gateway_stage_name": "mcp",
+    "fail_on_job_error": true
+  },
+  "resource_names": {
+    "source_bucket": "mcp-doc-pipeline-prod-s3-source",
+    "manifest_bucket": "mcp-doc-pipeline-prod-s3-manifest",
+    "vector_bucket": "mcp-doc-pipeline-prod-s3-vectors",
+    "ingest_queue": "mcp-doc-pipeline-prod-sqs-ingest",
+    "embed_queue": "mcp-doc-pipeline-prod-sqs-embed",
+    "embed_dlq": "mcp-doc-pipeline-prod-sqs-embed-dlq",
+    "object_state_table": "mcp-doc-pipeline-prod-ddb-object-state",
+    "execution_state_table": "mcp-doc-pipeline-prod-ddb-execution-state",
+    "manifest_index_table": "mcp-doc-pipeline-prod-ddb-manifest-index",
+    "embedding_projection_state_table": "mcp-doc-pipeline-prod-ddb-embedding-projection-state",
+    "state_machine": "mcp-doc-pipeline-prod-sfn-extract",
+    "ingest_lambda": "mcp-doc-pipeline-prod-lambda-ingest",
+    "extract_prepare_lambda": "mcp-doc-pipeline-prod-lambda-extract-prepare",
+    "extract_sync_lambda": "mcp-doc-pipeline-prod-lambda-extract-sync",
+    "extract_submit_lambda": "mcp-doc-pipeline-prod-lambda-extract-submit",
+    "extract_poll_lambda": "mcp-doc-pipeline-prod-lambda-extract-poll",
+    "extract_persist_lambda": "mcp-doc-pipeline-prod-lambda-extract-persist",
+    "extract_mark_failed_lambda": "mcp-doc-pipeline-prod-lambda-extract-mark-failed",
+    "embed_lambda": "mcp-doc-pipeline-prod-lambda-embed",
+    "remote_mcp_lambda": "mcp-doc-pipeline-prod-lambda-remote-mcp",
+    "remote_mcp_api_gateway": "mcp-doc-pipeline-prod-api-remote-mcp",
+    "backfill_lambda": "mcp-doc-pipeline-prod-lambda-embedding-backfill",
+    "job_status_lambda": "mcp-doc-pipeline-prod-lambda-job-status",
+    "core_dependency_layer": "mcp-doc-pipeline-prod-lambda-layer-core",
+    "extract_dependency_layer": "mcp-doc-pipeline-prod-lambda-layer-extract",
+    "embedding_dependency_layer": "mcp-doc-pipeline-prod-lambda-layer-embedding",
+    "lambda_role": "mcp-doc-pipeline-prod-iam-lambda-execution",
+    "state_machine_role": "mcp-doc-pipeline-prod-iam-states-execution",
+    "state_machine_log_group": "/aws/vendedlogs/states/mcp-doc-pipeline-prod-sfn-extract"
+  },
+  "embedding_profiles": [
+    {
+      "profile_id": "openai-text-small",
+      "provider": "openai",
+      "model": "text-embedding-3-small",
+      "dimension": 1536,
+      "vector_bucket_name": "mcp-doc-pipeline-prod-s3-vectors",
+      "vector_index_name": "openai-text-embedding-3-small-1536",
+      "supported_content_kinds": ["text"],
+      "enabled": true,
+      "enable_write": true,
+      "enable_query": true
+    },
+    {
+      "profile_id": "gemini-default",
+      "provider": "gemini",
+      "model": "gemini-embedding-2-preview",
+      "dimension": 3072,
+      "vector_bucket_name": "mcp-doc-pipeline-prod-s3-vectors",
+      "vector_index_name": "google-gemini-embedding-2-preview-3072",
+      "supported_content_kinds": ["text", "image"],
+      "enabled": false,
+      "enable_write": true,
+      "enable_query": true
+    }
+  ],
+  "lambda_settings": {
+    "ingest": {
+      "memory_size": 256,
+      "timeout_seconds": 120
+    },
+    "extract_prepare": {
+      "memory_size": 256,
+      "timeout_seconds": 30
+    },
+    "extract_sync": {
+      "memory_size": 256,
+      "timeout_seconds": 120
+    },
+    "extract_submit": {
+      "memory_size": 256,
+      "timeout_seconds": 120
+    },
+    "extract_poll": {
+      "memory_size": 256,
+      "timeout_seconds": 30
+    },
+    "extract_persist": {
+      "memory_size": 256,
+      "timeout_seconds": 180
+    },
+    "extract_mark_failed": {
+      "memory_size": 256,
+      "timeout_seconds": 30
+    },
+    "embed": {
+      "memory_size": 256,
+      "timeout_seconds": 120
+    },
+    "remote_mcp": {
+      "memory_size": 256,
+      "timeout_seconds": 60
+    },
+    "backfill": {
+      "memory_size": 256,
+      "timeout_seconds": 60
+    },
+    "job_status": {
+      "memory_size": 256,
+      "timeout_seconds": 60
+    }
+  }
+}

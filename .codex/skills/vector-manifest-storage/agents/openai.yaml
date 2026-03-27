@@ -1,0 +1,4 @@
+interface:
+  display_name: "Vector Manifest Storage"
+  short_description: "Define storage boundaries across S3 Vectors, standard S3 manifest data, and DynamoDB state and index tables."
+  default_prompt: "Use $vector-manifest-storage to design or review the responsibilities of source files, S3 manifest data, Gemini embeddings, S3 Vectors, and DynamoDB."

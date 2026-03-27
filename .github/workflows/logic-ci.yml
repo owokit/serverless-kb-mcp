@@ -1,0 +1,202 @@
+# EN: Run deterministic logic checks after guardrails succeed.
+# CN: 在 guardrails 通过后运行确定性的逻辑检查。
+name: Logic CI
+
+on:
+  workflow_run:
+    workflows:
+      - Guardrails
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: logic-ci-${{ github.event.workflow_run.id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  logic-ci:
+    # EN: Only run when guardrails succeed or on manual dispatch.
+    # CN: 仅在 guardrails 成功或手动触发时运行。
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: python_quality
+            report: logic-python-quality-report.json
+          - suite: python_logic_tests
+            report: logic-python-logic-tests-report.json
+    name: Logic CI (${{ matrix.suite }})
+
+    steps:
+      # EN: Keep the repository checkout consistent with later jobs and reuse the same commit context.
+      # CN: 保持仓库检出与后续作业一致，并复用同一提交上下文。
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up runtime
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-python: ${{ matrix.suite == 'python_quality' || matrix.suite == 'python_logic_tests' }}
+
+      - name: Sync Python tools
+        if: matrix.suite == 'python_quality'
+        run: |
+          set -euo pipefail
+          uv sync --locked --project services
+
+      - name: Sync Python test tools
+        if: matrix.suite == 'python_logic_tests'
+        run: |
+          set -euo pipefail
+          uv sync --locked --project services
+
+      # EN: Keep the Python lanes split so each matrix entry has a single responsibility.
+      # CN: 将 Python 阶段拆分为独立泳道，使每个 matrix 项只负责一个职责。
+      - name: Run logic suite
+        id: suite
+        run: |
+          set -euo pipefail
+          case "${{ matrix.suite }}" in
+            python_quality)
+              uv run --project services ruff check services/ocr-pipeline/src tools/ci services/ocr-pipeline/tests
+              uv run --project services python -m compileall services/ocr-pipeline/src tools/ci services/ocr-pipeline/tests
+              ;;
+            python_logic_tests)
+              uv run --project services python -m pytest -q                 tests/core                 -m "not requires_network and not requires_aws"                 --maxfail=1
+              ;;
+            *)
+              echo "Unknown logic suite: ${{ matrix.suite }}"
+              exit 1
+              ;;
+          esac
+
+      - name: Write logic CI summary
+        if: always()
+        env:
+          LOGIC_SUITE: ${{ matrix.suite }}
+          SUITE_OUTCOME: ${{ steps.suite.outcome }}
+          REPORT_PATH: ${{ matrix.report }}
+        run: |
+          set -euo pipefail
+          uv run --no-project --no-sync python <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+
+          suite = os.environ["LOGIC_SUITE"]
+          outcome = os.environ.get("SUITE_OUTCOME", "success")
+          report_path = Path(os.environ["REPORT_PATH"])
+          commands_by_suite = {
+              "python_quality": [
+                  "uv run --project services ruff check services/ocr-pipeline/src tools/ci services/ocr-pipeline/tests",
+                  "uv run --project services python -m compileall services/ocr-pipeline/src tools/ci services/ocr-pipeline/tests",
+              ],
+              "python_logic_tests": ["uv run --project services python -m pytest -q tests/core -m 'not requires_network and not requires_aws' --maxfail=1"],
+          }
+
+          report = {
+              "workflow": "Logic CI",
+              "suite": suite,
+              "status": "passed" if outcome == "success" else "failed",
+              "summary": {
+                  "commands": commands_by_suite[suite],
+              },
+              "findings": [] if outcome == "success" else [{"message": "One or more commands in the suite failed", "severity": "high"}],
+          }
+          report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload logic report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logic-ci-${{ matrix.suite }}-report
+          path: ${{ matrix.report }}
+          if-no-files-found: error
+
+      # EN: Surface failures on the PR itself so workflow_run gates do not fail silently in the review thread.
+      # CN: 将失败直接回写到 PR，避免 workflow_run 门禁在评审线程里静默失败。
+
+  logic-ci-summary:
+    # EN: Consolidate per-suite reports into a single artifact for the contract CI gate.
+    # CN: 汇总每个 suite 的报告，供下游 Contract CI 使用。
+    needs: [logic-ci]
+    # EN: Only succeed when all matrix suites pass.
+    # CN: 仅在所有 matrix suite 都通过时成功。
+    if: ${{ always() && needs.logic-ci.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      # EN: Reassemble the per-suite reports into the single downstream artifact expected by contract CI.
+      # CN: 重新组装各个 suite 的报告，生成下游 Contract CI 期望的单一产物。
+      - name: Download logic suite reports
+        uses: actions/download-artifact@v8
+        with:
+          pattern: logic-ci-*-report
+          path: ./artifacts/logic-suites
+
+      - name: Download guardrails report
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: guardrails-*-report
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ./artifacts/guardrails
+
+      - name: Write consolidated logic report
+        run: |
+          set -euo pipefail
+          uv run --no-project --no-sync python <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          reports_root = Path("artifacts/logic-suites")
+          suite_reports = []
+          for path in sorted(reports_root.rglob("*.json")):
+              data = json.loads(path.read_text(encoding="utf-8"))
+              if isinstance(data, dict):
+                  suite_reports.append(data)
+
+          if not suite_reports:
+              raise SystemExit("No logic suite reports were found")
+
+          suite_reports.sort(key=lambda item: item.get("suite", ""))
+          report = {
+              "workflow": "Logic CI",
+              "status": "passed",
+              "guardrails_report_present": any(Path("artifacts/guardrails").rglob("*.json")),
+              "suites": suite_reports,
+          }
+          Path("logic-ci-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload logic report
+        uses: actions/upload-artifact@v7
+        with:
+          name: logic-ci-report
+          path: logic-ci-report.json
+          if-no-files-found: error

@@ -1,0 +1,158 @@
+# EN: Perform the explicit, protected production rollout via manual dispatch only.
+# CN: 仅通过手动触发执行受保护的生产发布。
+name: Prod Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to deploy
+        required: true
+        type: string
+      confirm_release_tag:
+        description: Type the release tag again to confirm deployment
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  deployments: write
+  id-token: write
+
+concurrency:
+  group: prod-deploy
+  cancel-in-progress: false
+
+jobs:
+  prod-deploy:
+    # EN: Use the production environment for deployment protection rules and secret scoping.
+    # CN: 使用 production 环境应用部署保护规则和密钥作用域。
+    environment: production
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_ROLE_TO_ASSUME: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      MCP_CDK_ASSET_DIR: ./release-assets
+
+    steps:
+      # EN: Always start from the exact commit that the operator is asking to deploy.
+      # CN: 始终从操作者要求部署的精确 commit 开始。
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # EN: Fail fast if the operator typed the wrong release tag twice.
+      # CN: 如果操作者两次输入的 release tag 不一致，就立即失败。
+      - name: Validate release tag confirmation
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.release_tag }}" != "${{ inputs.confirm_release_tag }}" ]; then
+            echo "::error::release_tag confirmation does not match"
+            exit 1
+          fi
+
+      - name: Download packaged release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "${{ inputs.release_tag }}" --dir ./release-assets --pattern '*.zip' --pattern 'package-release-report.json'
+          mkdir -p ./release-assets/layers
+          mv ./release-assets/*_layer.zip ./release-assets/layers/ 2>/dev/null || true
+
+      - name: Set up runtime
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-node: true
+
+      - name: Install CDK toolchain
+        run: |
+          set -euo pipefail
+          npm ci --prefix infra/cdk
+
+      # EN: Prefer OIDC-based AWS credentials when a role ARN is configured.
+      # CN: 当配置了 role ARN 时优先使用基于 OIDC 的 AWS 凭据。
+      - name: Configure AWS credentials via OIDC
+        if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          role-session-name: prod-deploy
+
+      # EN: Fall back to static AWS keys when OIDC is not configured.
+      # CN: 当未配置 OIDC 时回退到静态 AWS 密钥。
+      - name: Configure AWS credentials via static keys
+        if: ${{ env.AWS_ROLE_TO_ASSUME == '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' }}
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+
+      # EN: Fail immediately if no AWS credentials are available at all.
+      # CN: 如果完全没有可用的 AWS 凭据，立即失败。
+      - name: Fail when AWS credentials are not configured
+        if: ${{ env.AWS_ROLE_TO_ASSUME == '' && (env.AWS_ACCESS_KEY_ID == '' || env.AWS_SECRET_ACCESS_KEY == '') }}
+        run: |
+          set -euo pipefail
+          echo "::error::Configure either AWS_ROLE_TO_ASSUME for GitHub OIDC, or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY for static AWS credentials."
+          exit 1
+
+      - name: Resolve CDK environment
+        run: |
+          set -euo pipefail
+          echo "CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_ENV"
+          echo "CDK_DEFAULT_REGION=$AWS_REGION" >> "$GITHUB_ENV"
+
+      # EN: Verify the downloaded release manifest matches the requested tag before deploying.
+      # CN: 部署前验证下载的 release manifest 与请求的 tag 一致。
+      - name: Validate release asset manifest
+        run: |
+          set -euo pipefail
+          test -f ./release-assets/package-release-report.json
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = JSON.parse(fs.readFileSync('release-assets/package-release-report.json', 'utf8'));
+          if (report.release_tag !== process.env.RELEASE_TAG) {
+            throw new Error('Release manifest does not match the requested tag');
+          }
+          console.log(JSON.stringify(report, null, 2));
+          NODE
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+
+      # EN: Deploy the TypeScript CDK stack directly from the release artifacts.
+      # CN: 直接基于发布产物部署 TypeScript CDK 栈。
+      - name: Deploy production backend
+        run: |
+          set -euo pipefail
+          npm --prefix infra/cdk run deploy -- --all --progress events
+
+      - name: Record production deployment summary
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = {
+            workflow: 'Prod Deploy',
+            release_tag: process.env.RELEASE_TAG,
+            status: 'deployed',
+          };
+          fs.writeFileSync('prod-deploy-report.json', JSON.stringify(report, null, 2));
+          console.log(JSON.stringify(report, null, 2));
+          NODE
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+
+      - name: Upload prod deploy report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: prod-deploy-report
+          path: prod-deploy-report.json
+          if-no-files-found: warn

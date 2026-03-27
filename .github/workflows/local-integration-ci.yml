@@ -1,0 +1,585 @@
+# EN: Exercise the hosted-runner emulation stack as a first-class PR gate.
+# CN: 将本地仿真链路作为一等 PR 门禁。
+name: Local Integration CI
+
+on:
+  pull_request:
+  workflow_run:
+    workflows:
+      # EN: GitHub limits chained workflow_run depth, so this gate fans out after Logic CI.
+      # CN: GitHub 对 workflow_run 串联层级有限制，因此这个门禁改为在 Logic CI 之后分流。
+      - Logic CI
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-integration-ci-${{ github.event.workflow_run.id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-integration-ci:
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scenario: storage_roundtrip
+            report: local-integration-storage-roundtrip-report.json
+          - scenario: aws_roundtrip
+            report: local-integration-aws-roundtrip-report.json
+          - scenario: sam_job_status
+            report: local-integration-sam-job-status-report.json
+          - scenario: remote_mcp_frontdoor
+            report: local-integration-remote-mcp-report.json
+          - scenario: stepfunctions_local
+            report: local-integration-stepfunctions-report.json
+          - scenario: vector_backend
+            report: local-integration-vector-report.json
+    name: Local Integration CI (${{ matrix.scenario }})
+
+    services:
+      dynamodb:
+        image: amazon/dynamodb-local:latest
+        ports:
+          - 8000:8000
+      sqs:
+        image: softwaremill/elasticmq-native
+        ports:
+          - 9324:9324
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+
+    env:
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      TEST_AWS_REGION: us-east-1
+      TEST_S3_BUCKET: local-integration-bucket
+      TEST_OBJECT_STATE_TABLE: local-object-state
+      TEST_MANIFEST_INDEX_TABLE: local-manifest-index
+      TEST_SQS_QUEUE_NAME: local-roundtrip-queue
+      AWS_S3_ENDPOINT_URL: http://127.0.0.1:9000
+      AWS_DYNAMODB_ENDPOINT_URL: http://127.0.0.1:8000
+      AWS_SQS_ENDPOINT_URL: http://127.0.0.1:9324
+      AWS_STEPFUNCTIONS_ENDPOINT_URL: http://127.0.0.1:8083
+      QDRANT_URL: http://127.0.0.1:6333
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up runtime
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-python: true
+
+      - name: Sync local integration tools
+        run: |
+          set -euo pipefail
+          uv sync --locked --project services
+
+      - name: Start local MinIO
+        run: |
+          set -euo pipefail
+          docker run -d --rm \
+            --name minio-local \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio:latest server /data --console-address ":9001"
+
+      - name: Wait for local emulators
+        run: |
+          set -euo pipefail
+          uv run --project services python <<'PY'
+          from __future__ import annotations
+
+          import time
+          import urllib.request
+
+          from serverless_mcp.runtime.aws_clients import build_aws_client
+
+          region = "us-east-1"
+          s3 = build_aws_client("s3", region_name=region)
+          dynamodb = build_aws_client("dynamodb", region_name=region)
+          sqs = build_aws_client("sqs", region_name=region)
+
+          for attempt in range(60):
+              try:
+                  s3.list_buckets()
+                  dynamodb.list_tables()
+                  sqs.list_queues()
+                  with urllib.request.urlopen("http://127.0.0.1:6333/collections", timeout=2) as response:
+                      if response.status >= 200:
+                          break
+              except Exception:  # noqa: BLE001
+                  if attempt == 59:
+                      raise
+                  time.sleep(2)
+          PY
+
+      - name: Prepare SAM Local fixtures
+        if: matrix.scenario == 'sam_job_status' || matrix.scenario == 'remote_mcp_frontdoor'
+        run: |
+          set -euo pipefail
+          uv run --project services python <<'PY'
+          from __future__ import annotations
+
+          import json
+          import subprocess
+          from pathlib import Path
+          import sys
+
+          repo_root = Path.cwd()
+          sam_dir = repo_root / ".github" / "ci"
+          sam_dir.mkdir(parents=True, exist_ok=True)
+          staging_dir = sam_dir / "sam-local-staging"
+          subprocess.run(
+              [
+                  "uv",
+                  "pip",
+                  "install",
+                  "--target",
+                  str(staging_dir),
+                  str(repo_root / "services" / "ocr-pipeline"),
+              ],
+              check=True,
+          )
+
+          (sam_dir / "sam-job-status-template.yaml").write_text(
+              f"""AWSTemplateFormatVersion: '2010-09-09'\nTransform: AWS::Serverless-2016-10-31\nResources:\n  JobStatusHandler:\n    Type: AWS::Serverless::Function\n    Properties:\n      Runtime: python3.14\n      Handler: serverless_mcp.entrypoints.job_status.lambda_handler\n      CodeUri: {staging_dir}\n      Timeout: 30\n      MemorySize: 512\n""",
+              encoding="utf-8",
+          )
+          (sam_dir / "sam-remote-mcp-template.yaml").write_text(
+              f"""AWSTemplateFormatVersion: '2010-09-09'\nTransform: AWS::Serverless-2016-10-31\nResources:\n  RemoteMcpHandler:\n    Type: AWS::Serverless::Function\n    Properties:\n      Runtime: python3.14\n      Handler: serverless_mcp.entrypoints.remote_mcp.lambda_handler\n      CodeUri: {staging_dir}\n      Timeout: 30\n      MemorySize: 512\n""",
+              encoding="utf-8",
+          )
+          (sam_dir / "sam-empty-event.json").write_text("{}", encoding="utf-8")
+          (sam_dir / "sam-remote-mcp-event.json").write_text(
+              json.dumps(
+                  {
+                      "version": "2.0",
+                      "routeKey": "$default",
+                      "rawPath": "/",
+                      "rawQueryString": "",
+                      "headers": {
+                          "accept": "text/html",
+                          "host": "localhost",
+                      },
+                      "requestContext": {
+                          "http": {
+                              "method": "GET",
+                              "path": "/",
+                              "protocol": "HTTP/1.1",
+                              "sourceIp": "127.0.0.1",
+                              "userAgent": "sam-local",
+                          }
+                      },
+                      "isBase64Encoded": False,
+                  },
+                  ensure_ascii=False,
+                  indent=2,
+              ),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Prepare Step Functions Local fixtures
+        if: matrix.scenario == 'stepfunctions_local'
+        run: |
+          set -euo pipefail
+          uv run --project services python <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          repo_root = Path.cwd()
+          smoke_dir = repo_root / ".github" / "ci"
+          smoke_dir.mkdir(parents=True, exist_ok=True)
+
+          definition = {
+              "Comment": "Local orchestration smoke",
+              "StartAt": "LambdaState",
+              "States": {
+                  "LambdaState": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::lambda:invoke",
+                      "Parameters": {
+                          "FunctionName": "arn:aws:lambda:us-east-1:123456789012:function:local-smoke",
+                          "Payload.$": "$",
+                      },
+                      "Retry": [
+                          {
+                              "ErrorEquals": ["Lambda.TimeoutException"],
+                              "IntervalSeconds": 1,
+                              "MaxAttempts": 2,
+                              "BackoffRate": 2,
+                          }
+                      ],
+                      "Catch": [
+                          {
+                              "ErrorEquals": ["States.ALL"],
+                              "Next": "Recovered",
+                          }
+                      ],
+                      "Next": "Succeeded",
+                  },
+                  "Succeeded": {
+                      "Type": "Succeed",
+                  },
+                  "Recovered": {
+                      "Type": "Pass",
+                      "Result": {"status": "recovered"},
+                      "End": True,
+                  },
+              },
+          }
+          mock_config = {
+              "StateMachines": {
+                  "LocalOrchestrationSmoke": {
+                      "TestCases": {
+                          "HappyPath": {
+                              "LambdaState": "MockedLambdaSuccess",
+                          },
+                          "RetryPath": {
+                              "LambdaState": "MockedLambdaRetryThenSuccess",
+                          },
+                          "CatchPath": {
+                              "LambdaState": "MockedLambdaCatch",
+                          },
+                      },
+                  },
+              },
+              "MockedResponses": {
+                  "MockedLambdaSuccess": {
+                      "0": {
+                          "Return": {
+                              "StatusCode": 200,
+                              "Payload": {"statusCode": 200, "body": "ok"},
+                          }
+                      }
+                  },
+                  "MockedLambdaRetryThenSuccess": {
+                      "0": {
+                          "Throw": {
+                              "Error": "Lambda.TimeoutException",
+                              "Cause": "first timeout",
+                          }
+                      },
+                      "1": {
+                          "Return": {
+                              "StatusCode": 200,
+                              "Payload": {"statusCode": 200, "body": "ok-after-retry"},
+                          }
+                      },
+                  },
+                  "MockedLambdaCatch": {
+                      "0": {
+                          "Throw": {
+                              "Error": "Lambda.ServiceException",
+                              "Cause": "lambda service failure",
+                          }
+                      }
+                  },
+              },
+          }
+          (smoke_dir / "stepfunctions-local-definition.json").write_text(
+              json.dumps(definition, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+          (smoke_dir / "stepfunctions-local-mock.json").write_text(
+              json.dumps(mock_config, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Start Step Functions Local
+        if: matrix.scenario == 'stepfunctions_local'
+        run: |
+          set -euo pipefail
+          docker run -d --rm \
+            --name stepfunctions-local \
+            -p 8083:8083 \
+            --mount type=bind,source=${{ github.workspace }}/.github/ci/stepfunctions-local-mock.json,destination=/home/StepFunctionsLocal/MockConfigFile.json,readonly \
+            -e SFN_MOCK_CONFIG=/home/StepFunctionsLocal/MockConfigFile.json \
+            amazon/aws-stepfunctions-local
+
+      - name: Run storage roundtrip scenario
+        id: storage_roundtrip
+        if: matrix.scenario == 'storage_roundtrip'
+        run: uv run --project services python -m pytest -q services/ocr-pipeline/tests/integration/test_hosted_runner_storage_roundtrip.py --maxfail=1
+
+      - name: Run AWS roundtrip scenario
+        id: aws_roundtrip
+        if: matrix.scenario == 'aws_roundtrip'
+        run: uv run --project services python -m pytest -q services/ocr-pipeline/tests/integration/test_hosted_runner_aws_roundtrip.py --maxfail=1
+
+      - name: Run SAM job status smoke
+        id: sam_job_status
+        if: matrix.scenario == 'sam_job_status'
+        env:
+          PYTHON_SCRIPT: |
+            from pathlib import Path
+
+            output = Path("sam-local-job-status.log").read_text(encoding="utf-8")
+            if '"statusCode": 400' not in output and '"statusCode":400' not in output:
+                raise SystemExit("SAM Local smoke did not return the expected validation response")
+        run: |
+          set -euo pipefail
+          uvx --from aws-sam-cli sam local invoke JobStatusHandler \
+            -t .github/ci/sam-job-status-template.yaml \
+            -e .github/ci/sam-empty-event.json \
+            > sam-local-job-status.log
+          uv run --project services python -c "$PYTHON_SCRIPT"
+
+      - name: Run remote MCP smoke
+        id: remote_mcp_frontdoor
+        if: matrix.scenario == 'remote_mcp_frontdoor'
+        env:
+          PYTHON_SCRIPT: |
+            from pathlib import Path
+
+            output = Path("sam-local-remote-mcp.log").read_text(encoding="utf-8")
+            if '"statusCode": 200' not in output and '"statusCode":200' not in output:
+                raise SystemExit("SAM Local remote MCP smoke did not return success")
+        run: |
+          set -euo pipefail
+          uvx --from aws-sam-cli sam local invoke RemoteMcpHandler \
+            -t .github/ci/sam-remote-mcp-template.yaml \
+            -e .github/ci/sam-remote-mcp-event.json \
+            > sam-local-remote-mcp.log
+          uv run --project services python -c "$PYTHON_SCRIPT"
+
+      - name: Run Step Functions Local smoke
+        id: stepfunctions_local
+        if: matrix.scenario == 'stepfunctions_local'
+        env:
+          PYTHON_SCRIPT: |
+            from __future__ import annotations
+
+            import json
+            import time
+            from pathlib import Path
+
+            import boto3
+
+            client = boto3.client(
+                "stepfunctions",
+                region_name="us-east-1",
+                endpoint_url="http://127.0.0.1:8083",
+                aws_access_key_id="minioadmin",
+                aws_secret_access_key="minioadmin",
+            )
+
+            definition = Path(".github/ci/stepfunctions-local-definition.json").read_text(encoding="utf-8")
+            try:
+                client.delete_state_machine(stateMachineArn="arn:aws:states:us-east-1:123456789012:stateMachine:LocalOrchestrationSmoke")
+            except Exception:
+                pass
+
+            create_result = client.create_state_machine(
+                name="LocalOrchestrationSmoke",
+                roleArn="arn:aws:iam::123456789012:role/DummyRole",
+                definition=definition,
+            )
+            state_machine_arn = create_result["stateMachineArn"]
+
+            happy = client.start_execution(
+                stateMachineArn=f"{state_machine_arn}#HappyPath",
+                name="local-orchestration-happy",
+                input=json.dumps({"run": "happy"}),
+            )
+            retry = client.start_execution(
+                stateMachineArn=f"{state_machine_arn}#RetryPath",
+                name="local-orchestration-retry",
+                input=json.dumps({"run": "retry"}),
+            )
+            catch = client.start_execution(
+                stateMachineArn=f"{state_machine_arn}#CatchPath",
+                name="local-orchestration-catch",
+                input=json.dumps({"run": "catch"}),
+            )
+
+            time.sleep(2)
+            happy_history = client.get_execution_history(executionArn=happy["executionArn"])
+            retry_history = client.get_execution_history(executionArn=retry["executionArn"])
+            catch_history = client.get_execution_history(executionArn=catch["executionArn"])
+
+            if happy_history["events"][-1]["type"] != "ExecutionSucceeded":
+                raise SystemExit("HappyPath did not succeed")
+            if retry_history["events"][-1]["type"] != "ExecutionSucceeded":
+                raise SystemExit("RetryPath did not succeed")
+            if catch_history["events"][-1]["type"] != "ExecutionSucceeded":
+                raise SystemExit("CatchPath did not succeed")
+            if not any(event.get("stateEnteredEventDetails", {}).get("name") == "Recovered" for event in catch_history["events"]):
+                raise SystemExit("CatchPath did not reach the recovered branch")
+        run: uv run --project services python -c "$PYTHON_SCRIPT"
+
+      - name: Run vector backend smoke
+        id: vector_backend
+        if: matrix.scenario == 'vector_backend'
+        env:
+          PYTHON_SCRIPT: |
+            from __future__ import annotations
+
+            import json
+            import urllib.request
+
+            collection = {
+                "vectors": {
+                    "size": 3,
+                    "distance": "Cosine",
+                }
+            }
+            request = urllib.request.Request(
+                "http://127.0.0.1:6333/collections/local-smoke",
+                data=json.dumps(collection).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="PUT",
+            )
+            with urllib.request.urlopen(request, timeout=10) as response:
+                if response.status not in {200, 201}:
+                    raise SystemExit("Failed to create qdrant collection")
+
+            with urllib.request.urlopen("http://127.0.0.1:6333/collections/local-smoke", timeout=10) as response:
+                if response.status != 200:
+                    raise SystemExit("Failed to read qdrant collection")
+        run: uv run --project services python -c "$PYTHON_SCRIPT"
+
+      - name: Collect local integration report
+        if: always()
+        env:
+          SCENARIO_NAME: ${{ matrix.scenario }}
+          SCENARIO_OUTCOME: ${{ steps.storage_roundtrip.outcome || steps.aws_roundtrip.outcome || steps.sam_job_status.outcome || steps.remote_mcp_frontdoor.outcome || steps.stepfunctions_local.outcome || steps.vector_backend.outcome }}
+          REPORT_PATH: ${{ matrix.report }}
+        run: |
+          set -euo pipefail
+          uv run --project services python <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+
+          scenario = os.environ["SCENARIO_NAME"]
+          outcome = os.environ.get("SCENARIO_OUTCOME", "success")
+          report_path = Path(os.environ["REPORT_PATH"])
+          artifacts_by_scenario = {
+              "storage_roundtrip": [],
+              "aws_roundtrip": [],
+              "sam_job_status": [
+                  ".github/ci/sam-local-staging",
+                  ".github/ci/sam-job-status-template.yaml",
+                  ".github/ci/sam-empty-event.json",
+                  "sam-local-job-status.log",
+              ],
+              "remote_mcp_frontdoor": [
+                  ".github/ci/sam-local-staging",
+                  ".github/ci/sam-remote-mcp-template.yaml",
+                  ".github/ci/sam-remote-mcp-event.json",
+                  "sam-local-remote-mcp.log",
+              ],
+              "stepfunctions_local": [
+                  ".github/ci/stepfunctions-local-definition.json",
+                  ".github/ci/stepfunctions-local-mock.json",
+              ],
+              "vector_backend": [],
+          }
+          report = {
+              "workflow": "Local Integration CI",
+              "scenario": scenario,
+              "status": "passed" if outcome == "success" else "failed",
+              "artifacts": artifacts_by_scenario[scenario],
+          }
+          report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Stop local MinIO
+        if: always()
+        run: |
+          set -euo pipefail
+          docker rm -f minio-local >/dev/null 2>&1 || true
+
+      - name: Upload local integration report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-integration-ci-${{ matrix.scenario }}-report
+          path: ${{ matrix.report }}
+          if-no-files-found: error
+
+      - name: Stop Step Functions Local
+        if: always() && matrix.scenario == 'stepfunctions_local'
+        run: |
+          set -euo pipefail
+          docker rm -f stepfunctions-local >/dev/null 2>&1 || true
+
+
+  local-integration-summary:
+    needs: [local-integration-ci]
+    if: ${{ always() && needs.local-integration-ci.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+
+    steps:
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Download scenario reports
+        uses: actions/download-artifact@v8
+        with:
+          pattern: local-integration-ci-*-report
+          path: ./artifacts/local-integration
+
+      - name: Write consolidated local integration report
+        run: |
+          set -euo pipefail
+          uv run --no-project python <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          reports_root = Path("artifacts/local-integration")
+          scenario_reports = []
+          for path in sorted(reports_root.rglob("*.json")):
+              data = json.loads(path.read_text(encoding="utf-8"))
+              if isinstance(data, dict):
+                  scenario_reports.append(data)
+
+          if not scenario_reports:
+              raise SystemExit("No local integration scenario reports were found")
+
+          scenario_reports.sort(key=lambda item: item.get("scenario", ""))
+          report = {
+              "workflow": "Local Integration CI",
+              "status": "passed",
+              "scenarios": scenario_reports,
+          }
+          Path("local-integration-ci-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+          print(json.dumps(report, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload consolidated report
+        uses: actions/upload-artifact@v7
+        with:
+          name: local-integration-ci-report
+          path: local-integration-ci-report.json
+          if-no-files-found: error

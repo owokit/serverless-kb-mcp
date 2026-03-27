@@ -1,0 +1,7 @@
+{
+  "app": "npx ts-node --project infra/cdk/tsconfig.json infra/cdk/bin/app.ts",
+  "context": {
+    "artifactDir": "services/ocr-pipeline/dist",
+    "configPath": "pipeline-config.json"
+  }
+}

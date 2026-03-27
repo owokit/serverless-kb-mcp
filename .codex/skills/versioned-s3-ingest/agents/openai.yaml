@@ -1,0 +1,4 @@
+interface:
+  display_name: "Versioned S3 Ingest"
+  short_description: "Handle S3 Versioning, event-driven ingest entrypoints, idempotency, and object_state progression boundaries."
+  default_prompt: "Use $versioned-s3-ingest to design or review the version-aware S3 ingest entrypoint, idempotency flow, and object_state rules."

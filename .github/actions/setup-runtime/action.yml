@@ -1,0 +1,92 @@
+name: Setup CI Runtime
+description: Set up the repository's pinned Node.js and Python toolchains from one shared config file.
+
+inputs:
+  setup-node:
+    description: Set to true to install the pinned Node.js runtime.
+    required: false
+    default: "false"
+  setup-python:
+    description: Set to true to install the pinned Python runtime.
+    required: false
+    default: "false"
+  config-path:
+    description: Path to the shared CI runtime config file.
+    required: false
+    default: .github/config/ci-runtime.json
+  node-version:
+    description: Optional override for the Node.js version.
+    required: false
+    default: ""
+  python-version:
+    description: Optional override for the Python version.
+    required: false
+    default: ""
+
+outputs:
+  node-version:
+    description: The pinned Node.js version resolved by the shared config.
+    value: ${{ steps.runtime-config.outputs.node_version }}
+  python-version:
+    description: The pinned Python version resolved by the shared config.
+    value: ${{ steps.runtime-config.outputs.python_version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Load runtime config
+      id: runtime-config
+      shell: bash
+      env:
+        CONFIG_PATH: ${{ inputs.config-path }}
+        NODE_VERSION_OVERRIDE: ${{ inputs.node-version }}
+        PYTHON_VERSION_OVERRIDE: ${{ inputs.python-version }}
+      run: |
+        set -euo pipefail
+        python3 <<'PY' >> "$GITHUB_OUTPUT"
+        from __future__ import annotations
+
+        import json
+        import os
+        from pathlib import Path
+
+        config_path = Path(os.environ["CONFIG_PATH"])
+        if not config_path.is_file():
+            raise SystemExit(f"Missing CI runtime config: {config_path}")
+
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        node = config.get("node") or {}
+        python = config.get("python") or {}
+
+        node_version = os.environ.get("NODE_VERSION_OVERRIDE") or str(node.get("version", "")).strip()
+        python_version = os.environ.get("PYTHON_VERSION_OVERRIDE") or str(python.get("version", "")).strip()
+        node_cache = str(node.get("cache", "npm")).strip() or "npm"
+
+        if not node_version:
+            raise SystemExit("Missing pinned Node.js version in CI runtime config")
+        if not python_version:
+            raise SystemExit("Missing pinned Python version in CI runtime config")
+
+        print(f"node_version={node_version}")
+        print(f"python_version={python_version}")
+        print(f"node_cache={node_cache}")
+        PY
+
+    - name: Set up uv
+      if: ${{ inputs.setup-python == 'true' }}
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Node.js
+      if: ${{ inputs.setup-node == 'true' }}
+      uses: actions/setup-node@v6
+      with:
+        node-version: ${{ steps.runtime-config.outputs.node_version }}
+        cache: ${{ steps.runtime-config.outputs.node_cache }}
+
+    - name: Set up Python
+      if: ${{ inputs.setup-python == 'true' }}
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ steps.runtime-config.outputs.python_version }}
