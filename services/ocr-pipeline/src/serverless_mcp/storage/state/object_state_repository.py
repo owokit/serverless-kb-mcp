@@ -156,7 +156,7 @@ class ObjectStateRepository:
                 ),
             )
         except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            if _is_duplicate_or_stale_dynamodb_error(exc):
                 raise DuplicateOrStaleEventError(source.document_uri) from exc
             raise
 
@@ -312,7 +312,7 @@ class ObjectStateRepository:
                 ),
             )
         except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            if _is_duplicate_or_stale_dynamodb_error(exc):
                 raise DuplicateOrStaleEventError(source.document_uri) from exc
             raise
 
@@ -574,7 +574,7 @@ class ObjectStateRepository:
                 ),
             )
         except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            if _is_duplicate_or_stale_dynamodb_error(exc):
                 raise DuplicateOrStaleEventError(f"s3://{bucket}/{key}?versionId={version_id}") from exc
             raise
 
@@ -843,7 +843,7 @@ class ObjectStateRepository:
                 ),
             )
         except ClientError as exc:
-            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+            if _is_duplicate_or_stale_dynamodb_error(exc):
                 raise DuplicateOrStaleEventError(source.document_uri) from exc
             raise
 
@@ -1116,6 +1116,28 @@ def _prefer_lookup_record(candidate: ObjectStateLookupRecord, current: ObjectSta
     if candidate_is_legacy != current_is_legacy:
         return not candidate_is_legacy
     return candidate.updated_at >= current.updated_at
+
+
+def _is_duplicate_or_stale_dynamodb_error(exc: ClientError) -> bool:
+    """
+    EN: Recognize duplicate/stale conditional write failures, including transactional wrappers.
+    CN: 识别重复/过期导致的条件写失败，也兼容事务包装后的异常。
+    """
+    error = exc.response.get("Error", {})
+    code = error.get("Code")
+    if code == "ConditionalCheckFailedException":
+        return True
+    if code != "TransactionCanceledException":
+        return False
+
+    cancellation_reasons = exc.response.get("CancellationReasons")
+    if isinstance(cancellation_reasons, list):
+        for reason in cancellation_reasons:
+            if isinstance(reason, dict) and reason.get("Code") == "ConditionalCheckFailed":
+                return True
+
+    message = error.get("Message")
+    return isinstance(message, str) and "ConditionalCheckFailed" in message
 
 
 def _is_legacy_lookup_pk(pk: str) -> bool:
