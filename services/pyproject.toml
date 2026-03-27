@@ -1,5 +1,5 @@
 [project]
-name = "serverless-ocr-s3vectors-mcp"
+name = "serverless-kb-mcp"
 version = "0.1.0"
 description = "Workspace root for the serverless OCR to S3 Vectors pipeline."
 requires-python = ">=3.12"

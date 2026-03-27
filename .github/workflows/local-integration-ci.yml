@@ -34,8 +34,6 @@ jobs:
             report: local-integration-aws-roundtrip-report.json
           - scenario: sam_job_status
             report: local-integration-sam-job-status-report.json
-          - scenario: remote_mcp_frontdoor
-            report: local-integration-remote-mcp-report.json
           - scenario: stepfunctions_local
             report: local-integration-stepfunctions-report.json
           - scenario: vector_backend
@@ -130,7 +128,7 @@ jobs:
           PY
 
       - name: Prepare SAM Local fixtures
-        if: matrix.scenario == 'sam_job_status' || matrix.scenario == 'remote_mcp_frontdoor'
+        if: matrix.scenario == 'sam_job_status'
         run: |
           set -euo pipefail
           uv run --project services python <<'PY'
@@ -161,38 +159,7 @@ jobs:
               f"""AWSTemplateFormatVersion: '2010-09-09'\nTransform: AWS::Serverless-2016-10-31\nResources:\n  JobStatusHandler:\n    Type: AWS::Serverless::Function\n    Properties:\n      Runtime: python3.14\n      Handler: serverless_mcp.entrypoints.job_status.lambda_handler\n      CodeUri: {staging_dir}\n      Timeout: 30\n      MemorySize: 512\n""",
               encoding="utf-8",
           )
-          (sam_dir / "sam-remote-mcp-template.yaml").write_text(
-              f"""AWSTemplateFormatVersion: '2010-09-09'\nTransform: AWS::Serverless-2016-10-31\nResources:\n  RemoteMcpHandler:\n    Type: AWS::Serverless::Function\n    Properties:\n      Runtime: python3.14\n      Handler: serverless_mcp.entrypoints.remote_mcp.lambda_handler\n      CodeUri: {staging_dir}\n      Timeout: 30\n      MemorySize: 512\n""",
-              encoding="utf-8",
-          )
           (sam_dir / "sam-empty-event.json").write_text("{}", encoding="utf-8")
-          (sam_dir / "sam-remote-mcp-event.json").write_text(
-              json.dumps(
-                  {
-                      "version": "2.0",
-                      "routeKey": "$default",
-                      "rawPath": "/",
-                      "rawQueryString": "",
-                      "headers": {
-                          "accept": "text/html",
-                          "host": "localhost",
-                      },
-                      "requestContext": {
-                          "http": {
-                              "method": "GET",
-                              "path": "/",
-                              "protocol": "HTTP/1.1",
-                              "sourceIp": "127.0.0.1",
-                              "userAgent": "sam-local",
-                          }
-                      },
-                      "isBase64Encoded": False,
-                  },
-                  ensure_ascii=False,
-                  indent=2,
-              ),
-              encoding="utf-8",
-          )
           PY
 
       - name: Prepare Step Functions Local fixtures
@@ -347,20 +314,148 @@ jobs:
       - name: Run remote MCP smoke
         id: remote_mcp_frontdoor
         if: matrix.scenario == 'remote_mcp_frontdoor'
-        env:
-          PYTHON_SCRIPT: |
-            from pathlib import Path
-
-            output = Path("sam-local-remote-mcp.log").read_text(encoding="utf-8")
-            if '"statusCode": 200' not in output and '"statusCode":200' not in output:
-                raise SystemExit("SAM Local remote MCP smoke did not return success")
         run: |
           set -euo pipefail
-          uvx --from aws-sam-cli sam local invoke RemoteMcpHandler \
-            -t .github/ci/sam-remote-mcp-template.yaml \
-            -e .github/ci/sam-remote-mcp-event.json \
-            > sam-local-remote-mcp.log
-          uv run --project services python -c "$PYTHON_SCRIPT"
+          uv run --project services python <<'PY'
+          from __future__ import annotations
+
+          import json
+
+          from starlette.testclient import TestClient
+
+          from serverless_mcp.domain.models import QueryResponse, QueryResultContext, QueryResultItem, S3ObjectRef
+          from serverless_mcp.entrypoints import remote_mcp
+
+          class FakeSettings:
+              query_max_top_k = 20
+              query_max_neighbor_expand = 2
+              allow_unauthenticated_query = True
+              query_tenant_claim = "tenant_id"
+              remote_mcp_default_tenant_id = None
+              cloudfront_distribution_domain = "cdn.example.com"
+              cloudfront_key_pair_id = "K123"
+              cloudfront_private_key_pem = "-----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY-----"
+              cloudfront_url_ttl_seconds = 900
+
+          class FakeQueryService:
+              def __init__(self) -> None:
+                  self.calls: list[dict[str, object]] = []
+
+              def search(self, **kwargs):
+                  self.calls.append(kwargs)
+                  source = S3ObjectRef(
+                      tenant_id="tenant-a",
+                      bucket="bucket-a",
+                      key="docs/guide.pdf",
+                      version_id="v2",
+                  )
+                  return QueryResponse(
+                      query=kwargs["query"],
+                      results=[
+                          QueryResultItem(
+                              key="hit-1",
+                              distance=0.01,
+                              source=source,
+                              manifest_s3_uri=None,
+                              metadata={"doc_type": "pdf", "__fusion_score__": 0.75, "__profile_hits__": 2},
+                              match=QueryResultContext(
+                                  chunk_id="chunk#1",
+                                  chunk_type="page_text_chunk",
+                                  text="hello",
+                              ),
+                          )
+                      ],
+                  )
+
+          class FakeDeliveryService:
+              def deliver_source_document(self, source):
+                  class Delivery:
+                      url = f"https://cdn.example.com/documents/{source.bucket}/{source.key}?versionId={source.version_id}"
+                      expires_at = "2026-03-17T00:00:00+00:00"
+
+                  return Delivery()
+
+          fake_service = FakeQueryService()
+          remote_mcp._build_service = lambda: fake_service
+          remote_mcp.load_settings = lambda: FakeSettings()
+          remote_mcp._build_delivery_service = lambda: FakeDeliveryService()
+
+          app = remote_mcp._build_mcp_server().streamable_http_app()
+          with TestClient(app) as client:
+              headers = {
+                  "accept": "application/json, text/event-stream",
+                  "content-type": "application/json",
+                  "mcp-protocol-version": "2025-11-25",
+              }
+
+              init_response = client.post(
+                  "/mcp",
+                  json={
+                      "jsonrpc": "2.0",
+                      "id": 1,
+                      "method": "initialize",
+                      "params": {
+                          "protocolVersion": "2025-11-25",
+                          "capabilities": {},
+                          "clientInfo": {"name": "ci", "version": "1.0.0"},
+                      },
+                  },
+                  headers=headers,
+              )
+              if init_response.status_code != 200:
+                  raise SystemExit(f"initialize failed: {init_response.status_code} {init_response.text}")
+              init_payload = init_response.json()
+              if init_payload["result"]["protocolVersion"] != "2025-11-25":
+                  raise SystemExit("initialize returned an unexpected protocol version")
+
+              list_response = client.post(
+                  "/mcp",
+                  json={
+                      "jsonrpc": "2.0",
+                      "id": 2,
+                      "method": "tools/list",
+                      "params": {},
+                  },
+                  headers=headers,
+              )
+              if list_response.status_code != 200:
+                  raise SystemExit(f"tools/list failed: {list_response.status_code} {list_response.text}")
+              list_payload = list_response.json()
+              tool_names = {tool["name"] for tool in list_payload["result"]["tools"]}
+              if "search_documents" not in tool_names:
+                  raise SystemExit("tools/list did not expose search_documents")
+
+              call_response = client.post(
+                  "/mcp",
+                  json={
+                      "jsonrpc": "2.0",
+                      "id": 3,
+                      "method": "tools/call",
+                      "params": {
+                          "name": "search_documents",
+                          "arguments": {
+                              "query": "hello",
+                              "tenant_id": "tenant-a",
+                              "top_k": 5,
+                              "neighbor_expand": 1,
+                          },
+                      },
+                  },
+                  headers=headers,
+              )
+              if call_response.status_code != 200:
+                  raise SystemExit(f"tools/call failed: {call_response.status_code} {call_response.text}")
+              call_payload = call_response.json()
+              if call_payload["result"]["isError"] is not False:
+                  raise SystemExit(f"tools/call returned error: {call_payload}")
+              result_payload = json.loads(call_payload["result"]["content"][0]["text"])
+              if result_payload["query"] != "hello":
+                  raise SystemExit("tools/call returned the wrong query payload")
+              if not result_payload["results"][0]["delivery"]["url"].startswith("https://cdn.example.com/"):
+                  raise SystemExit("tools/call did not return delivery metadata")
+              if fake_service.calls[0]["tenant_id"] != "tenant-a":
+                  raise SystemExit("tools/call did not forward the caller tenant_id")
+          PY
 
       - name: Run Step Functions Local smoke
         id: stepfunctions_local

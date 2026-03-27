@@ -96,9 +96,9 @@ jobs:
           release_tag="${{ inputs.release_tag }}"
           if [ -z "$release_tag" ]; then
             if [ "${GITHUB_EVENT_NAME}" = "workflow_run" ] && [ "$source_branch" = "main" ]; then
-              release_tag="extract-worker-${source_sha}"
+              release_tag="serverless-mcp-${source_sha}"
             else
-              release_tag="extract-worker-manual-${GITHUB_RUN_NUMBER}"
+              release_tag="serverless-mcp-manual-${GITHUB_RUN_NUMBER}"
             fi
           fi
 

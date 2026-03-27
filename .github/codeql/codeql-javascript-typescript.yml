@@ -1,4 +1,4 @@
-name: serverless-ocr-s3vectors-mcp-codeql-javascript-typescript
+name: serverless-kb-mcp-codeql-javascript-typescript
 
 # EN: Restrict JavaScript/TypeScript CodeQL analysis to the repository areas that actually contain JS/TS code.
 # CN: 将 JavaScript/TypeScript CodeQL 分析限制在仓库里真正包含 JS/TS 代码的区域。

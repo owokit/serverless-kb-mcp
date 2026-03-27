@@ -1,6 +1,6 @@
 {
   "name_prefix": "mcp-doc-pipeline-prod",
-  "repo_name": "serverless-ocr-s3vectors-mcp",
+  "repo_name": "serverless-kb-mcp",
   "defaults": {
     "runtime": "python3.14",
     "architecture": "x86_64",

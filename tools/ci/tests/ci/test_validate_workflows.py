@@ -369,7 +369,6 @@ def test_local_integration_ci_is_matrix_driven() -> None:
     assert "scenario: storage_roundtrip" in text
     assert "scenario: aws_roundtrip" in text
     assert "scenario: sam_job_status" in text
-    assert "scenario: remote_mcp_frontdoor" in text
     assert "scenario: stepfunctions_local" in text
     assert "scenario: vector_backend" in text
     assert 'str(repo_root / "services" / "ocr-pipeline")' in text

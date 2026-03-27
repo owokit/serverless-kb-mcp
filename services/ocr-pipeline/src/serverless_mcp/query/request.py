@@ -10,11 +10,18 @@ from serverless_mcp.core.serialization import coerce_bounded_int, coerce_require
 from serverless_mcp.runtime.config import Settings, load_settings
 
 
+class TenantIdConflictError(PermissionError):
+    """
+    EN: Raised when an authenticated tenant disagrees with a caller-supplied tenant_id.
+    CN: 当已认证租户与调用方显式传入的 tenant_id 不一致时抛出。
+    """
+
+
 @dataclass(frozen=True, slots=True)
 class RemoteQueryRequest:
     """
     EN: Normalized query request resolved from MCP parameters and application settings.
-    CN: 从 MCP 参数和应用设置解析得到的规范化查询请求。
+    CN: 由 MCP 参数和应用设置解析得到的规范化查询请求。
     """
 
     query: str
@@ -61,16 +68,27 @@ def build_remote_query_request(
 
 def _resolve_tenant_id(tenant_id: str | None, *, request_tenant_id: str | None, settings: Settings) -> str:
     """
-    EN: Resolve tenant_id from the explicit request, authenticated claims, or an opt-in anonymous default.
-    CN: 从显式请求、已认证声明或显式启用的匿名默认值中解析 tenant_id。
+    EN: Bind the query tenant to the authenticated claim when present and only permit matching caller overrides.
+    CN: 当认证声明存在时，将查询租户绑定到认证租户，并且只允许与之相同的调用方覆盖值。
 
-    EN: Anonymous fallback is only honored when allow_unauthenticated_query is true and the configured default is not the shared lookup tenant.
-    CN: 只有在 allow_unauthenticated_query 为 true 且配置的默认值不是共享 lookup tenant 时，才接受匿名回退。
+    EN: Anonymous fallback is only honored when unauthenticated queries are explicitly enabled and the configured default is not the shared lookup tenant.
+    CN: 只有在显式启用匿名查询且配置的默认值不是共享 lookup tenant 时，才接受匿名回退。
     """
-    if isinstance(tenant_id, str) and tenant_id.strip():
-        return tenant_id.strip()
-    if isinstance(request_tenant_id, str) and request_tenant_id.strip():
-        return request_tenant_id.strip()
+    explicit_tenant_id = tenant_id.strip() if isinstance(tenant_id, str) and tenant_id.strip() else None
+    authenticated_tenant_id = (
+        request_tenant_id.strip() if isinstance(request_tenant_id, str) and request_tenant_id.strip() else None
+    )
+
+    if authenticated_tenant_id:
+        if explicit_tenant_id and explicit_tenant_id != authenticated_tenant_id:
+            raise TenantIdConflictError("tenant_id must match the authenticated request tenant")
+        return authenticated_tenant_id
+
+    if explicit_tenant_id:
+        if settings.allow_unauthenticated_query:
+            return explicit_tenant_id
+        raise PermissionError("tenant_id requires an authenticated request or unauthenticated query mode")
+
     if settings.allow_unauthenticated_query:
         default_tenant_id = (settings.remote_mcp_default_tenant_id or "").strip()
         if default_tenant_id and default_tenant_id != "lookup":

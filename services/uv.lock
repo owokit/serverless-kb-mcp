@@ -1518,6 +1518,31 @@ wheels = [
 ]
 
 [[package]]
+name = "serverless-kb-mcp"
+version = "0.1.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "serverless-mcp-service" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pip-audit" },
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "serverless-mcp-service", editable = "ocr-pipeline" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pip-audit", specifier = ">=2.9.0" },
+    { name = "pytest", specifier = ">=8.3.5" },
+    { name = "ruff", specifier = ">=0.12.0" },
+]
+
+[[package]]
 name = "serverless-mcp-service"
 version = "0.1.0"
 source = { editable = "ocr-pipeline" }
@@ -1562,31 +1587,6 @@ requires-dist = [
     { name = "tiktoken", specifier = ">=0.7.0" },
 ]
 provides-extras = ["dev"]
-
-[[package]]
-name = "serverless-ocr-s3vectors-mcp"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "serverless-mcp-service" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pip-audit" },
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "serverless-mcp-service", editable = "ocr-pipeline" }]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pip-audit", specifier = ">=2.9.0" },
-    { name = "pytest", specifier = ">=8.3.5" },
-    { name = "ruff", specifier = ">=0.12.0" },
-]
 
 [[package]]
 name = "six"

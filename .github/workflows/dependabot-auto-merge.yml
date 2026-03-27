@@ -13,7 +13,7 @@ jobs:
     # EN: Limit auto-merge to Dependabot PRs targeting the main branch in this repository.
     # CN: 仅允许本仓库中目标分支为 main 的 Dependabot PR 自动合并。
     runs-on: ubuntu-latest
-    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'owokit/serverless-ocr-s3vectors-mcp' && github.event.pull_request.base.ref == 'main'
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'owokit/serverless-kb-mcp' && github.event.pull_request.base.ref == 'main'
     steps:
       # EN: Merge the Dependabot PR with auto-merge once the policy gate has already passed.
       # CN: 在策略门禁已经通过后，为 Dependabot PR 开启自动合并。

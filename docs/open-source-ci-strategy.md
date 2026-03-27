@@ -13,7 +13,7 @@
 
 当前默认门禁链如下：
 
-`Workflow Sanity -> Guardrails -> Logic CI -> Contract CI -> Local Integration CI -> Package Release`
+`Workflow Sanity -> Guardrails -> Logic CI -> Contract CI -> Local Integration CI`
 
 其中：
 
@@ -90,7 +90,7 @@
 
 ### `codeql.yml`
 
-- 展示名：`CodeQL JavaScript / TypeScript`
+- 展示名：`CodeQL JavaScript / TypeScript / Python`
 - 触发：`pull_request`、`push`、`schedule`、`workflow_dispatch`
 - 职责：静态安全分析
 

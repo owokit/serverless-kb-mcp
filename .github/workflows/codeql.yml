@@ -1,6 +1,6 @@
-# EN: Run CodeQL on the repository's JavaScript and TypeScript sources.
-# CN: 在仓库的 JavaScript 和 TypeScript 源码上运行 CodeQL。
-name: CodeQL JavaScript / TypeScript
+# EN: Run CodeQL on the repository's JavaScript, TypeScript, and Python sources.
+# CN: 在仓库的 JavaScript、TypeScript 和 Python 源码上运行 CodeQL。
+name: CodeQL JavaScript / TypeScript / Python
 
 on:
   pull_request:
@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  analyze:
+  analyze-js-ts:
     # EN: Keep the CodeQL job scoped to a single analyzer lane for easy triage.
     # CN: 将 CodeQL 作业限制为单一分析泳道，便于排查。
     name: Analyze JS/TS
@@ -42,6 +42,33 @@ jobs:
         with:
           languages: javascript-typescript
           config-file: ./.github/codeql/codeql-javascript-typescript.yml
+
+      # EN: Finalize the analysis and publish results to Code Scanning.
+      # CN: 完成分析并将结果发布到 Code Scanning。
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+
+  analyze-python:
+    # EN: Mirror the JS/TS lane with a Python-specific CodeQL pass for the service workspace.
+    # CN: 以 Python 专用的 CodeQL 扫描补齐服务工作区，与 JS/TS 泳道保持一致。
+    name: Analyze Python
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # EN: Analyze the exact revision under review so alerts point at the same source reviewers can inspect.
+      # CN: 分析当前审核中的精确修订，确保告警指向审阅者能检查的同一份源码。
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # EN: Initialize CodeQL for Python without a repo-specific config file so the service tree is fully covered.
+      # CN: 为 Python 初始化 CodeQL，不使用仓库专属配置文件，从而覆盖完整的服务目录。
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: python
 
       # EN: Finalize the analysis and publish results to Code Scanning.
       # CN: 完成分析并将结果发布到 Code Scanning。
