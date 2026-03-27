@@ -22,6 +22,7 @@ export interface PipelineRoleParams {
   embedQueue: sqs.Queue;
   ingestQueue: sqs.Queue;
   objectStateTable: dynamodb.Table;
+  executionStateTable: dynamodb.Table;
   manifestIndexTable: dynamodb.Table;
   embeddingProjectionStateTable: dynamodb.Table;
 }
@@ -76,6 +77,10 @@ function attachLambdaDataPlanePolicy(
         resources: [params.objectStateTable.tableArn],
       }),
       new iam.PolicyStatement({
+        actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
+        resources: [params.executionStateTable.tableArn],
+      }),
+      new iam.PolicyStatement({
         actions: ['dynamodb:Query', 'dynamodb:DescribeTable'],
         resources: [params.manifestIndexTable.tableArn],
       }),
@@ -99,6 +104,10 @@ function attachLambdaDataPlanePolicy(
         resources: [params.objectStateTable.tableArn],
       }),
       new iam.PolicyStatement({
+        actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
+        resources: [params.executionStateTable.tableArn],
+      }),
+      new iam.PolicyStatement({
         actions: ['dynamodb:Query', 'dynamodb:DescribeTable'],
         resources: [params.manifestIndexTable.tableArn],
       }),
@@ -116,6 +125,10 @@ function attachLambdaDataPlanePolicy(
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:Scan', 'dynamodb:DescribeTable'],
         resources: [params.objectStateTable.tableArn],
+      }),
+      new iam.PolicyStatement({
+        actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
+        resources: [params.executionStateTable.tableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:Query', 'dynamodb:DescribeTable'],
@@ -139,6 +152,10 @@ function attachLambdaDataPlanePolicy(
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:TransactWriteItems', 'dynamodb:UpdateItem', 'dynamodb:DescribeTable'],
         resources: [params.objectStateTable.tableArn],
+      }),
+      new iam.PolicyStatement({
+        actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
+        resources: [params.executionStateTable.tableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:Query', 'dynamodb:DescribeTable'],
@@ -176,6 +193,10 @@ function attachLambdaDataPlanePolicy(
         resources: [params.objectStateTable.tableArn],
       }),
       new iam.PolicyStatement({
+        actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DescribeTable'],
+        resources: [params.executionStateTable.tableArn],
+      }),
+      new iam.PolicyStatement({
         actions: ['dynamodb:BatchWriteItem', 'dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:DescribeTable'],
         resources: [params.manifestIndexTable.tableArn],
       }),
@@ -197,6 +218,10 @@ function attachLambdaDataPlanePolicy(
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:BatchWriteItem', 'dynamodb:DeleteItem', 'dynamodb:Query', 'dynamodb:TransactWriteItems', 'dynamodb:UpdateItem', 'dynamodb:DescribeTable'],
         resources: [params.objectStateTable.tableArn],
+      }),
+      new iam.PolicyStatement({
+        actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DescribeTable'],
+        resources: [params.executionStateTable.tableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:BatchWriteItem', 'dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:DescribeTable'],

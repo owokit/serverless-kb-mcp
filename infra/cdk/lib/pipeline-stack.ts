@@ -36,6 +36,7 @@ export class PipelineStack extends cdk.Stack {
       embedQueue: foundation.embedQueue,
       ingestQueue: foundation.ingestQueue,
       objectStateTable: foundation.objectStateTable,
+      executionStateTable: foundation.executionStateTable,
       manifestIndexTable: foundation.manifestIndexTable,
       embeddingProjectionStateTable: foundation.embeddingProjectionStateTable,
     });
