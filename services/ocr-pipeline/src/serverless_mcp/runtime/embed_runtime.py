@@ -9,7 +9,6 @@ from serverless_mcp.embed.asset_source import EmbedAssetSource
 from serverless_mcp.embed.backfill import EmbeddingBackfillService
 from serverless_mcp.embed.dispatcher import EmbeddingJobDispatcher
 from serverless_mcp.embed.vector_repository import S3VectorRepository
-from serverless_mcp.extract.application import ExtractionService
 from serverless_mcp.runtime.bootstrap import build_runtime_context
 from serverless_mcp.runtime.config import Settings
 from serverless_mcp.runtime.embedding_profiles import build_embedding_clients, get_write_profiles
@@ -73,6 +72,8 @@ def build_backfill_service(settings: Settings | None = None) -> EmbeddingBackfil
     EN: Build the historical embedding backfill service.
     CN: 构建历史 embedding 回填服务。
     """
+    from serverless_mcp.extract.application import ExtractionService
+
     runtime_context = build_runtime_context(settings=settings)
     active_settings = runtime_context.settings
     if not active_settings.embed_queue_url:

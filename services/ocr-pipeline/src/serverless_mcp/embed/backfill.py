@@ -5,16 +5,19 @@ CN: 历史 embedding 重新分发服务，用于使用新的 embedding profile �
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from botocore.exceptions import ClientError
 
 from serverless_mcp.embed.dispatcher import EmbeddingJobDispatcher, build_jobs_for_profiles
-from serverless_mcp.extract.application import ExtractionService
 from serverless_mcp.domain.models import EmbeddingProfile, S3ObjectRef
 from serverless_mcp.storage.projection.repository import EmbeddingProjectionStateRepository
 from serverless_mcp.storage.state.execution_state_repository import ExecutionStateRepository
 from serverless_mcp.storage.manifest.repository import ManifestRepository
 from serverless_mcp.storage.state.object_state_repository import ObjectStateRepository, ObjectStateLookupRecord
+
+if TYPE_CHECKING:
+    from serverless_mcp.extract.application import ExtractionService
 
 
 _BACKFILL_FAILURE_TYPES = (ClientError, KeyError, OSError, RuntimeError, TypeError, ValueError)
