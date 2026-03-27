@@ -1,0 +1,17 @@
+name: serverless-kb-mcp-codeql-python
+
+# EN: Restrict Python CodeQL analysis to the core service area and high-value attack surface.
+# CN: 将 Python CodeQL 分析限制在核心服务区域和高价值攻击面。
+paths:
+  - "services/ocr-pipeline/src/serverless_mcp"
+  - "tools/packaging/serverless_mcp"
+
+# EN: Skip test-only, generated, and documentation paths to keep alerts actionable.
+# CN: 跳过纯测试、生成物和文档路径，让告警更聚焦可行动代码。
+paths-ignore:
+  - "**/tests"
+  - "**/__pycache__"
+  - "**/*.pyc"
+  - "services/ocr-pipeline/tests"
+  - docs
+  - examples/workflows/workflow_reference_only
