@@ -18,6 +18,10 @@ inputs:
     description: Optional override for the Node.js version.
     required: false
     default: ""
+  node-cache-dependency-path:
+    description: Optional override for the Node.js cache dependency path.
+    required: false
+    default: ""
   python-version:
     description: Optional override for the Python version.
     required: false
@@ -40,6 +44,7 @@ runs:
       env:
         CONFIG_PATH: ${{ inputs.config-path }}
         NODE_VERSION_OVERRIDE: ${{ inputs.node-version }}
+        NODE_CACHE_DEPENDENCY_PATH_OVERRIDE: ${{ inputs.node-cache-dependency-path }}
         PYTHON_VERSION_OVERRIDE: ${{ inputs.python-version }}
       run: |
         set -euo pipefail
@@ -61,6 +66,9 @@ runs:
         node_version = os.environ.get("NODE_VERSION_OVERRIDE") or str(node.get("version", "")).strip()
         python_version = os.environ.get("PYTHON_VERSION_OVERRIDE") or str(python.get("version", "")).strip()
         node_cache = str(node.get("cache", "npm")).strip() or "npm"
+        node_cache_dependency_path = os.environ.get("NODE_CACHE_DEPENDENCY_PATH_OVERRIDE") or str(
+            config_path.parents[2] / "package-lock.json"
+        )
 
         if not node_version:
             raise SystemExit("Missing pinned Node.js version in CI runtime config")
@@ -70,6 +78,7 @@ runs:
         print(f"node_version={node_version}")
         print(f"python_version={python_version}")
         print(f"node_cache={node_cache}")
+        print(f"node_cache_dependency_path={node_cache_dependency_path}")
         PY
 
     - name: Set up uv
@@ -84,6 +93,7 @@ runs:
       with:
         node-version: ${{ steps.runtime-config.outputs.node_version }}
         cache: ${{ steps.runtime-config.outputs.node_cache }}
+        cache-dependency-path: ${{ steps.runtime-config.outputs.node_cache_dependency_path }}
 
     - name: Set up Python
       if: ${{ inputs.setup-python == 'true' }}
