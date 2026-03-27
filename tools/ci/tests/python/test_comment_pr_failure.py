@@ -52,12 +52,12 @@ def test_list_failed_jobs_paginates_until_all_jobs_are_read(monkeypatch) -> None
 
     monkeypatch.setattr(module, "_request_json", fake_request_json)
 
-    result = module._list_failed_jobs(token="token", repository="owokit/serverless-ocr-s3vectors-mcp", run_id="123")
+    result = module._list_failed_jobs(token="token", repository="owokit/serverless-kb-mcp", run_id="123")
 
     assert result == ["job-a", "job-b", "job-c"]
     assert seen_urls == [
-        "https://api.github.com/repos/owokit/serverless-ocr-s3vectors-mcp/actions/runs/123/jobs?per_page=100&page=1",
-        "https://api.github.com/repos/owokit/serverless-ocr-s3vectors-mcp/actions/runs/123/jobs?per_page=100&page=2",
+        "https://api.github.com/repos/owokit/serverless-kb-mcp/actions/runs/123/jobs?per_page=100&page=1",
+        "https://api.github.com/repos/owokit/serverless-kb-mcp/actions/runs/123/jobs?per_page=100&page=2",
     ]
 
 
@@ -71,7 +71,7 @@ def test_main_raises_when_required_pr_comment_fails(monkeypatch) -> None:
     monkeypatch.setattr(module, "_find_pr_number", lambda event, token, repository: 321)
     monkeypatch.setattr(module, "_list_failed_jobs", lambda **kwargs: ["job-a"])
     monkeypatch.setenv("GITHUB_TOKEN", "token")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owokit/serverless-ocr-s3vectors-mcp")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owokit/serverless-kb-mcp")
     monkeypatch.setenv("GITHUB_RUN_ID", "123")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
     monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.com")
@@ -95,7 +95,7 @@ def test_main_skips_non_pr_workflow_runs_without_pr_number(monkeypatch) -> None:
     monkeypatch.setattr(module, "_load_event", lambda: event)
     monkeypatch.setattr(module, "_find_pr_number", lambda event, token, repository: None)
     monkeypatch.setenv("GITHUB_TOKEN", "token")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owokit/serverless-ocr-s3vectors-mcp")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owokit/serverless-kb-mcp")
     monkeypatch.setenv("GITHUB_RUN_ID", "123")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
     monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.com")
@@ -115,7 +115,7 @@ def test_main_retries_transient_comment_api_errors(monkeypatch) -> None:
     monkeypatch.setattr(module, "_list_failed_jobs", lambda **kwargs: [])
     monkeypatch.setattr(module.time, "sleep", lambda *_args, **_kwargs: None)
     monkeypatch.setenv("GITHUB_TOKEN", "token")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "owokit/serverless-ocr-s3vectors-mcp")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owokit/serverless-kb-mcp")
     monkeypatch.setenv("GITHUB_RUN_ID", "123")
     monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "1")
     monkeypatch.setenv("GITHUB_SERVER_URL", "https://github.com")

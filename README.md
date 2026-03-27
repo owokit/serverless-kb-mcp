@@ -1,4 +1,4 @@
-# serverless-ocr-s3vectors-mcp
+# serverless-kb-mcp
 
 Enterprise serverless document ingestion and semantic retrieval on AWS.
 
@@ -17,7 +17,7 @@ This repository is a multi-surface workspace, not a single-purpose app shell.
 | Item | Details |
 | --- | --- |
 | Primary entry point | `Ingest Lambda` |
-| Repository identity | `serverless-ocr-s3vectors-mcp` |
+| Repository identity | `serverless-kb-mcp` |
 | Python workspace root | `services/` |
 | Service source root | `services/ocr-pipeline/` |
 | Docs hub | `docs/README.md` |

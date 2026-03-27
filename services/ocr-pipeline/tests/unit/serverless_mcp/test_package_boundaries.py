@@ -9,6 +9,8 @@ from importlib.util import find_spec
 from pathlib import Path
 
 import serverless_mcp
+from mcp.server.fastmcp import FastMCP as OfficialFastMCP
+from mcp.server.transport_security import TransportSecuritySettings as OfficialTransportSecuritySettings
 from serverless_mcp.embed.application import EmbedWorker as NewEmbedWorker
 from serverless_mcp.extract.application import ExtractionService as NewExtractionService
 from serverless_mcp.server.fastmcp import FastMCP as NewFastMCP
@@ -83,8 +85,8 @@ def test_application_modules_are_canonical() -> None:
     assert NewQueryService.__module__ == "serverless_mcp.query.application"
     assert NewJobStatusService.__module__ == "serverless_mcp.status.application"
 
-    assert NewFastMCP.__module__ == "serverless_mcp.server.fastmcp"
-    assert NewTransportSecuritySettings.__module__ == "serverless_mcp.server.transport_security"
+    assert NewFastMCP is OfficialFastMCP
+    assert NewTransportSecuritySettings is OfficialTransportSecuritySettings
 
 
 def test_package_root_is_physical_and_non_namespace() -> None:

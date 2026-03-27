@@ -66,7 +66,7 @@ EXPECTED_NAMES = {
     "logic-ci.yml": "Logic CI",
     "contract-ci.yml": "Contract CI",
     "local-integration-ci.yml": "Local Integration CI",
-    "codeql.yml": "CodeQL JavaScript / TypeScript",
+    "codeql.yml": "CodeQL JavaScript / TypeScript / Python",
     "stale-issues.yml": "Stale Issues",
     "merged-branch-cleanup.yml": "Branch Lifecycle Cleanup",
     "dependabot-auto-merge.yml": "Dependabot Auto Merge",

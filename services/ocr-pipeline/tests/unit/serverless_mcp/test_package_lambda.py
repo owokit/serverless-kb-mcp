@@ -96,7 +96,7 @@ def test_package_lambda_generates_wrapper_and_project_sources(tmp_path, monkeypa
             "--function",
             function_name,
             "--repo-name",
-            "serverless-ocr-s3vectors-mcp",
+            "serverless-kb-mcp",
             "--output-dir",
             str(output_dir),
         ],
@@ -104,7 +104,7 @@ def test_package_lambda_generates_wrapper_and_project_sources(tmp_path, monkeypa
 
     exit_code = module.main()
 
-    zip_path = output_dir / f"serverless-ocr-s3vectors-mcp_{function_name}.zip"
+    zip_path = output_dir / f"serverless-kb-mcp_{function_name}.zip"
     assert exit_code == 0
     assert zip_path.exists()
     assert len(calls) == 1
@@ -142,12 +142,12 @@ def test_package_lambda_reuses_shared_staging_for_same_dependency_group(tmp_path
 
     first_zip = module.build_lambda_package(
         function_key="remote_mcp",
-        repo_name="serverless-ocr-s3vectors-mcp",
+        repo_name="serverless-kb-mcp",
         output_dir=output_dir,
     )
     second_zip = module.build_lambda_package(
         function_key="extract_prepare",
-        repo_name="serverless-ocr-s3vectors-mcp",
+        repo_name="serverless-kb-mcp",
         output_dir=output_dir,
     )
 
@@ -184,13 +184,13 @@ def test_build_lambda_packages_reuses_each_dependency_group_once(tmp_path, monke
 
     zip_paths = module.build_lambda_packages(
         function_keys=["remote_mcp", "extract_prepare"],
-        repo_name="serverless-ocr-s3vectors-mcp",
+        repo_name="serverless-kb-mcp",
         output_dir=output_dir,
     )
 
     assert [path.name for path in zip_paths] == [
-        "serverless-ocr-s3vectors-mcp_remote_mcp.zip",
-        "serverless-ocr-s3vectors-mcp_extract_prepare.zip",
+        "serverless-kb-mcp_remote_mcp.zip",
+        "serverless-kb-mcp_extract_prepare.zip",
     ]
     assert all(path.exists() for path in zip_paths)
     assert len(calls) == 1

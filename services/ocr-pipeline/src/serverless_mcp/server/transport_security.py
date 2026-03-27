@@ -1,16 +1,9 @@
 """
-EN: Transport security settings for the local FastMCP implementation.
-CN: 本地 FastMCP 实现的传输安全配置对象。
+EN: Compatibility re-export for the official MCP transport security settings.
+CN: 官方 MCP 传输安全设置的兼容性转发导出。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from mcp.server.transport_security import TransportSecuritySettings as TransportSecuritySettings
 
-
-@dataclass(slots=True)
-class TransportSecuritySettings:
-    """EN: Minimal transport security settings container used by tests and local routing.
-    CN: 供测试和本地路由使用的最小传输安全配置容器。"""
-
-    enable_dns_rebinding_protection: bool = False

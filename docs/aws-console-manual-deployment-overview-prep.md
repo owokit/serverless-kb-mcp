@@ -10,7 +10,7 @@
 - `source bucket` 必须开启 `S3 Versioning`。
 - `source bucket` 的当前版本上传后 `1` 天转到 `S3 Intelligent-Tiering`，历史版本仍然只靠 `S3 Lifecycle` 删除 `noncurrent versions`。
 - `manifest bucket` 负责保存结构化提取结果、切片资产和可回放材料，不替代 `S3 Vectors`。
-- ZIP 包命名已经改成 `<repo-name>_<function>.zip`，例如 `serverless-ocr-s3vectors-mcp_ingest.zip`。
+- ZIP 包命名已经改成 `<repo-name>_<function>.zip`，例如 `serverless-kb-mcp_ingest.zip`。
 - 共享第三方依赖现在优先放进 3 个 Lambda Layer，Lambda ZIP 只保留项目代码和入口包装层。
 - 当前推荐对外入口仍然是 `Ingest Lambda`，其后由 `Step Functions Standard` 编排提取流程。
 
@@ -58,7 +58,7 @@
 示例：
 
 ```text
-serverless-ocr-s3vectors-mcp_ingest.zip
+serverless-kb-mcp_ingest.zip
 ```
 
 ### 1.4 三张时序图
@@ -190,21 +190,21 @@ Layer 打包脚本位于：
 本地打包示例：
 
 ```powershell
-py -3.14 .\scripts\serverless_mcp\package_lambda.py --function ingest --repo-name serverless-ocr-s3vectors-mcp
+py -3.14 .\scripts\serverless_mcp\package_lambda.py --function ingest --repo-name serverless-kb-mcp
 ```
 
 每个包都会生成独立 ZIP，并按下面格式命名：
 
 ```text
-serverless-ocr-s3vectors-mcp_ingest.zip
+serverless-kb-mcp_ingest.zip
 ```
 
 Layer 产物会单独生成到 `services/ocr-pipeline/dist/layers/`，格式如下：
 
 ```text
-serverless-ocr-s3vectors-mcp_core_layer.zip
-serverless-ocr-s3vectors-mcp_extract_layer.zip
-serverless-ocr-s3vectors-mcp_embedding_layer.zip
+serverless-kb-mcp_core_layer.zip
+serverless-kb-mcp_extract_layer.zip
+serverless-kb-mcp_embedding_layer.zip
 ```
 
 ### 2.4 推荐部署顺序

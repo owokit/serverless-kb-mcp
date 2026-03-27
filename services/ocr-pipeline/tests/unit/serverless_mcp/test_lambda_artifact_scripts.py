@@ -123,7 +123,7 @@ def test_build_lambda_artifacts_cleans_output_and_builds_selected_functions(tmp_
         [
             "build_lambda_artifacts.py",
             "--repo-name",
-            "serverless-ocr-s3vectors-mcp",
+            "serverless-kb-mcp",
             "--output-dir",
             str(output_dir),
             "--functions",
@@ -137,11 +137,11 @@ def test_build_lambda_artifacts_cleans_output_and_builds_selected_functions(tmp_
     assert exit_code == 0
     assert not stale_file.exists()
     assert calls == [
-        ("ingest", "serverless-ocr-s3vectors-mcp", output_dir),
-        ("extract_prepare", "serverless-ocr-s3vectors-mcp", output_dir),
+        ("ingest", "serverless-kb-mcp", output_dir),
+        ("extract_prepare", "serverless-kb-mcp", output_dir),
     ]
-    assert "serverless-ocr-s3vectors-mcp_ingest.zip" in captured.out
-    assert "serverless-ocr-s3vectors-mcp_extract_prepare.zip" in captured.out
+    assert "serverless-kb-mcp_ingest.zip" in captured.out
+    assert "serverless-kb-mcp_extract_prepare.zip" in captured.out
 
 
 def test_build_layer_artifacts_builds_selected_layers(tmp_path, capsys, monkeypatch) -> None:
@@ -170,7 +170,7 @@ def test_build_layer_artifacts_builds_selected_layers(tmp_path, capsys, monkeypa
         [
             "build_layer_artifacts.py",
             "--repo-name",
-            "serverless-ocr-s3vectors-mcp",
+            "serverless-kb-mcp",
             "--output-dir",
             str(output_dir),
             "--layers",
@@ -182,11 +182,11 @@ def test_build_layer_artifacts_builds_selected_layers(tmp_path, capsys, monkeypa
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert (output_dir / "serverless-ocr-s3vectors-mcp_core_layer.zip").exists()
-    assert (output_dir / "serverless-ocr-s3vectors-mcp_extract_layer.zip").exists()
+    assert (output_dir / "serverless-kb-mcp_core_layer.zip").exists()
+    assert (output_dir / "serverless-kb-mcp_extract_layer.zip").exists()
     assert len(calls) == 2
-    assert "serverless-ocr-s3vectors-mcp_core_layer.zip" in captured.out
-    assert "serverless-ocr-s3vectors-mcp_extract_layer.zip" in captured.out
+    assert "serverless-kb-mcp_core_layer.zip" in captured.out
+    assert "serverless-kb-mcp_extract_layer.zip" in captured.out
 
 
 def test_upload_lambda_artifacts_uses_expected_s3_keys(tmp_path, capsys, monkeypatch) -> None:

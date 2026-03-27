@@ -1,4 +1,4 @@
-# serverless-ocr-s3vectors-mcp
+# serverless-kb-mcp
 
 面向 AWS 的企业级无服务器文档摄取与语义检索系统。
 
@@ -17,7 +17,7 @@
 | 项目 | 说明 |
 | --- | --- |
 | 对外主入口 | `Ingest Lambda` |
-| 仓库身份 | `serverless-ocr-s3vectors-mcp` |
+| 仓库身份 | `serverless-kb-mcp` |
 | Python 工作区根 | `services/` |
 | 服务源代码根 | `services/ocr-pipeline/` |
 | 文档中心 | `docs/README.md` |
