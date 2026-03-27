@@ -15,7 +15,9 @@ from serverless_mcp.embed.provider_urls import normalize_openai_base_url
 from serverless_mcp.domain.models import EmbeddingProfile
 
 
-DEFAULT_PADDLE_OCR_ALLOWED_HOSTS: tuple[str, ...] = ()
+# EN: PaddleOCR result URLs are hosted on BCE BOS regional subdomains by default.
+# CN: PaddleOCR 缁撴灉 URL 榛樿鎸備綅浜庡尯鍩熷瓙鍩熷悕 BCE BOS 銆?
+DEFAULT_PADDLE_OCR_ALLOWED_HOSTS: tuple[str, ...] = ("*.bcebos.com",)
 PIPELINE_CONFIG_PATH_ENV_VAR = "SERVERLESS_MCP_PIPELINE_CONFIG_PATH"
 
 

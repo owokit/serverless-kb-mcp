@@ -110,7 +110,7 @@ def test_settings_allow_ingest_only_environment(monkeypatch: pytest.MonkeyPatch)
     assert settings.manifest_index_table is None
     assert settings.manifest_bucket is None
     assert settings.manifest_prefix == ""
-    assert settings.paddle_allowed_hosts == ()
+    assert settings.paddle_allowed_hosts == ("*.bcebos.com",)
 
 
 def test_settings_accepts_canonical_state_machine_arn(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -298,7 +298,7 @@ def test_settings_parse_security_controls(monkeypatch: pytest.MonkeyPatch) -> No
 
     settings = Settings.from_env()
 
-    assert settings.paddle_allowed_hosts == ("results.example.com", "*.cdn.example.com")
+    assert settings.paddle_allowed_hosts == ("*.bcebos.com", "results.example.com", "*.cdn.example.com")
     assert settings.allow_unauthenticated_query is False
     assert settings.query_max_top_k == 15
     assert settings.query_max_neighbor_expand == 3
@@ -314,7 +314,7 @@ def test_settings_parse_paddle_allowlist_hosts(monkeypatch: pytest.MonkeyPatch) 
 
     settings = Settings.from_env()
 
-    assert settings.paddle_allowed_hosts == ()
+    assert settings.paddle_allowed_hosts == ("*.bcebos.com",)
 
 
 def test_settings_parse_cloudfront_delivery(monkeypatch: pytest.MonkeyPatch) -> None:
