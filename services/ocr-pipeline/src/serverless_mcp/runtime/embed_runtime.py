@@ -1,6 +1,6 @@
 """
 EN: Embed worker and backfill service assembly for runtime composition.
-CN: 用于运行时装配的 embed worker 与 backfill 服务组装模块。
+CN: 用于运行时装配的 embed worker 与 backfill 服务组合模块。
 """
 from __future__ import annotations
 
@@ -9,20 +9,19 @@ from serverless_mcp.embed.asset_source import EmbedAssetSource
 from serverless_mcp.embed.backfill import EmbeddingBackfillService
 from serverless_mcp.embed.dispatcher import EmbeddingJobDispatcher
 from serverless_mcp.embed.vector_repository import S3VectorRepository
-from serverless_mcp.extract.application import ExtractionService
 from serverless_mcp.runtime.bootstrap import build_runtime_context
 from serverless_mcp.runtime.config import Settings
 from serverless_mcp.runtime.embedding_profiles import build_embedding_clients, get_write_profiles
+from serverless_mcp.storage.manifest.repository import ManifestRepository
 from serverless_mcp.storage.projection.repository import EmbeddingProjectionStateRepository
 from serverless_mcp.storage.state.execution_state_repository import ExecutionStateRepository
-from serverless_mcp.storage.manifest.repository import ManifestRepository
 from serverless_mcp.storage.state.object_state_repository import ObjectStateRepository
 
 
 def build_embed_worker(settings: Settings | None = None) -> EmbedWorker:
     """
     EN: Build the embed worker with profile-aware provider clients and S3 Vectors repository.
-    CN: 使用按 profile 感知的 provider 客户端和 S3 Vectors 仓库构建 embed worker。
+    CN: 使用 profile 感知的 provider 客户端和 S3 Vectors 仓库构建 embed worker。
     """
     runtime_context = build_runtime_context(settings=settings)
     active_settings = runtime_context.settings
@@ -73,6 +72,10 @@ def build_backfill_service(settings: Settings | None = None) -> EmbeddingBackfil
     EN: Build the historical embedding backfill service.
     CN: 构建历史 embedding 回填服务。
     """
+    # EN: Import the extraction service lazily so embed-only cold starts do not load DOCX parsing dependencies.
+    # CN: 采用延迟导入 extraction service，避免仅 embed 冷启动时加载 DOCX 解析依赖。
+    from serverless_mcp.extract.application import ExtractionService
+
     runtime_context = build_runtime_context(settings=settings)
     active_settings = runtime_context.settings
     if not active_settings.embed_queue_url:
