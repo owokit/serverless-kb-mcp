@@ -38,7 +38,7 @@ def test_embed_runtime_import_does_not_pull_extract_modules(monkeypatch) -> None
     real_import = builtins.__import__
 
     def _guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "serverless_mcp.extract.application" or name.startswith("serverless_mcp.extract."):
+        if name == "serverless_mcp.extract.application" or name.startswith("serverless_mcp.extract.") or name == "serverless_mcp.extract":
             raise AssertionError(f"unexpected import during embed runtime init: {name}")
         return real_import(name, globals, locals, fromlist, level)
 
