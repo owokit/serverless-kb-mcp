@@ -13,11 +13,13 @@ from serverless_mcp.domain.models import (
     ChunkManifest,
     EmbeddingProfile,
     ProcessingOutcome,
+    ObjectStateRecord,
     S3ObjectRef,
 )
+from serverless_mcp.runtime.observability import emit_metric, emit_trace
 from serverless_mcp.storage.state.execution_state_repository import ExecutionStateRepository
 from serverless_mcp.storage.manifest.repository import ManifestRepository
-from serverless_mcp.storage.state.object_state_repository import ObjectStateRepository
+from serverless_mcp.storage.state.object_state_repository import DuplicateOrStaleEventError, ObjectStateRepository
 
 
 _DISPATCH_FAILURE_TYPES = (ClientError, KeyError, OSError, RuntimeError, TypeError, ValueError)
@@ -83,6 +85,17 @@ class ExtractionResultPersister:
             EN: Processing outcome with manifest URI and chunk counts.
             CN: 包含 manifest URI 和 chunk 计数的处理结果。
         """
+        current_state = self._object_state_repo.get_state(object_pk=source.object_pk)
+        if current_state is not None and (
+            current_state.latest_version_id != source.version_id or current_state.extract_status != "EXTRACTING"
+        ):
+            return self._build_skipped_outcome(
+                source=source,
+                object_state=current_state,
+                reason="stale_or_completed_state",
+                stage="preflight",
+            )
+
         persisted = self._manifest_repo.persist_manifest(
             manifest,
             previous_version_id=previous_version_id,
@@ -112,9 +125,19 @@ class ExtractionResultPersister:
                 previous_version_id=previous_version_id,
             )
             raise
-        object_state = self._object_state_repo.mark_extract_done(source, persisted.manifest_s3_uri)
-        if self._execution_state_repo is not None:
-            self._execution_state_repo.mark_extract_done(source, persisted.manifest_s3_uri)
+        try:
+            object_state = self._object_state_repo.mark_extract_done(source, persisted.manifest_s3_uri)
+            if self._execution_state_repo is not None:
+                self._execution_state_repo.mark_extract_done(source, persisted.manifest_s3_uri)
+        except DuplicateOrStaleEventError:
+            latest_state = self._object_state_repo.get_state(object_pk=source.object_pk) or current_state
+            return self._build_skipped_outcome(
+                source=source,
+                object_state=latest_state,
+                reason="stale_during_commit",
+                stage="commit",
+                manifest_s3_uri=persisted.manifest_s3_uri,
+            )
 
         return ProcessingOutcome(
             source=source,
@@ -122,5 +145,49 @@ class ExtractionResultPersister:
             chunk_count=len(persisted.manifest.chunks),
             asset_count=len(persisted.manifest.assets),
             embedding_request_count=len(embedding_requests),
+            object_state=object_state,
+        )
+
+    def _build_skipped_outcome(
+        self,
+        *,
+        source: S3ObjectRef,
+        object_state: ObjectStateRecord | None,
+        reason: str,
+        stage: str,
+        manifest_s3_uri: str | None = None,
+    ) -> ProcessingOutcome:
+        """
+        EN: Build a benign skip outcome when extract state is already stale or complete.
+        CN: 褰撴彁鍙栫姸鎬佸凡杩囨湡鎴栧凡瀹屾垚鏃舵瀯寤鸿鍙风殑骞冲拰璺勮繃缁撴灉銆?
+        """
+        if object_state is None:
+            object_state = ObjectStateRecord(
+                pk=source.object_pk,
+                latest_version_id=source.version_id,
+                latest_sequencer=source.sequencer,
+                extract_status="SKIPPED",
+                embed_status="PENDING",
+                latest_manifest_s3_uri=manifest_s3_uri,
+            )
+        emitted_manifest_s3_uri = manifest_s3_uri or object_state.latest_manifest_s3_uri or ""
+        emit_trace(
+            "persist_ocr_result.skipped",
+            document_uri=source.document_uri,
+            reason=reason,
+            skip_stage=stage,
+            object_pk=object_state.pk,
+            latest_version_id=object_state.latest_version_id,
+            extract_status=object_state.extract_status,
+            embed_status=object_state.embed_status,
+            manifest_s3_uri=emitted_manifest_s3_uri,
+        )
+        emit_metric("extract.persist.skip", reason=reason, stage=stage)
+        return ProcessingOutcome(
+            source=source,
+            manifest_s3_uri=emitted_manifest_s3_uri,
+            chunk_count=0,
+            asset_count=0,
+            embedding_request_count=0,
             object_state=object_state,
         )
