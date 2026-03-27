@@ -244,7 +244,7 @@ function buildLambdaEnvironment(params: {
     PADDLE_OCR_HTTP_TIMEOUT_SECONDS: String(defaultSettings.paddle_http_timeout_seconds),
     PADDLE_OCR_STATUS_TIMEOUT_SECONDS: String(defaultSettings.paddle_status_timeout_seconds),
     PADDLE_OCR_ALLOWED_HOSTS: deploymentInputs.paddleAllowedHosts ?? '',
-    OPENAI_EMBEDDING_MODEL: pipelineConfig.defaults.openai_embedding_model,
+    OPENAI_EMBEDDING_MODEL: deploymentInputs.openaiEmbeddingModel ?? defaultSettings.openai_embedding_model,
     CLOUDFRONT_URL_TTL_SECONDS: String(defaultSettings.cloudfront_url_ttl_seconds),
     ALLOW_UNAUTHENTICATED_QUERY: String(defaultSettings.allow_unauthenticated_query),
   };

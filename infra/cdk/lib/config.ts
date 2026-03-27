@@ -96,6 +96,7 @@ export interface DeploymentInputs {
   geminiApiKey?: string;
   openaiApiKey?: string;
   openaiApiBaseUrl?: string;
+  openaiEmbeddingModel?: string;
   paddleAllowedHosts?: string;
   remoteMcpDefaultTenantId?: string;
   cloudfrontDistributionDomain?: string;
@@ -120,6 +121,7 @@ export function resolveDeploymentInputs(env: NodeJS.ProcessEnv): DeploymentInput
     openaiApiBaseUrl:
       optionalEnv(env, 'OPENAI_API_BASE_URL') ??
       optionalEnv(env, 'OPENAI_BASE_URL'),
+    openaiEmbeddingModel: optionalEnv(env, 'OPENAI_EMBEDDING_MODEL'),
     paddleAllowedHosts: optionalEnv(env, 'PADDLE_OCR_ALLOWED_HOSTS'),
     remoteMcpDefaultTenantId: optionalEnv(env, 'REMOTE_MCP_DEFAULT_TENANT_ID'),
     cloudfrontDistributionDomain: optionalEnv(env, 'CLOUDFRONT_DISTRIBUTION_DOMAIN'),
