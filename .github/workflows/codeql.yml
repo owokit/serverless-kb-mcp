@@ -20,7 +20,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  analyze-js-ts:
+  analyze:
     # EN: Keep the CodeQL job scoped to a single analyzer lane for easy triage.
     # CN: 将 CodeQL 作业限制为单一分析泳道，便于排查。
     name: Analyze JS/TS
