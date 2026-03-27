@@ -3,9 +3,15 @@ EN: Tests for ObjectStateRepository covering ingest queuing, state activation, d
 CN: 同上。
 """
 
+import re
+
+import pytest
+from botocore.exceptions import ClientError
+
 from serverless_mcp.domain.models import ObjectStateRecord, S3ObjectRef
 from serverless_mcp.storage.state.object_state_repository import (
     ObjectStateLookupRecord,
+    DuplicateOrStaleEventError,
     ObjectStateRepository,
     _normalize_sequencer,
 )
@@ -66,6 +72,22 @@ class _NoWriteDynamoDbClient:
 
     def transact_write_items(self, **_kwargs):
         raise AssertionError("transact_write_items should not be called for delete-marker replay")
+
+
+class _TransactionCanceledDynamoDbClient(_NoWriteDynamoDbClient):
+    # EN: DynamoDB client that raises a transaction-canceled conditional failure.
+    # CN: 鍚屼笂銆?
+    def transact_write_items(self, **_kwargs):
+        raise ClientError(
+            {
+                "Error": {
+                    "Code": "TransactionCanceledException",
+                    "Message": "Transaction cancelled, please refer cancellation reasons for specific reasons [ConditionalCheckFailed, None]",
+                },
+                "CancellationReasons": [{"Code": "ConditionalCheckFailed"}, {"Code": "None"}],
+            },
+            "TransactWriteItems",
+        )
 
 
 class _LookupQueryDynamoDbClient:
@@ -289,6 +311,34 @@ def test_activate_ingest_state_reuses_existing_extracting_state_without_new_writ
     )
 
     assert record is existing
+
+
+def test_mark_extract_done_treats_transaction_canceled_conditional_failure_as_duplicate_or_stale() -> None:
+    """
+    EN: Mark extract done treats transaction canceled conditional failure as duplicate or stale.
+    CN: 鍚屼笂銆?
+    """
+    source = S3ObjectRef(
+        tenant_id="tenant-a",
+        bucket="bucket-a",
+        key="docs/guide.pdf",
+        version_id="v1",
+        sequencer="1",
+    )
+    repo = _ExistingStateRepository(
+        state=ObjectStateRecord(
+            pk=source.object_pk,
+            latest_version_id=source.version_id,
+            latest_sequencer=_normalize_sequencer("1"),
+            extract_status="EXTRACTING",
+            embed_status="PENDING",
+            latest_manifest_s3_uri="s3://manifest-bucket/manifests/in-progress.json",
+        ),
+        dynamodb_client=_TransactionCanceledDynamoDbClient(),
+    )
+
+    with pytest.raises(DuplicateOrStaleEventError, match=re.escape(source.document_uri)):
+        repo.mark_extract_done(source, "s3://manifest-bucket/manifests/final.json")
 
 
 def test_mark_deleted_replays_same_delete_marker_without_new_write() -> None:
