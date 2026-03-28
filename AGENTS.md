@@ -62,11 +62,11 @@
 - `examples/workflows/workflow_reference_only/*` 仅作为 `reference-only` 素材，不进入默认 PR 门禁。
 - 为了满足 PR 失败回评，`guardrails.yml`、`logic-ci.yml`、`contract-ci.yml`、`local-integration-ci.yml`、`docs-ci.yml`、`security-ci.yml` 允许最小化的 `issues: write`，但只能用于向当前 PR 写失败评论，不能扩展到其他写权限。
 - `tools/ci/` 作为 CI Python helper 层，只保留 `validate_workflows.py` 和 `comment_pr_failure.py`；简单扫描、路径判断、字符串检查等尽量直接写在 workflow 里。
-- `pipeline-config.json` 作为部署命名默认值的单一来源；现在由 `infra/` 和运行时共同读取，`scripts/deploy/` 目录已删除。
+- `infra/pipeline-config.json` 是部署命名默认值的单一来源；由 `infra/` 和运行时共同读取。
 - 旧的 boto3 部署兼容层已删除，不再保留重复实现。
 - 本仓库维护正式的 `deploy` 与 `destroy` workflow；控制台文档只作为辅助参考，不替代自动化交付。
-- `pipeline-config.json` 是部署命名默认值的单一来源；其中 `resource_names` 必须显式列出所有 AWS 资源名，`embedding_profiles` 必须显式列出每个 profile 的 `vector_index_name`，修改该文件后，`deploy` / `destroy` / `sync` 三条入口会自动采用新的默认值。
-- 现在默认 embedding profile 是 OpenAI，Gemini 作为备用方案保留，但默认关闭；启用 Gemini 只改 `pipeline-config.json` 里的 `enabled`。
+- `infra/pipeline-config.json` 是部署命名默认值的单一来源；其中 `resource_names` 必须显式列出所有 AWS 资源名，`embedding_profiles` 必须显式列出每个 profile 的 `vector_index_name`，修改该文件后，`deploy` / `destroy` / `sync` 三条入口会自动采用新的默认值。
+- 现在默认 embedding profile 是 OpenAI，Gemini 作为备用方案保留，但默认关闭；启用 Gemini 只改 `infra/pipeline-config.json` 里的 `enabled`。
 - 规则如果已经沉淀到对应 skill，优先更新 skill，不在本文件重复维护实现细节。
 - 如果用户明确要求与现有设计或既有规则冲突，以用户当次明确要求为准；随后必须把冲突点同步更新到相关 skill 或 `AGENTS.md`，包括这条冲突优先规则本身。
 
@@ -156,7 +156,7 @@
 - 如果修改代码导致现有文档不兼容，必须同步更新相关文档。
 - 如果资源拓扑、部署流程、环境变量、IAM 权限边界或部署顺序发生变化，必须同步更新 `docs/` 中的对应说明，并检查 `infra/` 是否需要同步修改。
 - 如果更新了业务代码、部署流程或环境变量定义，必须先判断 `infra/` 是否需要同步修改，再决定是否需要更新 workflow。
-- 当前仓库已经删除 boto3 部署与销毁辅助面；如果 `pipeline-config.json`、资源编排或环境假设发生变化，必须同步更新本文件与相关 skill。
+- 当前仓库已经删除 boto3 部署与销毁辅助面；如果 `infra/pipeline-config.json`、资源编排或环境假设发生变化，必须同步更新本文件与相关 skill。
 - 简体中文占位句与乱码检查必须复用 `tools/ci/chinese_text_hygiene.py`，本地 pytest 和 `guardrails.yml` 要调用同一份逻辑，不能各写一套漂移的文本卫生规则。
 - GitHub Actions workflow 文件名和展示名必须使用语义化命名，禁止再使用 `00/10` 这类数字前缀；对应 YAML 文件应补充英文和中文注释，说明关键步骤或约束。
 - 如果用户明确要求与现有设计或既有规则冲突，以用户当次明确要求为准；随后必须把冲突点同步更新到相关 skill 或 `AGENTS.md`，包括这条冲突优先规则本身。

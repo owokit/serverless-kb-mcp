@@ -9,7 +9,7 @@ const repoRoot = process.cwd();
 const configPath =
   process.env.MCP_PIPELINE_CONFIG_PATH ??
   app.node.tryGetContext('configPath') ??
-  'pipeline-config.json';
+  'infra/pipeline-config.json';
 const artifactDir =
   process.env.MCP_CDK_ASSET_DIR ??
   app.node.tryGetContext('artifactDir') ??

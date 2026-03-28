@@ -20,7 +20,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from serverless_mcp.runtime.config import Settings, _resolve_pipeline_config_path
 
-PIPELINE_CONFIG_PATH = REPO_ROOT / "pipeline-config.json"
+PIPELINE_CONFIG_PATH = REPO_ROOT / "infra" / "pipeline-config.json"
 
 
 def _load_pipeline_config() -> dict[str, object]:

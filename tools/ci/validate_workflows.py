@@ -386,11 +386,11 @@ def _assert_codeql_alignment(errors: list[str]) -> None:
 
 
 def _assert_destroy_alignment(errors: list[str]) -> None:
-    """EN: Ensure the destroy workflow reads the root pipeline config instead of the old scripts path.
-    CN: 确保 destroy workflow 读取仓库根目录的 pipeline 配置，而不是旧的 scripts 路径。"""
+    """EN: Ensure the destroy workflow reads the infra/ pipeline config instead of the old root path.
+    CN: 确保 destroy workflow 读取 infra/ 下的 pipeline 配置，而不是旧的根目录路径。"""
     destroy_text = (REPO_ROOT / ".github" / "workflows" / "destroy.yml").read_text(encoding="utf-8")
-    if "pipeline-config.json" not in destroy_text:
-        errors.append(".github/workflows/destroy.yml must read pipeline-config.json from the repository root")
+    if "infra/pipeline-config.json" not in destroy_text:
+        errors.append(".github/workflows/destroy.yml must read infra/pipeline-config.json")
     if "scripts/deploy/pipeline-config.json" in destroy_text:
         errors.append(".github/workflows/destroy.yml must not reference scripts/deploy/pipeline-config.json")
 

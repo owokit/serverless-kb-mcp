@@ -33,7 +33,7 @@
 
 ## 配置约定
 
-- `SERVERLESS_MCP_PIPELINE_CONFIG_PATH` 指向仓库根目录的 `pipeline-config.json`。
+- `SERVERLESS_MCP_PIPELINE_CONFIG_PATH` 指向 `infra/pipeline-config.json`。
 - `services/pyproject.toml` 通过 editable install 把 `serverless-mcp-service` 指向 `services/ocr-pipeline/`，正式包根位于 `services/ocr-pipeline/src/serverless_mcp/`。
 - 运行时不要再向上回扫仓库根目录去猜依赖或入口，配置必须显式提供，也不要再依赖父目录注入。
 
