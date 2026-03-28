@@ -172,6 +172,59 @@ class _FakeObjectStateRepo:
         return self.state_by_pk.get(object_pk)
 
 
+class _FakeExecutionStateRepo:
+    # EN: In-memory stand-in for ExecutionStateRepository.
+    # CN: 鍚屼笂銆?
+    def __init__(self):
+        self.running = []
+        self.done = []
+        self.failed = []
+        self.state_by_pk = {}
+
+    def mark_embed_running(self, source):
+        self.running.append(source.document_uri)
+        record = ObjectStateRecord(
+            pk=source.object_pk,
+            latest_version_id=source.version_id,
+            latest_sequencer=source.sequencer,
+            extract_status="EXTRACTED",
+            embed_status="EMBEDDING",
+            latest_manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+        )
+        self.state_by_pk[source.object_pk] = record
+        return record
+
+    def mark_embed_done(self, source):
+        self.done.append(source.document_uri)
+        record = ObjectStateRecord(
+            pk=source.object_pk,
+            latest_version_id=source.version_id,
+            latest_sequencer=source.sequencer,
+            extract_status="EXTRACTED",
+            embed_status="INDEXED",
+            latest_manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+        )
+        self.state_by_pk[source.object_pk] = record
+        return record
+
+    def mark_embed_failed(self, source, error_message):
+        self.failed.append((source.document_uri, error_message))
+        record = ObjectStateRecord(
+            pk=source.object_pk,
+            latest_version_id=source.version_id,
+            latest_sequencer=source.sequencer,
+            extract_status="EXTRACTED",
+            embed_status="FAILED",
+            latest_manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+            last_error=error_message,
+        )
+        self.state_by_pk[source.object_pk] = record
+        return record
+
+    def get_state(self, *, object_pk):
+        return self.state_by_pk.get(object_pk)
+
+
 class _FakeProjectionStateRepo:
     # EN: Stand-in for EmbeddingProjectionStateRepository.
     # CN: 同上。
@@ -505,6 +558,72 @@ def test_embed_worker_uses_projection_state_without_mutating_global_embed_status
     assert projection_state_repo.deleted == []
     assert projection_state_repo.done == [(source.document_uri, "gemini-default", 1)]
     assert manifest_repo.delete_calls == []
+
+
+def test_embed_worker_reads_execution_state_when_projection_state_exists() -> None:
+    """
+    EN: Embed worker reads execution state when projection state exists.
+    CN: 妤犲矁鐦?embed worker reads execution state when projection state exists閵?
+    """
+    source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
+    vector_repo = _FakeVectorRepo()
+    object_state_repo = _FakeObjectStateRepo()
+    execution_state_repo = _FakeExecutionStateRepo()
+    execution_state_repo.state_by_pk[source.object_pk] = ObjectStateRecord(
+        pk=source.object_pk,
+        latest_version_id=source.version_id,
+        latest_sequencer=source.sequencer,
+        extract_status="EXTRACTED",
+        embed_status="EMBEDDING",
+        latest_manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+    )
+    projection_state_repo = _FakeProjectionStateRepo()
+    manifest_repo = _FakeManifestRepo()
+    worker = EmbedWorker(
+        embedding_clients={"gemini-default": _FakeGeminiClient()},
+        embedding_profiles={
+            "gemini-default": EmbeddingProfile(
+                profile_id="gemini-default",
+                provider="gemini",
+                model="gemini-embedding-2-preview",
+                dimension=3072,
+                vector_bucket_name="vector-bucket",
+                vector_index_name="index-gemini",
+                supported_content_kinds=("text", "image"),
+            )
+        },
+        asset_source=_FakeAssetSource(),
+        vector_repo=vector_repo,
+        object_state_repo=object_state_repo,
+        manifest_repo=manifest_repo,
+        execution_state_repo=execution_state_repo,
+        projection_state_repo=projection_state_repo,
+    )
+
+    outcome = worker.process(
+        EmbeddingJobMessage(
+            source=source,
+            profile_id="gemini-default",
+            trace_id="trace-1",
+            manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+            requests=[
+                EmbeddingRequest(
+                    chunk_id="chunk#000001",
+                    chunk_type="page_text_chunk",
+                    content_kind="text",
+                    text="hello",
+                    metadata=_request_metadata(source, manifest_s3_uri="s3://manifest-bucket/manifests/example.json"),
+                )
+            ],
+        )
+    )
+
+    assert outcome.object_state.embed_status == "EMBEDDING"
+    assert execution_state_repo.running == [source.document_uri]
+    assert execution_state_repo.done == []
+    assert object_state_repo.running == []
+    assert object_state_repo.done == []
+    assert projection_state_repo.done == [(source.document_uri, "gemini-default", 1)]
 
 
 def test_embed_worker_deletes_previous_projection_state_and_vectors_before_marking_profile_done() -> None:

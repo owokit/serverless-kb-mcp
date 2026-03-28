@@ -368,7 +368,11 @@ class EmbedWorker:
         if self._projection_state_repo is None:
             return self._object_state_repo.mark_embed_done(job.source)
 
-        state = self._object_state_repo.get_state(object_pk=job.source.object_pk)
+        state = None
+        if self._execution_state_repo is not None:
+            state = self._execution_state_repo.get_state(object_pk=job.source.object_pk)
+        if state is None:
+            state = self._object_state_repo.get_state(object_pk=job.source.object_pk)
         if state is None:
             raise ValueError(f"object_state is missing for {job.source.document_uri}")
         return state
