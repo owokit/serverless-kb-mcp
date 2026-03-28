@@ -40,7 +40,6 @@
       - any-glob-to-any-file:
           - ".env.example"
           - ".gitignore"
-          - "package.json"
           - "infra/cdk/package.json"
           - "package-lock.json"
           - "pytest.ini"
