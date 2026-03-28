@@ -76,6 +76,8 @@ def search_documents(
     settings = load_settings()
     request_tenant_id = _REQUEST_TENANT_ID.get()
     request_security_scope = _REQUEST_SECURITY_SCOPE.get()
+    if tenant_id is None and request_tenant_id is None and settings.allow_unauthenticated_query:
+        tenant_id = settings.remote_mcp_default_tenant_id
     try:
         request = build_remote_query_request(
             query=query,
@@ -122,7 +124,6 @@ def _serialize_delivery(delivery: object) -> dict[str, Any]:
     }
 
 
-@lru_cache(maxsize=1)
 def _build_mcp_server() -> FastMCP:
     """
     EN: Build and cache the official FastMCP server for warm Lambda reuse.
@@ -132,7 +133,7 @@ def _build_mcp_server() -> FastMCP:
         "mcp-doc-pipeline",
         instructions=(
             "Semantic document retrieval over the internal S3 to S3 Vectors pipeline. "
-            "Use the search_documents tool and pass tenant_id for anonymous access."
+            "Use the search_documents tool and rely on the configured default tenant for anonymous access."
         ),
         json_response=True,
         stateless_http=True,
@@ -146,7 +147,6 @@ def _build_mcp_server() -> FastMCP:
     return mcp
 
 
-@lru_cache(maxsize=1)
 def _build_asgi_handler():
     """
     EN: Build and cache the ASGI adapter so warm Lambda invocations reuse the Mangum wrapper.

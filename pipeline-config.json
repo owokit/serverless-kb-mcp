@@ -21,7 +21,7 @@
     "gemini_api_base_url": "https://generativelanguage.googleapis.com/",
     "gemini_embedding_model": "gemini-embedding-2-preview",
     "openai_embedding_model": "text-embedding-3-small",
-    "allow_unauthenticated_query": false,
+    "allow_unauthenticated_query": true,
     "query_tenant_claim": "tenant_id",
     "remote_mcp_default_tenant_id": "lookup",
     "query_max_top_k": 20,

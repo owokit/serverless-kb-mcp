@@ -57,6 +57,7 @@ def test_settings_use_pipeline_config_defaults(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.delenv("QUERY_MAX_TOP_K", raising=False)
     monkeypatch.delenv("QUERY_MAX_NEIGHBOR_EXPAND", raising=False)
     monkeypatch.delenv("CLOUDFRONT_URL_TTL_SECONDS", raising=False)
+    monkeypatch.setenv("ALLOW_UNAUTHENTICATED_QUERY", str(defaults["allow_unauthenticated_query"]).lower())
     monkeypatch.delenv("REMOTE_MCP_DEFAULT_TENANT_ID", raising=False)
 
     settings = Settings.from_env()
@@ -71,6 +72,7 @@ def test_settings_use_pipeline_config_defaults(monkeypatch: pytest.MonkeyPatch) 
     assert settings.gemini_api_base_url == defaults["gemini_api_base_url"]
     assert settings.gemini_embedding_model == defaults["gemini_embedding_model"]
     assert settings.openai_embedding_model == defaults["openai_embedding_model"]
+    assert settings.allow_unauthenticated_query == defaults["allow_unauthenticated_query"]
     assert settings.query_tenant_claim == defaults["query_tenant_claim"]
     assert settings.query_max_top_k == defaults["query_max_top_k"]
     assert settings.query_max_neighbor_expand == defaults["query_max_neighbor_expand"]

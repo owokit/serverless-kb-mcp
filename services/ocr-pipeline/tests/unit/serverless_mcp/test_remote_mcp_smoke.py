@@ -27,12 +27,17 @@ class _RecorderApp:
 
 
 class _FakeSettings:
-    def __init__(self, *, allow_unauthenticated_query: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        allow_unauthenticated_query: bool = True,
+        remote_mcp_default_tenant_id: str | None = None,
+    ) -> None:
         self.query_max_top_k = 20
         self.query_max_neighbor_expand = 2
         self.allow_unauthenticated_query = allow_unauthenticated_query
         self.query_tenant_claim = "tenant_id"
-        self.remote_mcp_default_tenant_id = None
+        self.remote_mcp_default_tenant_id = remote_mcp_default_tenant_id
         self.cloudfront_distribution_domain = "cdn.example.com"
         self.cloudfront_key_pair_id = "K123"
         self.cloudfront_private_key_pem = "-----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY-----"
@@ -150,7 +155,11 @@ def test_streamable_http_initialize_tools_list_and_call(monkeypatch: pytest.Monk
     """
     service = _FakeQueryService()
     monkeypatch.setattr(remote_mcp_handler, "_build_service", lambda: service)
-    monkeypatch.setattr(remote_mcp_handler, "load_settings", lambda: _FakeSettings(allow_unauthenticated_query=True))
+    monkeypatch.setattr(
+        remote_mcp_handler,
+        "load_settings",
+        lambda: _FakeSettings(allow_unauthenticated_query=True, remote_mcp_default_tenant_id="lookup"),
+    )
     monkeypatch.setattr(remote_mcp_handler, "_build_delivery_service", lambda: _FakeDeliveryService())
 
     app = remote_mcp_handler._build_mcp_server().streamable_http_app()
@@ -220,4 +229,83 @@ def test_streamable_http_initialize_tools_list_and_call(monkeypatch: pytest.Monk
         assert search_payload["query"] == "hello"
         assert search_payload["results"][0]["delivery"]["url"].startswith("https://cdn.example.com/")
         assert service.calls[0]["tenant_id"] == "tenant-a"
+
+        anonymous_tools_call_response = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_documents",
+                    "arguments": {
+                        "query": "hello",
+                        "top_k": 5,
+                        "neighbor_expand": 1,
+                    },
+                },
+            },
+            headers=headers,
+        )
+        assert anonymous_tools_call_response.status_code == 200
+        anonymous_tools_call_payload = anonymous_tools_call_response.json()
+        assert anonymous_tools_call_payload["result"]["isError"] is False
+        anonymous_search_payload = json.loads(anonymous_tools_call_payload["result"]["content"][0]["text"])
+        assert anonymous_search_payload["query"] == "hello"
+        assert service.calls[1]["tenant_id"] == "lookup"
+
+
+def test_lambda_handler_can_initialize_twice_without_reusing_stale_streamable_session() -> None:
+    """
+    EN: Lambda handler can initialize twice without reusing a stale streamable HTTP session manager.
+    CN: Lambda 处理器可以连续初始化两次，而不会复用已失效的 streamable HTTP session manager。
+    """
+    event = {
+        "version": "2.0",
+        "routeKey": "POST /mcp",
+        "rawPath": "/mcp",
+        "rawQueryString": "",
+        "headers": {
+            "accept": "application/json, text/event-stream",
+            "content-type": "application/json",
+            "mcp-protocol-version": LATEST_PROTOCOL_VERSION,
+        },
+        "requestContext": {
+            "accountId": "123456789012",
+            "apiId": "test",
+            "domainName": "example.execute-api.us-east-1.amazonaws.com",
+            "domainPrefix": "example",
+            "http": {
+                "method": "POST",
+                "path": "/mcp",
+                "protocol": "HTTP/1.1",
+                "sourceIp": "127.0.0.1",
+                "userAgent": "pytest",
+            },
+            "requestId": "request-id",
+            "routeKey": "POST /mcp",
+            "stage": "$default",
+            "time": "28/Mar/2026:00:00:00 +0000",
+            "timeEpoch": 1774665600000,
+        },
+        "body": json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": LATEST_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {"name": "pytest", "version": "1.0.0"},
+                },
+            }
+        ),
+        "isBase64Encoded": False,
+    }
+
+    first_response = remote_mcp_handler.lambda_handler(event, None)
+    second_response = remote_mcp_handler.lambda_handler(event, None)
+
+    assert first_response["statusCode"] == 200
+    assert second_response["statusCode"] == 200
 
