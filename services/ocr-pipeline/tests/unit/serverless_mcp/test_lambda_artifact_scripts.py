@@ -108,15 +108,18 @@ def test_build_lambda_artifacts_cleans_output_and_builds_selected_functions(tmp_
     output_dir.mkdir()
     stale_file = output_dir / "stale.txt"
     stale_file.write_text("stale", encoding="utf-8")
-    calls: list[tuple[str, str, Path]] = []
+    calls: list[tuple[tuple[str, ...], str, Path]] = []
 
-    def fake_build_lambda_package(*, function_key: str, repo_name: str, output_dir: Path) -> Path:
-        calls.append((function_key, repo_name, output_dir))
-        zip_path = output_dir / f"{repo_name}_{function_key}.zip"
-        zip_path.write_text(function_key, encoding="utf-8")
-        return zip_path
+    def fake_build_lambda_packages(*, function_keys: tuple[str, ...], repo_name: str, output_dir: Path) -> list[Path]:
+        calls.append((function_keys, repo_name, output_dir))
+        zip_paths = []
+        for function_key in function_keys:
+            zip_path = output_dir / f"{repo_name}_{function_key}.zip"
+            zip_path.write_text(function_key, encoding="utf-8")
+            zip_paths.append(zip_path)
+        return zip_paths
 
-    monkeypatch.setattr(module, "build_lambda_package", fake_build_lambda_package)
+    monkeypatch.setattr(module, "build_lambda_packages", fake_build_lambda_packages)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -137,8 +140,7 @@ def test_build_lambda_artifacts_cleans_output_and_builds_selected_functions(tmp_
     assert exit_code == 0
     assert not stale_file.exists()
     assert calls == [
-        ("ingest", "serverless-kb-mcp", output_dir),
-        ("extract_prepare", "serverless-kb-mcp", output_dir),
+        (("ingest", "extract_prepare"), "serverless-kb-mcp", output_dir),
     ]
     assert "serverless-kb-mcp_ingest.zip" in captured.out
     assert "serverless-kb-mcp_extract_prepare.zip" in captured.out

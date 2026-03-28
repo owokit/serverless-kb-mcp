@@ -6,7 +6,6 @@ CN: 通过调用 package_lambda 为 extract_worker 服务构建全部 Lambda ZIP
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 from pathlib import Path
 
@@ -19,7 +18,7 @@ if str(SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT))
 
 from lambda_artifacts import parse_lambda_functions
-from package_lambda import build_lambda_package
+from package_lambda import build_lambda_packages
 
 
 def main() -> int:
@@ -32,13 +31,13 @@ def main() -> int:
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
-    if output_dir.exists():
-        shutil.rmtree(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    for path in output_dir.iterdir():
+        if path.is_file():
+            path.unlink()
     selected_functions = parse_lambda_functions(args.functions)
 
-    for function_key in selected_functions:
-        zip_path = build_lambda_package(function_key=function_key, repo_name=args.repo_name, output_dir=output_dir)
+    for zip_path in build_lambda_packages(function_keys=selected_functions, repo_name=args.repo_name, output_dir=output_dir):
         print(zip_path)
 
     return 0

@@ -6,13 +6,16 @@ CN: 通过暂存服务依赖并注入 handler wrapper 来构建单个 Lambda ZIP
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Iterable
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
-from collections.abc import Iterable
 from pathlib import Path
+from threading import Lock
 from zipfile import ZIP_DEFLATED, ZipFile
 
 
@@ -44,6 +47,7 @@ class _SharedStaging:
 # EN: Cache keyed by label to reuse the project staging across multiple function builds.
 # CN: 同上。
 _SHARED_STAGING_CACHE: dict[tuple[str, ...], _SharedStaging] = {}
+_SHARED_STAGING_LOCK = Lock()
 
 
 def main() -> int:
@@ -84,14 +88,31 @@ def build_lambda_packages(*, function_keys: Iterable[str], repo_name: str, outpu
 
     output_dir.mkdir(parents=True, exist_ok=True)
     staging = _ensure_project_staging(label=selected[0])
-    return [
-        _write_lambda_zip(
-            zip_path=output_dir / build_zip_name(repo_name=repo_name, function_key=function_key),
-            staging=staging,
-            function_key=function_key,
-        )
-        for function_key in selected
-    ]
+    if len(selected) == 1:
+        function_key = selected[0]
+        return [
+            _write_lambda_zip(
+                zip_path=output_dir / build_zip_name(repo_name=repo_name, function_key=function_key),
+                staging=staging,
+                function_key=function_key,
+            )
+        ]
+
+    results: list[Path] = []
+    max_workers = min(len(selected), max(1, os.cpu_count() or 1), 4)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(
+                _write_lambda_zip,
+                zip_path=output_dir / build_zip_name(repo_name=repo_name, function_key=function_key),
+                staging=staging,
+                function_key=function_key,
+            )
+            for function_key in selected
+        ]
+        for future in futures:
+            results.append(future.result())
+    return results
 
 
 def _build_lambda_package_group(
@@ -128,27 +149,28 @@ def _ensure_project_staging(*, label: str) -> Path:
     CN: 创建或复用一个通过 uv 安装项目依赖的暂存目录。
     """
     cache_key = ("project",)
-    shared = _SHARED_STAGING_CACHE.get(cache_key)
-    if shared is not None:
-        return shared.staging
+    with _SHARED_STAGING_LOCK:
+        shared = _SHARED_STAGING_CACHE.get(cache_key)
+        if shared is not None:
+            return shared.staging
 
-    tempdir = tempfile.TemporaryDirectory(prefix=f"lambda-shared-{label}-")
-    staging = Path(tempdir.name) / "staging"
-    staging.mkdir(parents=True, exist_ok=True)
+        tempdir = tempfile.TemporaryDirectory(prefix=f"lambda-shared-{label}-")
+        staging = Path(tempdir.name) / "staging"
+        staging.mkdir(parents=True, exist_ok=True)
 
-    _run(
-        "uv",
-        "pip",
-        "install",
-        "--no-deps",
-        str(SERVICE_ROOT),
-        "--target",
-        str(staging),
-    )
+        _run(
+            "uv",
+            "pip",
+            "install",
+            "--no-deps",
+            str(SERVICE_ROOT),
+            "--target",
+            str(staging),
+        )
 
-    _prune_transient_files(staging)
-    _SHARED_STAGING_CACHE[cache_key] = _SharedStaging(tempdir=tempdir, staging=staging)
-    return staging
+        _prune_transient_files(staging)
+        _SHARED_STAGING_CACHE[cache_key] = _SharedStaging(tempdir=tempdir, staging=staging)
+        return staging
 
 
 def _run(*args: str) -> None:
