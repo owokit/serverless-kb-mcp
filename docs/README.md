@@ -1,6 +1,6 @@
 # Documentation Hub
 
-English | [简体中文](../README/README.zh-CN.md)
+English | [简体中文](../i18n/README.zh-CN.md)
 
 This directory contains the project’s deployment notes, runtime guidance, and boundary documentation.
 
@@ -30,18 +30,18 @@ This directory contains the project’s deployment notes, runtime guidance, and 
 
 ## Localized Editions
 
-The repository keeps localized landing pages under `README/` so the root README can remain the canonical English entry point.
+The repository keeps localized landing pages under `i18n/` so the root README can remain the canonical English entry point.
 
 | Locale | Entry |
 | --- | --- |
 | English | `../README.md` |
-| Simplified Chinese | `../README/README.zh-CN.md` |
+| Simplified Chinese | `../i18n/README.zh-CN.md` |
 
 ## Conventions
 
 1. Keep this index aligned with any changes to deployment flow, environment variables, IAM boundaries, or workflow assumptions.
 2. If a rule has already been captured in a skill, update the skill first and then reflect the change here.
-3. Localized landing pages use a language-suffix naming pattern (`README.<locale>.md`) and live directly under `README/`.
+3. Localized landing pages use a language-suffix naming pattern (`README.<locale>.md`) and live directly under `i18n/`.
 
 ## Python Toolchain
 

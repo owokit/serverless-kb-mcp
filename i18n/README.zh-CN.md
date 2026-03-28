@@ -74,7 +74,7 @@
 | 语言 | 入口 |
 | --- | --- |
 | English | `../README.md` |
-| 简体中文 | `README/README.zh-CN.md` |
+| 简体中文 | `i18n/README.zh-CN.md` |
 
 ## 验证
 

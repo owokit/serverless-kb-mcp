@@ -42,7 +42,6 @@ EXPECTED_WORKFLOWS = {
     "contract-ci.yml",
     "local-integration-ci.yml",
     "codeql.yml",
-    "issue-hierarchy-guard.yml",
     "stale-issues.yml",
     "merged-branch-cleanup.yml",
     "dependabot-auto-merge.yml",
