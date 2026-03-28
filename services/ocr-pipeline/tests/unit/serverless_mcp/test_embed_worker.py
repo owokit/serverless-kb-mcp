@@ -1,6 +1,6 @@
 """
 EN: Tests for EmbedWorker covering vector writing, timeout tracing, projection state, multi-profile cleanup, and previous version deletion.
-CN: 同上。
+CN: 鍚屼笂銆?
 """
 
 import pytest
@@ -22,7 +22,7 @@ from serverless_mcp.storage.paths import optimize_source_file_name
 
 class _FakeGeminiClient:
     # EN: Stub Gemini embedding client returning fixed vectors.
-    # CN: 同上。
+    # CN: 鍚屼笂銆?
     def embed_text(self, request):
         return [0.1, 0.2]
 
@@ -34,7 +34,7 @@ class _FakeGeminiClient:
 
 class _FakeAssetSource:
     # EN: Stub asset source that returns controlled image bytes.
-    # CN: 杩斿洖鍙楁帶鍥剧墖瀛楄妭鐨勮祫浜ф簮妗┿€?
+    # CN: 鏉╂柨娲栭崣妤佸付閸ュ墽澧栫€涙濡惃鍕カ娴溠勭爱濡椻斂鈧?
     def load_s3_uri(self, asset_s3_uri):
         assert asset_s3_uri.endswith("/assets/asset-000001.png")
         return b"image-bytes"
@@ -42,7 +42,7 @@ class _FakeAssetSource:
 
 class _FailingGeminiClient:
     # EN: Gemini client stub that raises RuntimeError on every call.
-    # CN: 同上。
+    # CN: 鍚屼笂銆?
     def embed_text(self, request):
         raise RuntimeError("timed out")
 
@@ -72,7 +72,7 @@ def _request_metadata(source: S3ObjectRef, *, manifest_s3_uri: str) -> dict[str,
 
 class _FakeVectorRepo:
     # EN: In-memory stand-in for S3VectorRepository.
-    # CN: 同上。
+    # CN: 鍚屼笂銆?
     def __init__(self):
         self.jobs = []
         self.vectors = []
@@ -92,7 +92,7 @@ class _FakeVectorRepo:
 
 class _FakeObjectStateRepo:
     # EN: In-memory stand-in for ObjectStateRepository.
-    # CN: 同上。
+    # CN: 鍚屼笂銆?
     def __init__(self):
         self.running = []
         self.done = []
@@ -172,9 +172,62 @@ class _FakeObjectStateRepo:
         return self.state_by_pk.get(object_pk)
 
 
+class _FakeExecutionStateRepo:
+    # EN: In-memory stand-in for ExecutionStateRepository.
+    # CN: 閸氬奔绗傞妴?
+    def __init__(self):
+        self.running = []
+        self.done = []
+        self.failed = []
+        self.state_by_pk = {}
+
+    def mark_embed_running(self, source):
+        self.running.append(source.document_uri)
+        record = ObjectStateRecord(
+            pk=source.object_pk,
+            latest_version_id=source.version_id,
+            latest_sequencer=source.sequencer,
+            extract_status="EXTRACTED",
+            embed_status="EMBEDDING",
+            latest_manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+        )
+        self.state_by_pk[source.object_pk] = record
+        return record
+
+    def mark_embed_done(self, source):
+        self.done.append(source.document_uri)
+        record = ObjectStateRecord(
+            pk=source.object_pk,
+            latest_version_id=source.version_id,
+            latest_sequencer=source.sequencer,
+            extract_status="EXTRACTED",
+            embed_status="INDEXED",
+            latest_manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+        )
+        self.state_by_pk[source.object_pk] = record
+        return record
+
+    def mark_embed_failed(self, source, error_message):
+        self.failed.append((source.document_uri, error_message))
+        record = ObjectStateRecord(
+            pk=source.object_pk,
+            latest_version_id=source.version_id,
+            latest_sequencer=source.sequencer,
+            extract_status="EXTRACTED",
+            embed_status="FAILED",
+            latest_manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+            last_error=error_message,
+        )
+        self.state_by_pk[source.object_pk] = record
+        return record
+
+    def get_state(self, *, object_pk):
+        return self.state_by_pk.get(object_pk)
+
+
 class _FakeProjectionStateRepo:
     # EN: Stand-in for EmbeddingProjectionStateRepository.
-    # CN: 同上。
+    # CN: 鍚屼笂銆?
     def __init__(self):
         self.running = []
         self.done = []
@@ -203,7 +256,7 @@ class _FakeProjectionStateRepo:
     def get_state(self, *, object_pk, version_id, profile_id):
         class _Record:
             # EN: Stand-in for projection state record.
-            # CN: 同上。
+            # CN: 鍚屼笂銆?
             def __init__(self, query_status):
                 self.query_status = query_status
 
@@ -215,7 +268,7 @@ class _FakeProjectionStateRepo:
 
 class _FakeManifestRepo:
     # EN: In-memory stand-in for ManifestRepository.
-    # CN: 同上。
+    # CN: 鍚屼笂銆?
     def __init__(self):
         self.loaded_uris = []
         self.delete_calls = []
@@ -287,7 +340,7 @@ def _build_single_profile_worker(
 def test_embed_worker_writes_vectors_marks_done_and_cleans_previous_version_artifacts() -> None:
     """
     EN: Embed worker writes vectors marks done and cleans previous version artifacts.
-    CN: 楠岃瘉 embed worker writes vectors marks done and cleans previous version artifacts銆?
+    CN: 妤犲矁鐦?embed worker writes vectors marks done and cleans previous version artifacts閵?
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
     previous_manifest_root = _manifest_root(source, "v0")
@@ -346,7 +399,7 @@ def test_embed_worker_writes_vectors_marks_done_and_cleans_previous_version_arti
 def test_embed_worker_emits_request_context_on_text_timeout(monkeypatch) -> None:
     """
     EN: Embed worker emits request context on text timeout.
-    CN: 楠岃瘉 embed worker emits request context on text timeout銆?
+    CN: 妤犲矁鐦?embed worker emits request context on text timeout閵?
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
     vector_repo = _FakeVectorRepo()
@@ -399,7 +452,7 @@ def test_embed_worker_emits_request_context_on_text_timeout(monkeypatch) -> None
 def test_embed_worker_emits_request_context_on_image_timeout(monkeypatch) -> None:
     """
     EN: Embed worker emits request context on image timeout.
-    CN: 楠岃瘉 embed worker emits request context on image timeout銆?
+    CN: 妤犲矁鐦?embed worker emits request context on image timeout閵?
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
     vector_repo = _FakeVectorRepo()
@@ -455,7 +508,7 @@ def test_embed_worker_emits_request_context_on_image_timeout(monkeypatch) -> Non
 def test_embed_worker_uses_projection_state_without_mutating_global_embed_status() -> None:
     """
     EN: Embed worker uses projection state without mutating global embed status.
-    CN: 楠岃瘉 embed worker uses projection state without mutating global embed status銆?
+    CN: 妤犲矁鐦?embed worker uses projection state without mutating global embed status閵?
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
     vector_repo = _FakeVectorRepo()
@@ -507,10 +560,76 @@ def test_embed_worker_uses_projection_state_without_mutating_global_embed_status
     assert manifest_repo.delete_calls == []
 
 
+def test_embed_worker_reads_execution_state_when_projection_state_exists() -> None:
+    """
+    EN: Embed worker reads execution state when projection state exists.
+    CN: 当 projection state 存在时，embed worker 读取 execution state。
+    """
+    source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
+    vector_repo = _FakeVectorRepo()
+    object_state_repo = _FakeObjectStateRepo()
+    execution_state_repo = _FakeExecutionStateRepo()
+    execution_state_repo.state_by_pk[source.object_pk] = ObjectStateRecord(
+        pk=source.object_pk,
+        latest_version_id=source.version_id,
+        latest_sequencer=source.sequencer,
+        extract_status="EXTRACTED",
+        embed_status="EMBEDDING",
+        latest_manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+    )
+    projection_state_repo = _FakeProjectionStateRepo()
+    manifest_repo = _FakeManifestRepo()
+    worker = EmbedWorker(
+        embedding_clients={"gemini-default": _FakeGeminiClient()},
+        embedding_profiles={
+            "gemini-default": EmbeddingProfile(
+                profile_id="gemini-default",
+                provider="gemini",
+                model="gemini-embedding-2-preview",
+                dimension=3072,
+                vector_bucket_name="vector-bucket",
+                vector_index_name="index-gemini",
+                supported_content_kinds=("text", "image"),
+            )
+        },
+        asset_source=_FakeAssetSource(),
+        vector_repo=vector_repo,
+        object_state_repo=object_state_repo,
+        manifest_repo=manifest_repo,
+        execution_state_repo=execution_state_repo,
+        projection_state_repo=projection_state_repo,
+    )
+
+    outcome = worker.process(
+        EmbeddingJobMessage(
+            source=source,
+            profile_id="gemini-default",
+            trace_id="trace-1",
+            manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+            requests=[
+                EmbeddingRequest(
+                    chunk_id="chunk#000001",
+                    chunk_type="page_text_chunk",
+                    content_kind="text",
+                    text="hello",
+                    metadata=_request_metadata(source, manifest_s3_uri="s3://manifest-bucket/manifests/example.json"),
+                )
+            ],
+        )
+    )
+
+    assert outcome.object_state.embed_status == "EMBEDDING"
+    assert execution_state_repo.running == [source.document_uri]
+    assert execution_state_repo.done == []
+    assert object_state_repo.running == []
+    assert object_state_repo.done == []
+    assert projection_state_repo.done == [(source.document_uri, "gemini-default", 1)]
+
+
 def test_embed_worker_deletes_previous_projection_state_and_vectors_before_marking_profile_done() -> None:
     """
     EN: Embed worker deletes previous projection state and vectors before marking profile done.
-    CN: 楠岃瘉 embed worker deletes previous projection state and vectors before marking profile done銆?
+    CN: 妤犲矁鐦?embed worker deletes previous projection state and vectors before marking profile done閵?
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
     vector_repo = _FakeVectorRepo()
@@ -563,7 +682,7 @@ def test_embed_worker_deletes_previous_projection_state_and_vectors_before_marki
 def test_embed_worker_uses_derived_previous_manifest_uri_when_not_explicitly_provided() -> None:
     """
     EN: Embed worker uses derived previous manifest uri when not explicitly provided.
-    CN: 楠岃瘉 embed worker uses derived previous manifest uri when not explicitly provided銆?
+    CN: 妤犲矁鐦?embed worker uses derived previous manifest uri when not explicitly provided閵?
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
     vector_repo = _FakeVectorRepo()
@@ -610,7 +729,7 @@ def test_embed_worker_uses_derived_previous_manifest_uri_when_not_explicitly_pro
 def test_embed_worker_defers_previous_manifest_cleanup_until_all_write_profiles_complete() -> None:
     """
     EN: Embed worker defers previous manifest cleanup until all write profiles complete.
-    CN: 楠岃瘉 embed worker defers previous manifest cleanup until all write profiles complete銆?
+    CN: 妤犲矁鐦?embed worker defers previous manifest cleanup until all write profiles complete閵?
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
     vector_repo = _FakeVectorRepo()
@@ -705,7 +824,7 @@ def test_embed_worker_defers_previous_manifest_cleanup_until_all_write_profiles_
 def test_embed_worker_requires_projection_state_for_multiple_profiles() -> None:
     """
     EN: Embed worker requires projection state for multiple profiles.
-    CN: 楠岃瘉 embed worker requires projection state for multiple profiles銆?
+    CN: 妤犲矁鐦?embed worker requires projection state for multiple profiles閵?
     """
     try:
         EmbedWorker(
@@ -748,7 +867,7 @@ def test_embed_worker_requires_projection_state_for_multiple_profiles() -> None:
 def test_embed_worker_keeps_success_when_previous_version_cleanup_fails() -> None:
     """
     EN: Embed worker keeps success when previous version cleanup fails.
-    CN: 楠岃瘉 embed worker keeps success when previous version cleanup fails銆?
+    CN: 妤犲矁鐦?embed worker keeps success when previous version cleanup fails閵?
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
 
