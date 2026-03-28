@@ -13,8 +13,8 @@ _GEMINI_VERSION_SUFFIXES = ("/v1beta", "/v1")
 
 def normalize_openai_base_url(base_url: str) -> str:
     """
-    EN: Normalize OpenAI-compatible base URLs so Azure and public OpenAI both work with root or versioned inputs.
-    CN: 规范化 OpenAI 兼容 base URL，使 Azure 与公网 OpenAI 都能兼容根路径或带版本路径的输入。
+    EN: Normalize OpenAI-compatible base URLs while preserving explicit custom path prefixes.
+    CN: 规范化 OpenAI 兼容 base URL，但保留显式配置的自定义路径前缀。
     """
     parsed = _parse_absolute_url(base_url)
     host = parsed.netloc.lower()
@@ -22,13 +22,11 @@ def normalize_openai_base_url(base_url: str) -> str:
 
     if _is_azure_openai_host(host):
         normalized_path = "/openai/v1"
-    elif raw_path.endswith("/openai/v1"):
-        normalized_path = "/openai/v1"
-    elif raw_path.endswith("/v1"):
-        normalized_path = "/v1"
     elif _is_public_openai_host(host):
         normalized_path = "/v1"
     elif raw_path:
+        # EN: Preserve caller-provided prefixes such as /api/v1 for OpenRouter and similar providers.
+        # CN: 保留调用方显式提供的路径前缀，例如 OpenRouter 及类似服务的 /api/v1。
         normalized_path = raw_path
     else:
         normalized_path = "/v1"
@@ -52,13 +50,13 @@ def normalize_gemini_base_url(base_url: str) -> str:
 
     Raises:
         EN: ValueError if the URL is not absolute (missing scheme or host).
-        CN: 当 URL 非绝对路径（缺少 scheme 或 host）时抛出 ValueError。
+        CN: 当 URL 不是绝对路径（缺少 scheme 或 host）时抛出 ValueError。
     """
     parsed = _parse_absolute_url(base_url)
     raw_path = (parsed.path or "").rstrip("/")
 
     # EN: Strip known Gemini version suffixes so the SDK can layer its own apiVersion.
-    # CN: 剥离已知的 Gemini 版式后缀，以便 SDK 自行附加 apiVersion。
+    # CN: 剥离已知的 Gemini 版本后缀，方便 SDK 自行附加 apiVersion。
     normalized_path = raw_path
     for suffix in _GEMINI_VERSION_SUFFIXES:
         if normalized_path.endswith(suffix):
@@ -74,7 +72,7 @@ def normalize_gemini_base_url(base_url: str) -> str:
 def _parse_absolute_url(value: str):
     """
     EN: Parse a string into a URL and validate that it has an absolute scheme and host.
-    CN: 将字符串解析为 URL，并验证其具有绝对路径的 scheme 和 host。
+    CN: 将字符串解析为 URL，并验证其具备绝对路径所需的 scheme 和 host。
     """
     parsed = urlparse(value.strip())
     if not parsed.scheme or not parsed.netloc:
@@ -93,6 +91,6 @@ def _is_azure_openai_host(host: str) -> bool:
 def _is_public_openai_host(host: str) -> bool:
     """
     EN: Check whether the host is the public OpenAI API endpoint.
-    CN: 检查 host 是否为公网 OpenAI API 端点。
+    CN: 检查 host 是否为公共 OpenAI API 端点。
     """
     return host == "api.openai.com"
