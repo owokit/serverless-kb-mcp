@@ -48,7 +48,7 @@ jobs:
       - name: Sync test tools
         run: |
           set -euo pipefail
-          uv sync --locked --project services
+          uv sync --locked --project ocr-service
 
       # EN: Fail early if the Gemini API key is missing so the optional external suite does not produce ambiguous failures.
       # CN: 如果 Gemini API key 缺失就提前失败，避免可选外部套件给出歧义报错。
@@ -69,7 +69,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           set -euo pipefail
-          uv run --project services python -m pytest -q examples/workflows/tests/reference/test_gemini_local_pipeline.py --maxfail=1
+          uv run --project ocr-service python -m pytest -q ocr-service/examples/workflows/tests/reference/test_gemini_local_pipeline.py --maxfail=1
 
   aws-validation:
     # EN: Only run when the operator explicitly enables AWS tests.
@@ -102,7 +102,7 @@ jobs:
       - name: Sync test tools
         run: |
           set -euo pipefail
-          uv sync --locked --project services
+          uv sync --locked --project ocr-service
 
       # EN: Fail early if no AWS credentials are configured so the manual run can be diagnosed quickly.
       # CN: 如果没有配置 AWS 凭据就提前失败，方便手动运行时快速定位问题。
@@ -123,4 +123,4 @@ jobs:
       - name: Run AWS-marked tests
         run: |
           set -euo pipefail
-          uv run --project services python -m pytest -q examples/workflows/tests/reference/test_s3_vectors_check.py --maxfail=1
+          uv run --project ocr-service python -m pytest -q ocr-service/examples/workflows/tests/reference/test_s3_vectors_check.py --maxfail=1

@@ -6,8 +6,8 @@
 
 这个仓库不是一个单一应用壳，而是一个多入口工作区。
 
-- Python 工作区根目录是 `services/pyproject.toml` 和 `services/uv.lock`。
-- 核心后端服务位于 `services/ocr-pipeline/`。
+- Python 工作区根目录是 `ocr-service/pyproject.toml` 和 `ocr-service/uv.lock`。
+- 核心后端服务位于 `ocr-service/ocr-pipeline/`。
 - 基础设施与部署代码位于 `infra/cdk/`。
 - 仅供参考的 workflow 样例位于 `examples/workflows/workflow_reference_only/`。
 - 文档中心位于 `docs/`。
@@ -18,8 +18,8 @@
 | --- | --- |
 | 对外主入口 | `Ingest Lambda` |
 | 仓库身份 | `serverless-kb-mcp` |
-| Python 工作区根 | `services/` |
-| 服务源代码根 | `services/ocr-pipeline/` |
+| Python 工作区根 | `ocr-service/` |
+| 服务源代码根 | `ocr-service/ocr-pipeline/` |
 | 文档中心 | `docs/README.md` |
 | 校验方式 | GitHub Actions PR workflow 与 checks |
 
@@ -46,27 +46,27 @@
 
 ## 服务边界
 
-服务包现在物理上位于 `services/ocr-pipeline/src/serverless_mcp/`。
+服务包现在物理上位于 `ocr-service/ocr-pipeline/src/serverless_mcp/`。
 
-- `services/pyproject.toml` 将 `serverless-mcp-service` 指向 `services/ocr-pipeline/` 源码树。
-- `services/ocr-pipeline/README.md` 说明包级边界和当前模块布局。
-- `services/ocr-pipeline/src/serverless_mcp/__init__.py` 现在只是普通包初始化文件，不再承担兼容外壳职责。
+- `ocr-service/pyproject.toml` 将 `serverless-mcp-service` 指向 `ocr-service/ocr-pipeline/` 源码树。
+- `ocr-service/ocr-pipeline/README.md` 说明包级边界和当前模块布局。
+- `ocr-service/ocr-pipeline/src/serverless_mcp/__init__.py` 现在只是普通包初始化文件，不再承担兼容外壳职责。
 
 ## 文档
 
 | 文档 | 用途 |
 | --- | --- |
 | [文档中心](../docs/README.md) | 部署、运行时和边界文档总索引 |
-| [服务实现说明](../services/ocr-pipeline/README.md) | 包级实现说明 |
+| [服务实现说明](../ocr-service/ocr-pipeline/README.md) | 包级实现说明 |
 | [开源边界说明](../docs/open-source-boundaries.md) | 仓库边界与外部使用约束 |
 | [开源交付策略](../docs/open-source-ci-strategy.md) | 开源 CI 与交付模型 |
 | [简体中文入口](README.zh-CN.md) | 简体中文入口与本地导航 |
 
 ## Python 工具链
 
-- 使用 `uv sync --locked --project services` 准备 Python 环境。
-- 默认本地验证使用 `uv run --project services pytest -q`、`uv run --project services ruff check .` 和 `uv run --project services python ...`。
-- 将 `services/pyproject.toml` 和 `services/uv.lock` 视为 Python 依赖的唯一事实来源。
+- 使用 `uv sync --locked --project ocr-service` 准备 Python 环境。
+- 默认本地验证使用 `uv run --project ocr-service pytest -q`、`uv run --project ocr-service ruff check .` 和 `uv run --project ocr-service python ...`。
+- 将 `ocr-service/pyproject.toml` 和 `ocr-service/uv.lock` 视为 Python 依赖的唯一事实来源。
 - 日常开发保持在 uv 路径上，不要再引入临时的 `pip` 或 `venv` 启动方式。
 
 ## 本地化版本

@@ -58,7 +58,7 @@ jobs:
         if: matrix.check == 'inventory'
         run: |
           set -euo pipefail
-          uv sync --locked --project services
+          uv sync --locked --project ocr-service
 
       # EN: Install actionlint from the official release archive.
       # CN: 从官方发布包安装 actionlint。
@@ -180,7 +180,7 @@ jobs:
             from pathlib import Path
 
             completed = subprocess.run(
-                ["uv", "run", "--project", "services", "python", "tools/ci/validate_workflows.py"],
+                ["uv", "run", "--project", "ocr-service", "python", "ocr-service/tools/ci/validate_workflows.py"],
                 capture_output=True,
                 text=True,
             )
@@ -210,7 +210,7 @@ jobs:
             Path(os.environ["REPORT_PATH"]).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
             print(json.dumps(report, ensure_ascii=False, indent=2))
             raise SystemExit(0 if not findings and completed.returncode == 0 else 1)
-        run: uv run --project services python -c "$PYTHON_SCRIPT"
+        run: uv run --project ocr-service python -c "$PYTHON_SCRIPT"
 
       - name: Show report
         if: failure()

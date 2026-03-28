@@ -16,7 +16,7 @@
 - 本仓库的 PR 验证和 bug 修复，默认只使用 GitHub 官方 hosted runner，不使用 self-hosted runner。
 - 不把真实 AWS 账号、真实 AWS endpoint 或任何外部贡献者密钥作为 CI 前置条件；PR 是否通过，必须建立在不依赖 AWS 账号的可重复验证上。
 - 需要验证云侧行为时，优先使用固定输入、golden fixtures、service containers 和本地仿真，并且必须能够在 GitHub Actions 官方 runner 内完成。
-- Python 工作区以 `services/pyproject.toml` 和 `services/uv.lock` 为唯一基线；本地开发、CI、lint、测试和脚本执行默认都要走 `uv sync --locked --project services`、`uv run --project services` 或 `uvx`，不要再回退到裸 `pip install`、`python -m pip`、`venv` 或手工环境拼装。
+- Python 工作区以 `ocr-service/pyproject.toml` 和 `ocr-service/uv.lock` 为唯一基线；本地开发、CI、lint、测试和脚本执行默认都要走 `uv sync --locked --project ocr-service`、`uv run --project ocr-service` 或 `uvx`，不要再回退到裸 `pip install`、`python -m pip`、`venv` 或手工环境拼装。
 - CI 分三层组织：
   - 第一层是纯逻辑层，覆盖 lint、type check、unit test、schema 校验、manifest 生成、chunk 切分、幂等、版本推进、状态推进、重试决策和错误码映射；这一层不得调用真实 AWS SDK endpoint，也不得调用真实 OCR 或 embedding 服务，输入输出必须由固定样本和 golden fixtures 驱动。
   - 第二层是契约层，要求把 OCR 和 embedding 抽象成 provider 接口，仓库内固化标准输入输出样本；每次 PR 重点验证 provider 适配器、序列化格式、向量入库前后的字段契约，以及 manifest 引用链是否稳定。
@@ -61,7 +61,7 @@
 - 默认 PR 门禁之外，如需覆盖网络或 AWS 标记测试，可以使用 `external-validation.yml` 这样的手动 workflow，但它不能依赖真实云作为默认门禁。
 - `examples/workflows/workflow_reference_only/*` 仅作为 `reference-only` 素材，不进入默认 PR 门禁。
 - 为了满足 PR 失败回评，`guardrails.yml`、`logic-ci.yml`、`contract-ci.yml`、`local-integration-ci.yml`、`docs-ci.yml`、`security-ci.yml` 允许最小化的 `issues: write`，但只能用于向当前 PR 写失败评论，不能扩展到其他写权限。
-- `tools/ci/` 作为 CI Python helper 层，只保留 `validate_workflows.py` 和 `comment_pr_failure.py`；简单扫描、路径判断、字符串检查等尽量直接写在 workflow 里。
+- `ocr-service/tools/ci/` 作为 CI Python helper 层，只保留 `validate_workflows.py` 和 `comment_pr_failure.py`；简单扫描、路径判断、字符串检查等尽量直接写在 workflow 里。
 - `infra/pipeline-config.json` 是部署命名默认值的单一来源；由 `infra/` 和运行时共同读取。
 - 旧的 boto3 部署兼容层已删除，不再保留重复实现。
 - 本仓库维护正式的 `deploy` 与 `destroy` workflow；控制台文档只作为辅助参考，不替代自动化交付。
@@ -157,7 +157,7 @@
 - 如果资源拓扑、部署流程、环境变量、IAM 权限边界或部署顺序发生变化，必须同步更新 `docs/` 中的对应说明，并检查 `infra/` 是否需要同步修改。
 - 如果更新了业务代码、部署流程或环境变量定义，必须先判断 `infra/` 是否需要同步修改，再决定是否需要更新 workflow。
 - 当前仓库已经删除 boto3 部署与销毁辅助面；如果 `infra/pipeline-config.json`、资源编排或环境假设发生变化，必须同步更新本文件与相关 skill。
-- 简体中文占位句与乱码检查必须复用 `tools/ci/chinese_text_hygiene.py`，本地 pytest 和 `guardrails.yml` 要调用同一份逻辑，不能各写一套漂移的文本卫生规则。
+- 简体中文占位句与乱码检查必须复用 `ocr-service/tools/ci/chinese_text_hygiene.py`，本地 pytest 和 `guardrails.yml` 要调用同一份逻辑，不能各写一套漂移的文本卫生规则。
 - GitHub Actions workflow 文件名和展示名必须使用语义化命名，禁止再使用 `00/10` 这类数字前缀；对应 YAML 文件应补充英文和中文注释，说明关键步骤或约束。
 - 如果用户明确要求与现有设计或既有规则冲突，以用户当次明确要求为准；随后必须把冲突点同步更新到相关 skill 或 `AGENTS.md`，包括这条冲突优先规则本身。
 - 如果目标 PR 已经 merged/closed，后续补充必须另起新的 PR，并在新 PR 中重新写明关联关系；不要继续往旧 PR 分支上追加修改。

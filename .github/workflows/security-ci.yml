@@ -40,26 +40,26 @@ jobs:
       - name: Sync security audit tools
         run: |
           set -euo pipefail
-          uv sync --locked --project services
+          uv sync --locked --project ocr-service
 
       # EN: Make sure installed Python packages are internally consistent before we trust the audit results.
       # CN: 在信任审计结果之前，先确认已安装的 Python 包彼此一致。
       - name: Check Python environment consistency
         run: |
           set -euo pipefail
-          uv run --project services python -m pip check
+          uv run --project ocr-service python -m pip check
 
       - name: Audit Python dependencies
         run: |
           set -euo pipefail
-          uv run --project services --locked pip-audit
+          uv run --project ocr-service --locked pip-audit
 
       # EN: Read workflow files directly so permission drift is caught before release or deploy jobs run.
       # CN: 直接读取工作流文件，确保权限漂移在发布或部署前被发现。
       - name: Audit workflow permissions
         run: |
           set -euo pipefail
-          uv run --project services python <<'PY'
+          uv run --project ocr-service python <<'PY'
           from __future__ import annotations
 
           import json

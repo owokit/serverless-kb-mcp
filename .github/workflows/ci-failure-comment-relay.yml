@@ -58,4 +58,4 @@ jobs:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
         run: |
           set -euo pipefail
-          uv run --project services python tools/ci/comment_pr_failure.py --workflow-name "$GITHUB_WORKFLOW"
+          uv run --project ocr-service python ocr-service/tools/ci/comment_pr_failure.py --workflow-name "$GITHUB_WORKFLOW"

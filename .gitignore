@@ -62,7 +62,7 @@ ENV/
 __pypackages__/
 
 # Release artifacts
-/services/aws_s3vectors_mcp/package/
-/services/aws_s3vectors_mcp/dist/
-/services/aws_s3vectors_mcp/*.zip
+/ocr-service/aws_s3vectors_mcp/package/
+/ocr-service/aws_s3vectors_mcp/dist/
+/ocr-service/aws_s3vectors_mcp/*.zip
 
