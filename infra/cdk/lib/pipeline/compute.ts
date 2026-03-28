@@ -131,7 +131,9 @@ export function createPipelineCompute(params: PipelineComputeParams): PipelineCo
   const remoteMcpApi = new apigateway.RestApi(stack, 'RemoteMcpApi', {
     restApiName: names.remote_mcp_api_gateway,
     description: `Remote MCP REST API for ${pipelineConfig.repo_name}`,
-    endpointTypes: [apigateway.EndpointType.EDGE],
+    // EN: Regional endpoints avoid the API Gateway-managed CloudFront distribution and are faster to deploy/destroy.
+    // CN: Regional endpoint 不会引入 API Gateway 托管的 CloudFront 分发，部署和销毁都更快。
+    endpointTypes: [apigateway.EndpointType.REGIONAL],
     deployOptions: {
       stageName: defaultSettings.api_gateway_stage_name,
     },
