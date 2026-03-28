@@ -87,6 +87,7 @@ def test_env_example_covers_runtime_environment_variables() -> None:
         "OPENAI_EMBEDDING_MODEL",
         "OPENAI_HTTP_TIMEOUT_SECONDS",
         "FAIL_ON_JOB_ERROR",
+        "ALLOW_UNAUTHENTICATED_QUERY",
         "QUERY_TENANT_CLAIM",
         "REMOTE_MCP_DEFAULT_TENANT_ID",
         "QUERY_MAX_TOP_K",
@@ -113,3 +114,4 @@ def test_env_example_points_pipeline_config_path_at_repo_root() -> None:
     values = _read_env_example_values()
 
     assert values["SERVERLESS_MCP_PIPELINE_CONFIG_PATH"] == "pipeline-config.json"
+    assert values["ALLOW_UNAUTHENTICATED_QUERY"] == "true"

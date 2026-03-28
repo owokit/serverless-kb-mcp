@@ -131,6 +131,26 @@ def test_search_documents_uses_authenticated_request_tenant(monkeypatch: pytest.
     assert service.calls[0]["tenant_id"] == "tenant-a"
 
 
+def test_search_documents_uses_default_tenant_for_unauthenticated_queries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    EN: Search documents uses the configured default tenant for anonymous queries when allowed.
+    CN: 当允许匿名查询时，search_documents 应使用配置的默认 tenant。
+    """
+    service = _FakeQueryService()
+    monkeypatch.setattr(remote_mcp_handler, "_build_service", lambda: service)
+    monkeypatch.setattr(
+        remote_mcp_handler,
+        "load_settings",
+        lambda: _FakeSettings(remote_mcp_default_tenant_id="lookup"),
+    )
+    monkeypatch.setattr(remote_mcp_handler, "_build_delivery_service", lambda: _FakeDeliveryService())
+
+    payload = remote_mcp_handler.search_documents(query="hello")
+
+    assert payload["query"] == "hello"
+    assert service.calls[0]["tenant_id"] == "lookup"
+
+
 def test_search_documents_rejects_tenant_override_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     EN: Search documents rejects conflicting explicit tenant overrides with a 403-equivalent MCP error.
