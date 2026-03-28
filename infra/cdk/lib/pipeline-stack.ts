@@ -1,9 +1,9 @@
 import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
+import { ApiStack } from './api-stack';
+import { ComputeStack } from './compute-stack';
+import { FoundationStack } from './foundation-stack';
 import type { DeploymentInputs, PipelineConfig } from './config';
-import { createPipelineCompute } from './pipeline/compute';
-import { createPipelineFoundation } from './pipeline/foundation';
-import { createPipelineRoles } from './pipeline/roles';
 
 export interface PipelineStackProps extends cdk.StackProps {
   pipelineConfig: PipelineConfig;
@@ -12,61 +12,38 @@ export interface PipelineStackProps extends cdk.StackProps {
   allowPlaceholderAssets?: boolean;
 }
 
+// EN: Keep a compatibility wrapper for the historical single-stack entry while the app now instantiates the split stacks directly.
+// CN: 保留历史单栈入口的兼容包装，但实际 app 已经直接实例化拆分后的多个 stack。
 export class PipelineStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: PipelineStackProps) {
     super(scope, id, props);
 
     const { pipelineConfig, artifactDir, deploymentInputs, allowPlaceholderAssets = false } = props;
-    const names = pipelineConfig.resource_names;
+    const stackEnvironment = {
+      env: {
+        account: props.env?.account ?? process.env.CDK_DEFAULT_ACCOUNT ?? process.env.AWS_ACCOUNT_ID,
+        region: props.env?.region ?? process.env.CDK_DEFAULT_REGION ?? process.env.AWS_REGION,
+      },
+    };
 
-    // EN: Build shared buckets, tables, queues, and vector indexes first so later compute resources can reuse them.
-    // CN: 先构建共享的 bucket、table、queue 和 vector index，让后续计算资源直接复用。
-    const foundation = createPipelineFoundation(this, {
+    const foundationStack = new FoundationStack(scope, `${id}-foundation`, {
+      ...stackEnvironment,
       pipelineConfig,
     });
-
-    // EN: Bind least-privilege execution roles to the already created shared resources.
-    // CN: 把最小权限的执行角色绑定到已经创建好的共享资源上。
-    const roles = createPipelineRoles({
-      stack: this,
-      names: pipelineConfig.resource_names,
-      pipelineConfig,
-      sourceBucket: foundation.sourceBucket,
-      manifestBucket: foundation.manifestBucket,
-      embedQueue: foundation.embedQueue,
-      ingestQueue: foundation.ingestQueue,
-      objectStateTable: foundation.objectStateTable,
-      executionStateTable: foundation.executionStateTable,
-      manifestIndexTable: foundation.manifestIndexTable,
-      embeddingProjectionStateTable: foundation.embeddingProjectionStateTable,
-    });
-
-    // EN: Layer Lambda, state machine, and API resources on top of the shared foundation.
-    // CN: 在共享基础设施之上叠加 Lambda、状态机和 API 资源。
-    const compute = createPipelineCompute({
-      stack: this,
+    const computeStack = new ComputeStack(scope, `${id}-compute`, {
+      ...stackEnvironment,
       pipelineConfig,
       artifactDir,
       deploymentInputs,
       allowPlaceholderAssets,
-      foundation,
-      roles,
+    });
+    const apiStack = new ApiStack(scope, `${id}-api`, {
+      ...stackEnvironment,
+      pipelineConfig,
     });
 
-    // EN: Publish only the outputs that deployment and smoke-test workflows actually consume.
-    // CN: 只公开部署和冒烟测试工作流真正会消费的输出。
-    new cdk.CfnOutput(this, 'RemoteMcpApiUrl', {
-      value: compute.remoteMcpApi.url ?? '',
-    });
-    new cdk.CfnOutput(this, 'StateMachineArn', {
-      value: compute.stateMachine.stateMachineArn,
-    });
-    new cdk.CfnOutput(this, 'VectorBucketName', {
-      value: names.vector_bucket,
-    });
-    new cdk.CfnOutput(this, 'SourceBucketName', {
-      value: foundation.sourceBucket.bucketName,
-    });
+    computeStack.addDependency(foundationStack);
+    apiStack.addDependency(computeStack);
 
     cdk.Tags.of(this).add('app', pipelineConfig.repo_name);
   }

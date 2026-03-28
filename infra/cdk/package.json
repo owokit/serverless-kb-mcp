@@ -4,8 +4,8 @@
   "scripts": {
     "synth": "cd ../.. && npm --prefix infra/cdk exec -- cdk synth",
     "diff": "cd ../.. && npm --prefix infra/cdk exec -- cdk diff",
-    "deploy": "cd ../.. && npm --prefix infra/cdk exec -- cdk deploy --require-approval never",
-    "destroy": "cd ../.. && npm --prefix infra/cdk exec -- cdk destroy --force"
+    "deploy": "cd ../.. && npm --prefix infra/cdk exec -- cdk deploy --all --method direct --concurrency 3 --require-approval never --progress events",
+    "destroy": "cd ../.. && npm --prefix infra/cdk exec -- cdk destroy --all --force --progress events"
   },
   "dependencies": {
     "aws-cdk": "^2.1113.0",

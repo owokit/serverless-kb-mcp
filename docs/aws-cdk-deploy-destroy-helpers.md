@@ -1,16 +1,17 @@
 # AWS CDK 部署与销毁说明
 
-本文件说明当前 TypeScript CDK 入口的职责分工。部署和销毁都以同一份 `infra/lib/pipeline-stack.ts` 为准，不再依赖旧的 boto3 辅助面作为主入口。
+本文件说明当前 TypeScript CDK 入口的职责分工。部署和销毁都以 `infra/cdk/bin/app.ts` 里拆分后的三个顶层 stack 为准，不再依赖旧的 boto3 辅助面作为主入口。
 
 ## 部署入口
 
 生产发布通过 GitHub Actions 的 `Prod Deploy` 工作流执行，底层命令如下：
 
 ```bash
-npx cdk deploy --all --require-approval never --progress events
+npx cdk deploy --all --method direct --concurrency 3 --require-approval never --progress events
 ```
 
 部署前会先下载 release assets，并将 `MCP_CDK_ASSET_DIR` 指向 `release-assets/`，这样 CDK 栈可以直接消费发布产物。
+当前部署命令优先使用 `--method direct`，因为它比 change set 路径更直接；`--asset-parallelism` 与 `--method direct` 不兼容，所以这里不再同时开启。
 
 ## 销毁入口
 
@@ -39,3 +40,4 @@ npx cdk destroy --all --force --progress events
 - 如果 `cdk synth` 找不到产物，先确认 `MCP_CDK_ASSET_DIR` 是否指向正确目录
 - 如果 `cdk destroy` 失败但不涉及业务资源，先确认是否启用了占位资产模式
 - 如果输入的 `name_prefix` 和配置不一致，工作流会直接失败，避免误删
+- 如果需要调试部署性能，优先观察三个顶层 stack 的顺序和资源 teardown，而不是继续把重点放在 TypeScript 里做 Promise 并行

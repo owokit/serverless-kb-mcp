@@ -136,7 +136,7 @@ jobs:
       - name: Deploy production backend
         run: |
           set -euo pipefail
-          npm --prefix infra/cdk run deploy -- --all --progress events
+          npm --prefix infra/cdk run deploy
 
       - name: Record production deployment summary
         run: |

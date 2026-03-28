@@ -12,9 +12,10 @@
 ## 销毁行为
 
 - 继续沿用同一份 `pipeline-config.json` 作为资源命名依据
-- 资源删除交给 `cdk destroy --all --force`
+- 资源删除交给 `cdk destroy --all --force --progress events`
 - 当没有真实打包产物时，CDK 栈会使用占位资产完成 synth
 - 销毁只做栈级清理，不再手动维护旧的 boto3 删除顺序
+- 当前入口已拆成 Foundation / Compute / Api 三个顶层 stack，销毁时优先观察数据平面和计算层的删除时长差异
 
 ## 手动执行
 

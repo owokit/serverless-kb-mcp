@@ -19,7 +19,7 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "npm ci --prefix infra/cdk" in workflow_text
     assert "aws sts get-caller-identity" in workflow_text
     assert "Validate release asset manifest" in workflow_text
-    assert "npm --prefix infra/cdk run deploy -- --all --progress events" in workflow_text
+    assert "npm --prefix infra/cdk run deploy" in workflow_text
     assert "Record production deployment summary" in workflow_text
     assert workflow_text.index("Validate release tag confirmation") < workflow_text.index("Deploy production backend")
 
@@ -36,5 +36,26 @@ def test_destroy_workflow_uses_cdk_destroy_with_placeholder_assets() -> None:
     assert "npm ci --prefix infra/cdk" in workflow_text
     assert "aws sts get-caller-identity" in workflow_text
     assert "Validate destroy confirmation" in workflow_text
-    assert "npm --prefix infra/cdk run destroy -- --all --progress events" in workflow_text
+    assert "npm --prefix infra/cdk run destroy" in workflow_text
     assert "confirm_destroy does not match name_prefix" in workflow_text
+
+
+def test_cdk_package_scripts_use_split_stack_speedup_flags() -> None:
+    package_path = Path(__file__).resolve().parents[4] / "infra" / "cdk" / "package.json"
+    package_text = package_path.read_text(encoding="utf-8")
+
+    assert '"deploy": "cd ../.. && npm --prefix infra/cdk exec -- cdk deploy --all --method direct --concurrency 3 --require-approval never --progress events"' in package_text
+    assert '"destroy": "cd ../.. && npm --prefix infra/cdk exec -- cdk destroy --all --force --progress events"' in package_text
+
+
+def test_cdk_app_instantiates_three_top_level_stacks_and_regional_api() -> None:
+    app_path = Path(__file__).resolve().parents[4] / "infra" / "cdk" / "bin" / "app.ts"
+    api_path = Path(__file__).resolve().parents[4] / "infra" / "cdk" / "lib" / "pipeline" / "api.ts"
+    app_text = app_path.read_text(encoding="utf-8")
+    api_text = api_path.read_text(encoding="utf-8")
+
+    assert "new FoundationStack(" in app_text
+    assert "new ComputeStack(" in app_text
+    assert "new ApiStack(" in app_text
+    assert "EndpointType.REGIONAL" in api_text
+    assert "EndpointType.EDGE" not in api_text
