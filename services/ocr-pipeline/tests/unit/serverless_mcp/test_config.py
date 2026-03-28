@@ -453,6 +453,21 @@ def test_settings_accepts_canonical_openai_settings(monkeypatch: pytest.MonkeyPa
     assert settings.openai_api_key == "azure-secret"
 
 
+def test_settings_preserve_openrouter_style_openai_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    EN: Verify that custom OpenAI-compatible path prefixes such as OpenRouter /api/v1 are preserved.
+    CN: 验证 OpenRouter 这类带 /api/v1 前缀的 OpenAI 兼容地址会被原样保留。
+    """
+    monkeypatch.setenv("OBJECT_STATE_TABLE", "object-state")
+    monkeypatch.setenv("OPENAI_API_BASE_URL", "https://openrouter.ai/api/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "router-secret")
+
+    settings = Settings.from_env()
+
+    assert settings.openai_api_base_url == "https://openrouter.ai/api/v1/"
+    assert settings.openai_api_key == "router-secret"
+
+
 def test_settings_ignore_legacy_openai_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     EN: Verify that legacy OpenAI alias variables no longer populate the runtime settings.
