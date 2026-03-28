@@ -33,13 +33,21 @@ export function createPipelineFoundation(scope: Construct, params: PipelineFound
   const defaultSettings = pipelineConfig.defaults;
   const enabledProfiles = pipelineConfig.embedding_profiles.filter((profile) => profile.enabled !== false);
 
+  // EN: Determine bucket removal policy: explicit config wins, otherwise derive from name_prefix.
+  // CN: 确定 bucket 移除策略：显式配置优先，否则从 name_prefix 推导。
+  const rawPolicy = defaultSettings.data_bucket_removal_policy;
+  const isProd = pipelineConfig.name_prefix.includes('-prod') || pipelineConfig.name_prefix.includes('-production');
+  const bucketRemovalPolicy = rawPolicy
+    ? (rawPolicy === 'RETAIN' ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY)
+    : (isProd ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY);
+
   const sourceBucket = new s3.Bucket(scope, 'SourceBucket', {
     bucketName: names.source_bucket,
     blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
     encryption: s3.BucketEncryption.S3_MANAGED,
     versioned: true,
-    removalPolicy: RemovalPolicy.DESTROY,
-    autoDeleteObjects: true,
+    removalPolicy: bucketRemovalPolicy,
+    autoDeleteObjects: bucketRemovalPolicy === RemovalPolicy.DESTROY,
     lifecycleRules: [
       {
         id: 'expire-noncurrent-source-versions',
@@ -59,18 +67,18 @@ export function createPipelineFoundation(scope: Construct, params: PipelineFound
     blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
     encryption: s3.BucketEncryption.S3_MANAGED,
     versioned: true,
-    removalPolicy: RemovalPolicy.DESTROY,
-    autoDeleteObjects: true,
+    removalPolicy: bucketRemovalPolicy,
+    autoDeleteObjects: bucketRemovalPolicy === RemovalPolicy.DESTROY,
   });
 
   const vectorBucket = new s3vectors.CfnVectorBucket(scope, 'VectorBucket', {
     vectorBucketName: names.vector_bucket,
     tags: [{ key: 'app', value: pipelineConfig.repo_name }],
   });
-  vectorBucket.applyRemovalPolicy(RemovalPolicy.DESTROY);
+  vectorBucket.applyRemovalPolicy(bucketRemovalPolicy);
 
   for (const profile of enabledProfiles) {
-    createVectorIndex(scope, profile, vectorBucket, names.vector_bucket);
+    createVectorIndex(scope, profile, vectorBucket, names.vector_bucket, bucketRemovalPolicy);
   }
 
   const ingestQueue = new sqs.Queue(scope, 'IngestQueue', {
@@ -110,18 +118,18 @@ export function createPipelineFoundation(scope: Construct, params: PipelineFound
       indexName: 'lookup-record-type-index',
       partitionKey: { name: 'record_type', type: dynamodb.AttributeType.STRING },
     },
-  ]);
+  ], bucketRemovalPolicy);
   const executionStateTable = createTable(scope, names.execution_state_table, false, [
     { name: 'pk', type: dynamodb.AttributeType.STRING },
-  ]);
+  ], [], bucketRemovalPolicy);
   const manifestIndexTable = createTable(scope, names.manifest_index_table, false, [
     { name: 'pk', type: dynamodb.AttributeType.STRING },
     { name: 'sk', type: dynamodb.AttributeType.STRING },
-  ]);
+  ], [], bucketRemovalPolicy);
   const embeddingProjectionStateTable = createTable(scope, names.embedding_projection_state_table, false, [
     { name: 'pk', type: dynamodb.AttributeType.STRING },
     { name: 'sk', type: dynamodb.AttributeType.STRING },
-  ]);
+  ], [], bucketRemovalPolicy);
 
   return {
     sourceBucket,
@@ -145,6 +153,7 @@ function createTable(
   withGsi: boolean,
   attributes: { name: string; type: dynamodb.AttributeType }[],
   indexes: { indexName: string; partitionKey: { name: string; type: dynamodb.AttributeType } }[] = [],
+  removalPolicy: RemovalPolicy = RemovalPolicy.DESTROY,
 ): dynamodb.Table {
   const table = new dynamodb.Table(scope, pascal(tableName), {
     tableName,
@@ -155,7 +164,7 @@ function createTable(
       pointInTimeRecoveryEnabled: true,
     },
     encryption: dynamodb.TableEncryption.AWS_MANAGED,
-    removalPolicy: RemovalPolicy.DESTROY,
+    removalPolicy,
   });
   if (withGsi) {
     for (const index of indexes) {
@@ -176,6 +185,7 @@ function createVectorIndex(
   profile: EmbeddingProfileConfig,
   vectorBucket: s3vectors.CfnVectorBucket,
   vectorBucketName: string,
+  removalPolicy: RemovalPolicy = RemovalPolicy.DESTROY,
 ): s3vectors.CfnIndex {
   const index = new s3vectors.CfnIndex(scope, `VectorIndex${pascal(profile.profile_id)}`, {
     dataType: 'float32',
@@ -190,6 +200,6 @@ function createVectorIndex(
       : undefined,
   });
   index.addDependency(vectorBucket);
-  index.applyRemovalPolicy(RemovalPolicy.DESTROY);
+  index.applyRemovalPolicy(removalPolicy);
   return index;
 }
