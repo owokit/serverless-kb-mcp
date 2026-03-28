@@ -65,6 +65,13 @@ jobs:
         with:
           setup-node: true
 
+      # EN: Record a shared timing baseline after checkout so later steps can report elapsed phase times.
+      # CN: 在 checkout 之后记录统一的时间基线，便于后续步骤输出分段耗时。
+      - name: Initialize deploy timing baseline
+        run: |
+          set -euo pipefail
+          echo "DEPLOY_TIMING_START=$(date +%s)" >> "$GITHUB_ENV"
+
       # EN: Download the release payload while the CDK dependency tree installs in the background.
       # CN: 在 CDK 依赖安装的同时下载 release 产物，尽量把纯网络等待重叠起来。
       - name: Download packaged release assets and install CDK toolchain
@@ -79,6 +86,8 @@ jobs:
           mkdir -p ./release-assets/layers
           mv ./release-assets/*_layer.zip ./release-assets/layers/ 2>/dev/null || true
           wait "$CDK_CI_PID"
+          now="$(date +%s)"
+          echo "::notice title=Deploy timing::stage=release-download+cdk-ci elapsed=$((now - DEPLOY_TIMING_START))s"
 
       # EN: Prefer OIDC-based AWS credentials when a role ARN is configured.
       # CN: 当配置了 role ARN 时优先使用基于 OIDC 的 AWS 凭据。
@@ -114,6 +123,8 @@ jobs:
           set -euo pipefail
           echo "CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_ENV"
           echo "CDK_DEFAULT_REGION=$AWS_REGION" >> "$GITHUB_ENV"
+          now="$(date +%s)"
+          echo "::notice title=Deploy timing::stage=aws-auth+env elapsed=$((now - DEPLOY_TIMING_START))s"
 
       # EN: Verify the downloaded release manifest matches the requested tag before deploying.
       # CN: 在部署前验证下载到的 release manifest 与请求的 tag 一致。
@@ -129,6 +140,8 @@ jobs:
           }
           console.log(JSON.stringify(report, null, 2));
           NODE
+          now="$(date +%s)"
+          echo "::notice title=Deploy timing::stage=manifest-validated elapsed=$((now - DEPLOY_TIMING_START))s"
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
 
@@ -138,6 +151,8 @@ jobs:
         run: |
           set -euo pipefail
           npm --prefix infra/cdk run deploy -- --all --progress events
+          now="$(date +%s)"
+          echo "::notice title=Deploy timing::stage=cdk-deploy elapsed=$((now - DEPLOY_TIMING_START))s"
 
       - name: Record production deployment summary
         run: |

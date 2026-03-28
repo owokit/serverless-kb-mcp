@@ -56,6 +56,13 @@ jobs:
         with:
           setup-node: true
 
+      # EN: Record a shared timing baseline after checkout so later steps can report elapsed phase times.
+      # CN: 在 checkout 之后记录统一的时间基线，便于后续步骤输出分段耗时。
+      - name: Initialize destroy timing baseline
+        run: |
+          set -euo pipefail
+          echo "DESTROY_TIMING_START=$(date +%s)" >> "$GITHUB_ENV"
+
       # EN: Prefer OIDC-based AWS credentials when a role ARN is configured.
       # CN: 当配置了 role ARN 时优先使用基于 OIDC 的 AWS 凭据。
       - name: Configure AWS credentials via OIDC
@@ -90,6 +97,8 @@ jobs:
           set -euo pipefail
           echo "CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_ENV"
           echo "CDK_DEFAULT_REGION=$AWS_REGION" >> "$GITHUB_ENV"
+          now="$(date +%s)"
+          echo "::notice title=Destroy timing::stage=aws-auth+env elapsed=$((now - DESTROY_TIMING_START))s"
 
       # EN: Require the operator to confirm the exact name prefix before any destructive action.
       # CN: 在任何破坏性操作前，都要要求操作者确认精确的 name prefix。
@@ -108,6 +117,8 @@ jobs:
             throw new Error(`name_prefix does not match pipeline-config.json: ${config.name_prefix}`);
           }
           NODE
+          now="$(date +%s)"
+          echo "::notice title=Destroy timing::stage=confirmation-validated elapsed=$((now - DESTROY_TIMING_START))s"
         env:
           INPUT_NAME_PREFIX: ${{ inputs.name_prefix }}
 
@@ -117,6 +128,8 @@ jobs:
         run: |
           set -euo pipefail
           npm ci --prefix infra/cdk --prefer-offline --no-audit --no-fund
+          now="$(date +%s)"
+          echo "::notice title=Destroy timing::stage=cdk-ci elapsed=$((now - DESTROY_TIMING_START))s"
 
       # EN: Destroy the CDK stack directly, using placeholder assets when packaging outputs are not present.
       # CN: 直接销毁 CDK 栈，在没有打包产物时使用占位资源。
@@ -124,3 +137,5 @@ jobs:
         run: |
           set -euo pipefail
           npm --prefix infra/cdk run destroy -- --all --progress events
+          now="$(date +%s)"
+          echo "::notice title=Destroy timing::stage=cdk-destroy elapsed=$((now - DESTROY_TIMING_START))s"
