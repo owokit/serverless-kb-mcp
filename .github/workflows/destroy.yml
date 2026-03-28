@@ -1,5 +1,5 @@
 # EN: Tear down deployed resources only after explicit confirmation.
-# CN: 只在显式确认后销毁已部署资源。
+# CN: 仅在显式确认后再销毁已部署资源。
 name: Destroy
 
 on:
@@ -49,17 +49,12 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Set up runtime
         uses: ./.github/actions/setup-runtime
         with:
           setup-node: true
-
-      - name: Install CDK toolchain
-        run: |
-          set -euo pipefail
-          npm ci --prefix infra/cdk
 
       # EN: Prefer OIDC-based AWS credentials when a role ARN is configured.
       # CN: 当配置了 role ARN 时优先使用基于 OIDC 的 AWS 凭据。
@@ -72,7 +67,7 @@ jobs:
           role-session-name: destroy-aws-resources
 
       # EN: Fall back to static AWS keys when OIDC is not configured.
-      # CN: 当未配置 OIDC 时回退到静态 AWS 密钥。
+      # CN: 未配置 OIDC 时回退到静态 AWS 密钥。
       - name: Configure AWS credentials via static keys
         if: ${{ env.AWS_ROLE_TO_ASSUME == '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' }}
         uses: aws-actions/configure-aws-credentials@v6
@@ -82,7 +77,7 @@ jobs:
           aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
 
       # EN: Fail immediately if no AWS credentials are available at all.
-      # CN: 如果完全没有任何 AWS 凭据就立即失败。
+      # CN: 如果完全没有可用的 AWS 凭据，就立刻失败。
       - name: Fail when AWS credentials are not configured
         if: ${{ env.AWS_ROLE_TO_ASSUME == '' && (env.AWS_ACCESS_KEY_ID == '' || env.AWS_SECRET_ACCESS_KEY == '') }}
         run: |
@@ -97,7 +92,7 @@ jobs:
           echo "CDK_DEFAULT_REGION=$AWS_REGION" >> "$GITHUB_ENV"
 
       # EN: Require the operator to confirm the exact name prefix before any destructive action.
-      # CN: 在任何破坏性操作前，都要求操作者确认精确的 name prefix。
+      # CN: 在任何破坏性操作前，都要要求操作者确认精确的 name prefix。
       - name: Validate destroy confirmation
         run: |
           set -euo pipefail
@@ -116,8 +111,15 @@ jobs:
         env:
           INPUT_NAME_PREFIX: ${{ inputs.name_prefix }}
 
+      # EN: Install the CDK toolchain only after the cheap destructive-action confirmation passes.
+      # CN: 只有在廉价的破坏性操作确认通过后，再安装 CDK 工具链。
+      - name: Install CDK toolchain
+        run: |
+          set -euo pipefail
+          npm ci --prefix infra/cdk --prefer-offline --no-audit --no-fund
+
       # EN: Destroy the CDK stack directly, using placeholder assets when packaging outputs are not present.
-      # CN: 直接销毁 CDK 栈，在没有打包产物时使用占位资产。
+      # CN: 直接销毁 CDK 栈，在没有打包产物时使用占位资源。
       - name: Destroy AWS resources with CDK
         run: |
           set -euo pipefail

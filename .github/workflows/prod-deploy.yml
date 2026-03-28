@@ -26,7 +26,7 @@ concurrency:
 jobs:
   prod-deploy:
     # EN: Use the production environment for deployment protection rules and secret scoping.
-    # CN: 使用 production 环境应用部署保护规则和密钥作用域。
+    # CN: 使用 production 环境套用部署保护规则并限制密钥作用域。
     environment: production
     runs-on: ubuntu-latest
 
@@ -48,7 +48,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       # EN: Fail fast if the operator typed the wrong release tag twice.
       # CN: 如果操作者两次输入的 release tag 不一致，就立即失败。
@@ -60,24 +60,25 @@ jobs:
             exit 1
           fi
 
-      - name: Download packaged release assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh release download "${{ inputs.release_tag }}" --dir ./release-assets --pattern '*.zip' --pattern 'package-release-report.json'
-          mkdir -p ./release-assets/layers
-          mv ./release-assets/*_layer.zip ./release-assets/layers/ 2>/dev/null || true
-
       - name: Set up runtime
         uses: ./.github/actions/setup-runtime
         with:
           setup-node: true
 
-      - name: Install CDK toolchain
+      # EN: Download the release payload while the CDK dependency tree installs in the background.
+      # CN: 在 CDK 依赖安装的同时下载 release 产物，尽量把纯网络等待重叠起来。
+      - name: Download packaged release assets and install CDK toolchain
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          npm ci --prefix infra/cdk
+          npm --prefix infra/cdk ci --prefer-offline --no-audit --no-fund &
+          CDK_CI_PID=$!
+          trap 'kill "$CDK_CI_PID" 2>/dev/null || true' EXIT
+          gh release download "${{ inputs.release_tag }}" --dir ./release-assets --pattern '*.zip' --pattern 'package-release-report.json'
+          mkdir -p ./release-assets/layers
+          mv ./release-assets/*_layer.zip ./release-assets/layers/ 2>/dev/null || true
+          wait "$CDK_CI_PID"
 
       # EN: Prefer OIDC-based AWS credentials when a role ARN is configured.
       # CN: 当配置了 role ARN 时优先使用基于 OIDC 的 AWS 凭据。
@@ -90,7 +91,7 @@ jobs:
           role-session-name: prod-deploy
 
       # EN: Fall back to static AWS keys when OIDC is not configured.
-      # CN: 当未配置 OIDC 时回退到静态 AWS 密钥。
+      # CN: 未配置 OIDC 时回退到静态 AWS 密钥。
       - name: Configure AWS credentials via static keys
         if: ${{ env.AWS_ROLE_TO_ASSUME == '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' }}
         uses: aws-actions/configure-aws-credentials@v6
@@ -100,7 +101,7 @@ jobs:
           aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
 
       # EN: Fail immediately if no AWS credentials are available at all.
-      # CN: 如果完全没有可用的 AWS 凭据，立即失败。
+      # CN: 如果完全没有可用的 AWS 凭据，就立刻失败。
       - name: Fail when AWS credentials are not configured
         if: ${{ env.AWS_ROLE_TO_ASSUME == '' && (env.AWS_ACCESS_KEY_ID == '' || env.AWS_SECRET_ACCESS_KEY == '') }}
         run: |
@@ -115,7 +116,7 @@ jobs:
           echo "CDK_DEFAULT_REGION=$AWS_REGION" >> "$GITHUB_ENV"
 
       # EN: Verify the downloaded release manifest matches the requested tag before deploying.
-      # CN: 部署前验证下载的 release manifest 与请求的 tag 一致。
+      # CN: 在部署前验证下载到的 release manifest 与请求的 tag 一致。
       - name: Validate release asset manifest
         run: |
           set -euo pipefail
@@ -132,7 +133,7 @@ jobs:
           RELEASE_TAG: ${{ inputs.release_tag }}
 
       # EN: Deploy the TypeScript CDK stack directly from the release artifacts.
-      # CN: 直接基于发布产物部署 TypeScript CDK 栈。
+      # CN: 直接基于 release 产物部署 TypeScript CDK 栈。
       - name: Deploy production backend
         run: |
           set -euo pipefail
