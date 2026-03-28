@@ -2,8 +2,10 @@
 
 `pipeline-config.json` 仍然是仓库里部署命名和默认值的唯一配置源。它现在被以下位置共同读取：
 
-- `infra/bin/app.ts`
-- `infra/lib/pipeline-stack.ts`
+- `infra/cdk/bin/app.ts`
+- `infra/cdk/lib/foundation-stack.ts`
+- `infra/cdk/lib/compute-stack.ts`
+- `infra/cdk/lib/api-stack.ts`
 - `services/ocr-pipeline/src/serverless_mcp/runtime/config.py`
 - `tools/packaging/serverless_mcp/build_lambda_artifacts.py`
 - `tools/packaging/serverless_mcp/build_layer_artifacts.py`

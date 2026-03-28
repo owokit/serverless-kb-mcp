@@ -1,10 +1,8 @@
 import * as cdk from 'aws-cdk-lib';
-import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as iam from 'aws-cdk-lib/aws-iam';
-import * as s3 from 'aws-cdk-lib/aws-s3';
-import * as sqs from 'aws-cdk-lib/aws-sqs';
 import type { PipelineConfig } from '../config';
 import { pascal } from './helpers';
+import type { PipelineResourceBindings } from './bindings';
 
 export type LambdaRoleKey = 'query' | 'status' | 'backfill' | 'ingest' | 'extract' | 'embed';
 
@@ -16,15 +14,7 @@ export interface LambdaRoleBundle {
 export interface PipelineRoleParams {
   stack: cdk.Stack;
   names: PipelineConfig['resource_names'];
-  pipelineConfig: PipelineConfig;
-  sourceBucket: s3.Bucket;
-  manifestBucket: s3.Bucket;
-  embedQueue: sqs.Queue;
-  ingestQueue: sqs.Queue;
-  objectStateTable: dynamodb.Table;
-  executionStateTable: dynamodb.Table;
-  manifestIndexTable: dynamodb.Table;
-  embeddingProjectionStateTable: dynamodb.Table;
+  bindings: PipelineResourceBindings;
 }
 
 const LAMBDA_ROLE_KEYS: LambdaRoleKey[] = ['query', 'status', 'backfill', 'ingest', 'extract', 'embed'];
@@ -64,33 +54,30 @@ function attachLambdaDataPlanePolicy(
   roleKey: LambdaRoleKey,
   params: PipelineRoleParams,
 ): void {
-  const profiles = params.pipelineConfig.embedding_profiles.filter((profile) => profile.enabled !== false);
-  const vectorResources = profiles.map(
-    (profile) => `arn:aws:s3vectors:${params.stack.region}:${params.stack.account}:bucket/${profile.vector_bucket_name}/index/${profile.vector_index_name}`,
-  );
+  const vectorResources = params.bindings.vectorIndexArns;
   const statements: iam.PolicyStatement[] = [];
 
   if (roleKey === 'query') {
     statements.push(
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
-        resources: [params.objectStateTable.tableArn],
+        resources: [params.bindings.objectStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
-        resources: [params.executionStateTable.tableArn],
+        resources: [params.bindings.executionStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:Query', 'dynamodb:DescribeTable'],
-        resources: [params.manifestIndexTable.tableArn],
+        resources: [params.bindings.manifestIndexTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:DescribeTable'],
-        resources: [params.embeddingProjectionStateTable.tableArn],
+        resources: [params.bindings.embeddingProjectionStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['s3:GetObject', 's3:GetObjectVersion'],
-        resources: [params.manifestBucket.arnForObjects('*')],
+        resources: [params.bindings.manifestBucketObjectArn],
       }),
       new iam.PolicyStatement({
         actions: ['s3vectors:QueryVectors', 's3vectors:GetVectors'],
@@ -101,77 +88,77 @@ function attachLambdaDataPlanePolicy(
     statements.push(
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
-        resources: [params.objectStateTable.tableArn],
+        resources: [params.bindings.objectStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
-        resources: [params.executionStateTable.tableArn],
+        resources: [params.bindings.executionStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:Query', 'dynamodb:DescribeTable'],
-        resources: [params.manifestIndexTable.tableArn],
+        resources: [params.bindings.manifestIndexTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:DescribeTable'],
-        resources: [params.embeddingProjectionStateTable.tableArn],
+        resources: [params.bindings.embeddingProjectionStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['s3:GetObject', 's3:GetObjectVersion'],
-        resources: [params.manifestBucket.arnForObjects('*')],
+        resources: [params.bindings.manifestBucketObjectArn],
       }),
     );
   } else if (roleKey === 'backfill') {
     statements.push(
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:Scan', 'dynamodb:DescribeTable'],
-        resources: [params.objectStateTable.tableArn],
+        resources: [params.bindings.objectStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
-        resources: [params.executionStateTable.tableArn],
+        resources: [params.bindings.executionStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:Query', 'dynamodb:DescribeTable'],
-        resources: [params.manifestIndexTable.tableArn],
+        resources: [params.bindings.manifestIndexTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:DescribeTable'],
-        resources: [params.embeddingProjectionStateTable.tableArn],
+        resources: [params.bindings.embeddingProjectionStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['s3:GetObject', 's3:GetObjectVersion'],
-        resources: [params.manifestBucket.arnForObjects('*')],
+        resources: [params.bindings.manifestBucketObjectArn],
       }),
       new iam.PolicyStatement({
         actions: ['sqs:SendMessage'],
-        resources: [params.embedQueue.queueArn],
+        resources: [params.bindings.embedQueueArn],
       }),
     );
   } else if (roleKey === 'ingest') {
     statements.push(
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:TransactWriteItems', 'dynamodb:UpdateItem', 'dynamodb:DescribeTable'],
-        resources: [params.objectStateTable.tableArn],
+        resources: [params.bindings.objectStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
-        resources: [params.executionStateTable.tableArn],
+        resources: [params.bindings.executionStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:Query', 'dynamodb:DescribeTable'],
-        resources: [params.manifestIndexTable.tableArn],
+        resources: [params.bindings.manifestIndexTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:PutItem', 'dynamodb:DescribeTable'],
-        resources: [params.embeddingProjectionStateTable.tableArn],
+        resources: [params.bindings.embeddingProjectionStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['s3:GetObject', 's3:GetObjectVersion', 's3:GetObjectTagging', 's3:GetObjectVersionTagging'],
-        resources: [params.sourceBucket.arnForObjects('*')],
+        resources: [params.bindings.sourceBucketObjectArn],
       }),
       new iam.PolicyStatement({
         actions: ['s3:GetObject', 's3:GetObjectVersion'],
-        resources: [params.manifestBucket.arnForObjects('*')],
+        resources: [params.bindings.manifestBucketObjectArn],
       }),
       new iam.PolicyStatement({
         actions: ['s3vectors:GetVectors', 's3vectors:PutVectors'],
@@ -179,61 +166,61 @@ function attachLambdaDataPlanePolicy(
       }),
       new iam.PolicyStatement({
         actions: ['sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:GetQueueAttributes', 'sqs:ChangeMessageVisibility'],
-        resources: [params.ingestQueue.queueArn],
+        resources: [params.bindings.ingestQueueArn],
       }),
       new iam.PolicyStatement({
         actions: ['states:StartExecution'],
-        resources: [`arn:aws:states:${params.stack.region}:${params.stack.account}:stateMachine:${params.names.state_machine}`],
+        resources: [params.bindings.stateMachineArn],
       }),
     );
   } else if (roleKey === 'extract') {
     statements.push(
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:BatchWriteItem', 'dynamodb:DeleteItem', 'dynamodb:Query', 'dynamodb:TransactWriteItems', 'dynamodb:UpdateItem', 'dynamodb:DescribeTable'],
-        resources: [params.objectStateTable.tableArn],
+        resources: [params.bindings.objectStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DescribeTable'],
-        resources: [params.executionStateTable.tableArn],
+        resources: [params.bindings.executionStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:BatchWriteItem', 'dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:DescribeTable'],
-        resources: [params.manifestIndexTable.tableArn],
+        resources: [params.bindings.manifestIndexTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['s3:GetObject', 's3:GetObjectVersion', 's3:GetObjectTagging', 's3:GetObjectVersionTagging'],
-        resources: [params.sourceBucket.arnForObjects('*')],
+        resources: [params.bindings.sourceBucketObjectArn],
       }),
       new iam.PolicyStatement({
         actions: ['s3:GetObject', 's3:GetObjectVersion', 's3:PutObject', 's3:DeleteObject'],
-        resources: [params.manifestBucket.arnForObjects('*')],
+        resources: [params.bindings.manifestBucketObjectArn],
       }),
       new iam.PolicyStatement({
         actions: ['sqs:SendMessage'],
-        resources: [params.embedQueue.queueArn],
+        resources: [params.bindings.embedQueueArn],
       }),
     );
   } else if (roleKey === 'embed') {
     statements.push(
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:BatchWriteItem', 'dynamodb:DeleteItem', 'dynamodb:Query', 'dynamodb:TransactWriteItems', 'dynamodb:UpdateItem', 'dynamodb:DescribeTable'],
-        resources: [params.objectStateTable.tableArn],
+        resources: [params.bindings.objectStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:DescribeTable'],
-        resources: [params.executionStateTable.tableArn],
+        resources: [params.bindings.executionStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:BatchWriteItem', 'dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:DescribeTable'],
-        resources: [params.manifestIndexTable.tableArn],
+        resources: [params.bindings.manifestIndexTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['dynamodb:BatchWriteItem', 'dynamodb:DeleteItem', 'dynamodb:GetItem', 'dynamodb:PutItem', 'dynamodb:Query', 'dynamodb:DescribeTable'],
-        resources: [params.embeddingProjectionStateTable.tableArn],
+        resources: [params.bindings.embeddingProjectionStateTableArn],
       }),
       new iam.PolicyStatement({
         actions: ['s3:GetObject', 's3:GetObjectVersion', 's3:DeleteObject'],
-        resources: [params.manifestBucket.arnForObjects('*')],
+        resources: [params.bindings.manifestBucketObjectArn],
       }),
       new iam.PolicyStatement({
         actions: ['s3vectors:GetVectors', 's3vectors:PutVectors', 's3vectors:DeleteVectors'],
@@ -241,7 +228,7 @@ function attachLambdaDataPlanePolicy(
       }),
       new iam.PolicyStatement({
         actions: ['sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:GetQueueAttributes', 'sqs:ChangeMessageVisibility'],
-        resources: [params.embedQueue.queueArn],
+        resources: [params.bindings.embedQueueArn],
       }),
     );
   }

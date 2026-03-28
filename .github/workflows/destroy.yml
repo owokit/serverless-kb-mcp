@@ -121,4 +121,4 @@ jobs:
       - name: Destroy AWS resources with CDK
         run: |
           set -euo pipefail
-          npm --prefix infra/cdk run destroy -- --all --progress events
+          npm --prefix infra/cdk run destroy

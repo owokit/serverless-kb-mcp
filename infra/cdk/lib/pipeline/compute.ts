@@ -1,6 +1,5 @@
 import * as cdk from 'aws-cdk-lib';
 import { Duration, RemovalPolicy } from 'aws-cdk-lib';
-import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -9,8 +8,8 @@ import type { Construct } from 'constructs';
 import { buildLayerZipPath, buildLambdaZipPath, LAYER_KEYS, type LayerKey, type LambdaFunctionKey } from '../artifacts';
 import type { DeploymentInputs, PipelineConfig } from '../config';
 import { defaultRuntimeSettings, pascal, renderStateMachineDefinition, resolveAssetPath } from './helpers';
-import { type LambdaRoleBundle, type LambdaRoleKey } from './roles';
-import type { PipelineFoundationResources } from './foundation';
+import { createPipelineRoles, type LambdaRoleBundle, type LambdaRoleKey } from './roles';
+import type { PipelineResourceBindings } from './bindings';
 
 export interface LambdaDefinition {
   functionKey: LambdaFunctionKey;
@@ -22,7 +21,7 @@ export interface LambdaDefinition {
 export interface PipelineComputeResources {
   lambdaFunctions: Map<LambdaFunctionKey, lambda.Function>;
   stateMachine: sfn.StateMachine;
-  remoteMcpApi: apigateway.RestApi;
+  remoteMcpLambda: lambda.Function;
 }
 
 export interface PipelineComputeParams {
@@ -31,18 +30,22 @@ export interface PipelineComputeParams {
   artifactDir: string;
   deploymentInputs: DeploymentInputs;
   allowPlaceholderAssets: boolean;
-  foundation: PipelineFoundationResources;
-  roles: LambdaRoleBundle;
+  bindings: PipelineResourceBindings;
 }
 
 // EN: Build the Lambda, state machine, and API layer separately from the shared data-plane foundation.
 // CN: 将 Lambda、状态机和 API 层与共享数据平面基础设施分开构建。
 export function createPipelineCompute(params: PipelineComputeParams): PipelineComputeResources {
-  const { stack, pipelineConfig, artifactDir, deploymentInputs, allowPlaceholderAssets, foundation, roles } = params;
+  const { stack, pipelineConfig, artifactDir, deploymentInputs, allowPlaceholderAssets, bindings } = params;
   const names = pipelineConfig.resource_names;
   const defaultSettings = pipelineConfig.defaults;
   const runtime = new lambda.Runtime(defaultSettings.runtime, lambda.RuntimeFamily.PYTHON);
   const architecture = defaultSettings.architecture === 'x86_64' ? lambda.Architecture.X86_64 : lambda.Architecture.ARM_64;
+  const roles = createPipelineRoles({
+    stack,
+    names,
+    bindings,
+  });
 
   // EN: Stage layer assets first so every Lambda can reuse the same layer map and placeholder logic.
   // CN: 先准备 layer 产物，确保每个 Lambda 都复用同一份 layer 映射和占位逻辑。
@@ -73,11 +76,10 @@ export function createPipelineCompute(params: PipelineComputeParams): PipelineCo
       memorySize: runtimeSettings.memory_size,
       timeout: Duration.seconds(runtimeSettings.timeout_seconds),
       environment: buildLambdaEnvironment({
-        stack,
         pipelineConfig,
         deploymentInputs,
         names,
-        embedQueue: foundation.embedQueue,
+        bindings,
         defaultSettings,
         functionKey: definition.functionKey,
         allowPlaceholderAssets,
@@ -92,13 +94,13 @@ export function createPipelineCompute(params: PipelineComputeParams): PipelineCo
   // EN: Ingest and embed are queue consumers; keep the event-source mappings explicit instead of hiding them in the definition array.
   // CN: Ingest 和 embed 是队列消费者；保持 event source mapping 显式可见，不把它藏进定义数组里。
   lambdaFunctions.get('ingest')?.addEventSourceMapping('IngestQueueMapping', {
-    eventSourceArn: foundation.ingestQueue.queueArn,
+    eventSourceArn: bindings.ingestQueueArn,
     batchSize: 10,
     enabled: true,
     reportBatchItemFailures: true,
   });
   lambdaFunctions.get('embed')?.addEventSourceMapping('EmbedQueueMapping', {
-    eventSourceArn: foundation.embedQueue.queueArn,
+    eventSourceArn: bindings.embedQueueArn,
     batchSize: 1,
     enabled: true,
     reportBatchItemFailures: true,
@@ -125,22 +127,6 @@ export function createPipelineCompute(params: PipelineComputeParams): PipelineCo
     tracingEnabled: true,
   });
   stateMachine.applyRemovalPolicy(RemovalPolicy.DESTROY);
-
-  // EN: Expose the remote MCP surface as a small, explicit API wrapper around the Lambda handler.
-  // CN: 将远程 MCP 面封装成一个小而明确的 API 包装层，直连 Lambda 处理器。
-  const remoteMcpApi = new apigateway.RestApi(stack, 'RemoteMcpApi', {
-    restApiName: names.remote_mcp_api_gateway,
-    description: `Remote MCP REST API for ${pipelineConfig.repo_name}`,
-    endpointTypes: [apigateway.EndpointType.EDGE],
-    deployOptions: {
-      stageName: defaultSettings.api_gateway_stage_name,
-    },
-  });
-  const remoteMcpIntegration = new apigateway.LambdaIntegration(lambdaFunctions.get('remote_mcp')!, {
-    proxy: true,
-  });
-  remoteMcpApi.root.addMethod('ANY', remoteMcpIntegration);
-  remoteMcpApi.root.addResource('{proxy+}').addMethod('ANY', remoteMcpIntegration);
 
   // EN: Grant the state machine only the invoke/logging permissions it needs for extract orchestration.
   // CN: 只给状态机授予 extract 编排所需的 invoke 和日志权限。
@@ -186,7 +172,7 @@ export function createPipelineCompute(params: PipelineComputeParams): PipelineCo
   return {
     lambdaFunctions,
     stateMachine,
-    remoteMcpApi,
+    remoteMcpLambda: lambdaFunctions.get('remote_mcp')!,
   };
 }
 
@@ -211,16 +197,15 @@ function createLambdaDefinitions(names: PipelineConfig['resource_names']): Lambd
 // EN: Build Lambda environment variables in one place so the deployment and runtime contract stays visible.
 // CN: 把 Lambda 环境变量集中在一处构建，方便同时看清部署和运行时契约。
 function buildLambdaEnvironment(params: {
-  stack: cdk.Stack;
   pipelineConfig: PipelineConfig;
   deploymentInputs: DeploymentInputs;
   names: PipelineConfig['resource_names'];
-  embedQueue: PipelineFoundationResources['embedQueue'];
+  bindings: PipelineResourceBindings;
   defaultSettings: PipelineConfig['defaults'];
   functionKey: LambdaFunctionKey;
   allowPlaceholderAssets: boolean;
 }): Record<string, string> {
-  const { stack, pipelineConfig, deploymentInputs, names, embedQueue, defaultSettings, functionKey, allowPlaceholderAssets } = params;
+  const { pipelineConfig, deploymentInputs, names, bindings, defaultSettings, functionKey, allowPlaceholderAssets } = params;
   const env: Record<string, string> = {
     POWERTOOLS_SERVICE_NAME: pipelineConfig.repo_name,
     OBJECT_STATE_TABLE: names.object_state_table,
@@ -281,7 +266,7 @@ function buildLambdaEnvironment(params: {
   }
 
   if (functionKey === 'ingest') {
-    env.STEP_FUNCTIONS_STATE_MACHINE_ARN = `arn:aws:states:${stack.region}:${stack.account}:stateMachine:${names.state_machine}`;
+    env.STEP_FUNCTIONS_STATE_MACHINE_ARN = bindings.stateMachineArn;
   }
   if (functionKey === 'remote_mcp' && deploymentInputs.remoteMcpDefaultTenantId) {
     env.REMOTE_MCP_DEFAULT_TENANT_ID = deploymentInputs.remoteMcpDefaultTenantId;
@@ -302,7 +287,7 @@ function buildLambdaEnvironment(params: {
     env.FAIL_ON_JOB_ERROR = String(defaultSettings.fail_on_job_error);
   }
   if (functionKey === 'extract_persist' || functionKey === 'backfill') {
-    env.EMBED_QUEUE_URL = embedQueue.queueUrl;
+    env.EMBED_QUEUE_URL = bindings.embedQueueUrl;
   }
   return env;
 }
