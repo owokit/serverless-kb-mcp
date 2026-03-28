@@ -29,6 +29,8 @@ export interface PipelineDefaults {
   cloudfront_url_ttl_seconds: number;
   api_gateway_stage_name: string;
   fail_on_job_error: boolean;
+  /** EN: Removal policy for data buckets (source/manifest). CN: 数据 bucket（source/manifest）的移除策略。 */
+  data_bucket_removal_policy?: 'RETAIN' | 'DESTROY';
 }
 
 export interface ResourceNames {

@@ -6,12 +6,12 @@ from __future__ import annotations
 
 LAMBDA_HANDLER_MODULES: dict[str, str] = {
     "ingest": "serverless_mcp.entrypoints.ingest",
-    "extract_prepare": "serverless_mcp.entrypoints.extract_prepare",
-    "extract_sync": "serverless_mcp.entrypoints.extract_sync",
-    "extract_submit": "serverless_mcp.entrypoints.extract_submit",
-    "extract_poll": "serverless_mcp.entrypoints.extract_poll",
-    "extract_persist": "serverless_mcp.entrypoints.extract_persist",
-    "extract_mark_failed": "serverless_mcp.entrypoints.extract_mark_failed",
+    "extract_prepare": "serverless_mcp.entrypoints.extract",
+    "extract_sync": "serverless_mcp.entrypoints.extract",
+    "extract_submit": "serverless_mcp.entrypoints.extract",
+    "extract_poll": "serverless_mcp.entrypoints.extract",
+    "extract_persist": "serverless_mcp.entrypoints.extract",
+    "extract_mark_failed": "serverless_mcp.entrypoints.extract",
     "embed": "serverless_mcp.entrypoints.embed",
     "remote_mcp": "serverless_mcp.entrypoints.remote_mcp",
     "backfill": "serverless_mcp.entrypoints.backfill",

@@ -28,7 +28,8 @@
     "query_max_neighbor_expand": 2,
     "cloudfront_url_ttl_seconds": 900,
     "api_gateway_stage_name": "mcp",
-    "fail_on_job_error": true
+    "fail_on_job_error": true,
+    "data_bucket_removal_policy": "RETAIN"
   },
   "resource_names": {
     "source_bucket": "mcp-doc-pipeline-prod-s3-source",
