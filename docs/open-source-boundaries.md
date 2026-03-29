@@ -15,6 +15,9 @@
 - 已使用 `tiktoken`。
 - 作用：更接近真实 embedding 模型的 token 边界，减少字符比例估算带来的偏差。
 - 保留字符启发式回退，确保部署环境没有 `tiktoken` 时仍可运行。
+- 已使用 `semchunk`。
+- 作用：在 Markdown 结构化分块之后，对超长 section 做轻量、语义感知的二次切分，避免把整段文本硬切成纯字符片段。
+- `semchunk` 只负责候选切分，最终 token 上限仍由 `tiktoken` 进行精确校验。
 
 ### 2. Markdown 解析
 

@@ -42,7 +42,8 @@ def test_paddle_manifest_builder_splits_layout_markdown_into_multiple_assets() -
     assert manifest.chunks[0].text.startswith("# Page 1 A")
     assert "assets/asset-000001.png" in manifest.chunks[0].text
     assert "assets/asset-000002.png" in manifest.chunks[1].text
-    assert all(chunk.metadata["source_format"] == "paddleocr_async" for chunk in manifest.chunks)
+    assert all(chunk.metadata["source_format"] == "markdown" for chunk in manifest.chunks)
+    assert all(chunk.metadata["chunking_strategy"] == "v2_markdown_semchunk" for chunk in manifest.chunks)
     assert [chunk.metadata["layout_index"] for chunk in manifest.chunks] == [1, 2]
 
     assert len(manifest.assets) == 6
@@ -63,9 +64,9 @@ def test_paddle_manifest_builder_splits_layout_markdown_into_multiple_assets() -
     assert assets_by_path["assets/asset-000002.png"].chunk_type == "page_image_chunk"
     assert section_md_asset_1.chunk_type == "document_markdown_chunk"
     assert section_md_asset_1.mime_type == "text/markdown"
-    assert section_md_asset_1.payload == b"# Page 1 A\nhello world\n\n![inline](assets/asset-000001.png)"
+    assert section_md_asset_1.payload == b"# Page 1 A\n\nhello world\n\n![inline](assets/asset-000001.png)"
     assert section_md_asset_2.chunk_type == "document_markdown_chunk"
-    assert section_md_asset_2.payload == b"## Page 1 B\nsecond block\n\n![inline-2](assets/asset-000002.png)"
+    assert section_md_asset_2.payload == b"## Page 1 B\n\nsecond block\n\n![inline-2](assets/asset-000002.png)"
     assert document_md_asset.chunk_type == "document_markdown_chunk"
     assert document_md_asset.mime_type == "text/markdown"
     assert document_md_asset.payload == (
@@ -89,7 +90,7 @@ def test_paddle_manifest_builder_recursively_splits_oversized_layout_markdown(mo
             return "".join(tokens)
 
     monkeypatch.setattr(policy, "_get_token_encoder", lambda: _FakeEncoder())
-    monkeypatch.setattr(builder_module, "DEFAULT_POLICY", SimpleNamespace(safe_text_tokens=40))
+    monkeypatch.setattr(builder_module, "DEFAULT_POLICY", SimpleNamespace(safe_text_tokens=40, max_input_tokens=40))
 
     builder = PaddleOCRManifestBuilder()
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/scan.pdf", version_id="v1")

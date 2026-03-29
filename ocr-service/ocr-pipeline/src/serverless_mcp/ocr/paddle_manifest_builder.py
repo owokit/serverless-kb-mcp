@@ -1,6 +1,6 @@
 """
-EN: PaddleOCR manifest builder that converts JSONL results into chunk manifests.
-CN: 同上。
+EN: PaddleOCR manifest builder that converts JSONL + Markdown results into chunk manifests.
+CN: 将 PaddleOCR 的 JSONL 和 Markdown 结果转换为 chunk manifest。
 """
 from __future__ import annotations
 
@@ -16,16 +16,16 @@ from serverless_mcp.domain.models import ChunkManifest, ExtractedAsset, Extracte
 from serverless_mcp.extract.policy import (
     DEFAULT_POLICY,
     estimate_tokens,
-    expand_oversized_chunks,
     normalize_text,
-    section_hint_from_markdown,
 )
+from serverless_mcp.extract.markdown_chunker import split_markdown_for_embedding
+from serverless_mcp.extract.policy import _get_token_encoder
 
 
 class PaddleOCRManifestBuilder:
     """
-    EN: Build chunk manifest from PaddleOCR JSONL output with text and image assets.
-    CN: 浠?PaddleOCR JSONL 杈撳嚭鏋勫缓鍖呭惈鏂囨湰鍜屽浘鐗囪祫浜х殑 chunk manifest銆?
+    EN: Build markdown-first chunk manifests from PaddleOCR async output.
+    CN: 从 PaddleOCR 异步输出构建 markdown-first 的 chunk manifest。
     """
 
     def build_manifest(
@@ -37,30 +37,55 @@ class PaddleOCRManifestBuilder:
         binary_loader: Callable[[str], tuple[bytes, str | None]],
     ) -> ChunkManifest:
         """
-        EN: Parse PaddleOCR JSONL and Markdown results and build a markdown-first manifest.
-        CN: 解析 PaddleOCR JSONL 和 Markdown 结果，并构建以 Markdown 为主的 manifest。
+        EN: Backward-compatible wrapper that keeps the JSONL raw asset while delegating to Markdown-first chunking.
+        CN: 兼容旧调用入口，保留 JSONL 原始资产，并委托给 Markdown-first chunking。
+        """
+        return self.build_manifest_from_markdown(
+            source=source,
+            markdown_text=markdown_text,
+            binary_loader=binary_loader,
+            json_lines=json_lines,
+        )
+
+    def build_manifest_from_markdown(
+        self,
+        *,
+        source: S3ObjectRef,
+        markdown_text: str,
+        binary_loader: Callable[[str], tuple[bytes, str | None]],
+        json_lines: list[dict[str, Any]] | None = None,
+    ) -> ChunkManifest:
+        """
+        EN: Build a markdown-first manifest and keep JSONL as a replay/debug asset when available.
+        CN: 构建 markdown-first manifest，并在可用时保留 JSONL 作为回放 / 调试资产。
         """
         chunks: list[ExtractedChunk] = []
         assets: list[ExtractedAsset] = []
         asset_index = 0
         image_asset_count = 0
-        layout_markdown_asset_count = 0
+        markdown_asset_count = 0
         document_markdown_asset_count = 0
+        page_count = len(json_lines) if json_lines is not None else 0
         spec = get_format_spec(doc_type="pdf", source_format="paddleocr_async")
 
         # EN: Preserve raw JSONL as an asset for reproducibility and debugging.
         # CN: 同上。
-        raw_json_payload = _dump_json_lines(json_lines)
-        assets.append(
-            ExtractedAsset(
-                asset_id="ocr#raw-jsonl",
-                chunk_type="ocr_json_chunk",
-                mime_type="application/x-ndjson",
-                payload=raw_json_payload,
-                page_no=None,
-                metadata=spec.asset_metadata(relative_path="raw.jsonl", source_field="json_lines", page_count=len(json_lines)),
+        if json_lines is not None:
+            raw_json_payload = _dump_json_lines(json_lines)
+            assets.append(
+                ExtractedAsset(
+                    asset_id="ocr#raw-jsonl",
+                    chunk_type="ocr_json_chunk",
+                    mime_type="application/x-ndjson",
+                    payload=raw_json_payload,
+                    page_no=None,
+                    metadata=spec.asset_metadata(
+                        relative_path="raw.jsonl",
+                        source_field="json_lines",
+                        page_count=page_count,
+                    ),
+                )
             )
-        )
 
         image_urls = _collect_markdown_image_urls(markdown_text)
         local_asset_paths: dict[str, str] = {}
@@ -73,44 +98,52 @@ class PaddleOCRManifestBuilder:
                 binary_loader=binary_loader,
                 url=image_url,
                 image_name=PurePosixPath(urlparse(image_url).path).name or f"asset-{asset_index:06d}",
-                metadata=spec.asset_metadata(source_field="markdown.images", page_count=len(json_lines)),
+                metadata=spec.asset_metadata(source_field="markdown.images", page_count=page_count),
             )
             assets.append(image_asset)
             local_asset_paths[image_url] = image_asset.metadata["relative_path"]
 
         rewritten_markdown_text = self._rewrite_markdown_links(markdown_text, local_asset_paths) if markdown_text else ""
-        markdown_sections = section_hint_from_markdown(rewritten_markdown_text)
-        if not markdown_sections:
-            normalized = normalize_text(rewritten_markdown_text)
-            markdown_sections = [((), normalized)] if normalized else []
+        markdown_chunks = split_markdown_for_embedding(
+            rewritten_markdown_text,
+            soft_token_target=DEFAULT_POLICY.safe_text_tokens,
+            hard_token_limit=DEFAULT_POLICY.max_input_tokens,
+            token_counter=estimate_tokens,
+            tokenizer=_get_token_encoder(),
+        )
 
-        for layout_index, (section_path, section_text) in enumerate(markdown_sections, start=1):
-            rewritten_section = self._rewrite_markdown_links(section_text, local_asset_paths) if section_text else ""
+        for layout_index, markdown_chunk in enumerate(markdown_chunks, start=1):
             assets.append(
                 ExtractedAsset(
                     asset_id=f"ocr#markdown-section-{layout_index:06d}",
                     chunk_type="document_markdown_chunk",
                     mime_type="text/markdown",
-                    payload=rewritten_section.encode("utf-8"),
+                    payload=markdown_chunk.text.encode("utf-8"),
                     page_no=None,
                     metadata=spec.asset_metadata(
                         relative_path=f"sections/section-{layout_index:06d}.md",
                         source_field="markdown.text",
-                        page_count=len(markdown_sections),
+                        page_count=len(markdown_chunks),
                         layout_index=layout_index,
                     ),
                 )
             )
-            layout_markdown_asset_count += 1
+            markdown_asset_count += 1
             chunks.append(
                 ExtractedChunk(
                     chunk_id=f"chunk#{layout_index:06d}",
                     chunk_type="section_text_chunk",
-                    text=rewritten_section,
+                    text=markdown_chunk.text,
                     doc_type="pdf",
-                    token_estimate=estimate_tokens(rewritten_section),
-                    section_path=section_path,
-                    metadata=spec.chunk_metadata(layout_index=layout_index),
+                    token_estimate=markdown_chunk.token_estimate,
+                    section_path=markdown_chunk.header_path,
+                    metadata=spec.chunk_metadata(layout_index=layout_index)
+                    | markdown_chunk.metadata
+                    | {
+                        "layout_index": layout_index,
+                        "section_path": list(markdown_chunk.header_path),
+                        "header_path": list(markdown_chunk.header_path),
+                    },
                 )
             )
 
@@ -125,15 +158,11 @@ class PaddleOCRManifestBuilder:
                     metadata=spec.asset_metadata(
                         relative_path="document.md",
                         source_field="markdownUrl",
-                        page_count=len(markdown_sections) or 1,
+                        page_count=len(markdown_chunks) or 1,
                     ),
                 )
             )
         document_markdown_asset_count = int(bool(rewritten_markdown_text))
-
-        # EN: Split oversized chunks to stay within embedding token limits.
-        # CN: 鎷嗗垎瓒呭ぇ chunk 浠ヤ繚鎸佸湪 embedding token 闄愬埗鍐呫€?
-        chunks = expand_oversized_chunks(chunks, safe_text_tokens=DEFAULT_POLICY.safe_text_tokens)
 
         return ChunkManifest(
             source=source,
@@ -141,14 +170,15 @@ class PaddleOCRManifestBuilder:
             chunks=chunks,
             assets=assets,
             metadata={
-                "page_count": len(json_lines),
+                "page_count": page_count,
                 "page_image_asset_count": image_asset_count,
-                "raw_json_asset_count": 1,
-                "layout_markdown_asset_count": layout_markdown_asset_count,
+                "raw_json_asset_count": int(json_lines is not None),
+                "layout_markdown_asset_count": markdown_asset_count,
                 "document_markdown_asset_count": document_markdown_asset_count,
-                "markdown_asset_count": layout_markdown_asset_count + document_markdown_asset_count,
+                "markdown_asset_count": markdown_asset_count + document_markdown_asset_count,
                 "ocr_engine": "PaddleOCR-VL-1.5",
                 "source_format": spec.source_format,
+                "chunking_strategy": "v2_markdown_semchunk",
             },
         )
 
