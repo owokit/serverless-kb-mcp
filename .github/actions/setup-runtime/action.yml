@@ -13,7 +13,7 @@ inputs:
   config-path:
     description: Path to the shared CI runtime config file.
     required: false
-    default: .github/config/ci-runtime.json
+    default: ""
   node-version:
     description: Optional override for the Node.js version.
     required: false
@@ -42,6 +42,7 @@ runs:
       id: runtime-config
       shell: bash
       env:
+        ACTION_PATH: ${{ github.action_path }}
         CONFIG_PATH: ${{ inputs.config-path }}
         NODE_VERSION_OVERRIDE: ${{ inputs.node-version }}
         NODE_CACHE_DEPENDENCY_PATH_OVERRIDE: ${{ inputs.node-cache-dependency-path }}
@@ -55,7 +56,15 @@ runs:
         import os
         from pathlib import Path
 
-        config_path = Path(os.environ["CONFIG_PATH"])
+        action_path = Path(os.environ.get("ACTION_PATH") or os.environ.get("GITHUB_ACTION_PATH") or ".")
+        config_path_value = os.environ.get("CONFIG_PATH", "").strip()
+        if config_path_value:
+            config_path = Path(config_path_value)
+            if not config_path.is_absolute():
+                config_path = Path(os.environ.get("GITHUB_WORKSPACE", ".")) / config_path
+        else:
+            config_path = action_path.parents[1] / "config" / "ci-runtime.json"
+
         if not config_path.is_file():
             raise SystemExit(f"Missing CI runtime config: {config_path}")
 
