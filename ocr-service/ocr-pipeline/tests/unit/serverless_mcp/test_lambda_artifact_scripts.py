@@ -68,6 +68,7 @@ def test_layer_dependencies_keep_pydantic_and_requests_out_of_core() -> None:
     assert "pydantic>=2.11.3" not in module.LAYER_DEPENDENCIES["core"]
     assert "pydantic>=2.11.3" in module.LAYER_DEPENDENCIES["extract"]
     assert "requests>=2.32.0" in module.LAYER_DEPENDENCIES["extract"]
+    assert "tiktoken>=0.7.0" not in module.LAYER_DEPENDENCIES["extract"]
 
 
 def test_build_s3_key_uses_prefix_when_present() -> None:
@@ -185,6 +186,7 @@ def test_build_layer_artifacts_builds_selected_layers(tmp_path, capsys, monkeypa
     assert (output_dir / "serverless-kb-mcp_core_layer.zip").exists()
     assert (output_dir / "serverless-kb-mcp_extract_layer.zip").exists()
     assert len(calls) == 2
+    assert all("--python-version" in call and "--python-platform" in call for call in calls)
     assert "serverless-kb-mcp_core_layer.zip" in captured.out
     assert "serverless-kb-mcp_extract_layer.zip" in captured.out
 

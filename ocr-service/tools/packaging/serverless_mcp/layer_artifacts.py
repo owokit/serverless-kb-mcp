@@ -26,7 +26,6 @@ LAYER_DEPENDENCIES: dict[str, list[str]] = {
         "python-docx>=1.1.2",
         "python-pptx>=1.0.2",
         "pydantic>=2.11.3",
-        "tiktoken>=0.7.0",
         "requests>=2.32.0",
     ],
     "embedding": [
