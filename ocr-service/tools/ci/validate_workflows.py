@@ -349,7 +349,7 @@ def _assert_shared_runtime_config(errors: list[str]) -> None:
 def _assert_docs_alignment(errors: list[str]) -> None:
     """EN: Ensure CI strategy docs and AGENTS.md contain references to all expected workflows.
     CN: 确保 CI 策略文档和 AGENTS.md 引用了全部预期的工作流。"""
-    docs_text = (SERVICE_ROOT / "docs" / "open-source-ci-strategy.md").read_text(encoding="utf-8")
+    docs_text = (REPO_ROOT / "docs" / "open-source-ci-strategy.md").read_text(encoding="utf-8")
     agents_text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
     for workflow_name in EXPECTED_NAMES.values():
