@@ -9,7 +9,7 @@
 - `serverless_mcp/domain/`：领域模型、值对象、schema 和错误类型。
 - `serverless_mcp/core/`：序列化、解析和通用基础能力，不承担 AWS 装配逻辑。
 - `serverless_mcp/runtime/`：配置加载、AWS 客户端、composition root 和运行时构造。
-- `serverless_mcp/server/`：远程 MCP 处理器使用的官方 FastMCP 兼容导出和传输安全配置。
+- `serverless_mcp/mcp_gateway/`：查询侧 MCP gateway，负责协议装配、tool 注册和 query-side service 调度。
 - `serverless_mcp/entrypoints/`：Lambda 与 API 入口层，只保留 handler 与最薄适配。
 - `serverless_mcp/extract/`、`serverless_mcp/embed/`、`serverless_mcp/query/`、`serverless_mcp/status/`、`serverless_mcp/ocr/`：业务实现与应用服务。
 - `serverless_mcp/storage/`：持久化实现，包括状态、manifest、projection 和路径工具。
@@ -30,6 +30,8 @@
 - `serverless_mcp.entrypoints.remote_mcp.lambda_handler`
 - `serverless_mcp.entrypoints.backfill.lambda_handler`
 - `serverless_mcp.entrypoints.job_status.lambda_handler`
+
+其中 `remote_mcp.lambda_handler` 现在只是查询侧 MCP gateway 的薄 wrapper，实际协议处理由 `serverless_mcp.mcp_gateway.handler.lambda_handler` 和 AWS Labs `mcp-lambda-handler` 负责。
 
 ## 配置约定
 

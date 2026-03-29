@@ -5,13 +5,15 @@
 ## 1. 当前结论
 
 ```text
-API Gateway REST -> remote_mcp Lambda -> /mcp
+API Gateway REST -> remote_mcp Lambda -> mcp_gateway.handler -> AWS Labs mcp-lambda-handler -> tools
 ```
 
-- `remote_mcp` 是唯一对外查询入口。
+- `remote_mcp` 仍是唯一对外查询入口，但它现在只是 `mcp_gateway` 的薄 wrapper。
 - 公网入口通过 `API Gateway REST` 的 `mcp` stage 访问，公开 URL 形态是 `.../mcp`。
 - `Lambda Function URL` 不作为标准入口。
 - 远程 MCP 入口现在按开放访问处理，不保留额外的 DNS rebinding 保护。
+- 协议层由 AWS Labs `mcp-lambda-handler` 统一处理，不再手写 JSON-RPC 路由。
+- 查询侧 tools 只暴露业务能力，不直接暴露 embedding、vector index 或 worker 内部接口。
 
 ## 2. 运行时配置
 
@@ -21,8 +23,6 @@ API Gateway REST -> remote_mcp Lambda -> /mcp
 - `MANIFEST_INDEX_TABLE`
 - `MANIFEST_BUCKET`
 - `MANIFEST_PREFIX`
-- `VECTOR_BUCKET_NAME`
-- `VECTOR_INDEX_NAME`
 - `ALLOW_UNAUTHENTICATED_QUERY`
 - `QUERY_TENANT_CLAIM`
 - `QUERY_MAX_TOP_K`
@@ -44,12 +44,14 @@ https://qfelbun8hl.execute-api.us-east-1.amazonaws.com/mcp
 ```
 
 如果返回的是 MCP 协议响应或工具列表，说明入口可用。
+如果 GET `/mcp` 返回 discovery 文档，则说明薄 wrapper 也可访问。
 
 如果仍然出现 `403` 或 `421`，优先检查：
 
 1. API Gateway 的 stage 和 proxy 路由是否部署正确
 2. Lambda 是否仍挂着旧的 Function URL 配置
 3. 是否还有旧的 host 校验或边缘代理缓存
+4. `mcp_gateway` 是否仍然误引用了摄取链路内部实现
 
 ## 4. 同步规则
 

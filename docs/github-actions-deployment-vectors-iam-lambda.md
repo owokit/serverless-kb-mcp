@@ -146,9 +146,12 @@ Layer 分组为：
 
 用途：
 
-- 提供查询相关能力。
-- 使用 `OBJECT_STATE_TABLE`、`MANIFEST_INDEX_TABLE`、`MANIFEST_BUCKET`、`VECTOR_BUCKET_NAME`、`VECTOR_INDEX_NAME` 等配置。
+- 作为查询侧 MCP gateway 的最薄 wrapper。
+- 通过 AWS Labs `mcp-lambda-handler` 暴露标准 MCP 协议。
+- 只注册业务化 tools，不直接暴露 embedding/vector/workflow 内部能力。
+- 使用 `OBJECT_STATE_TABLE`、`MANIFEST_INDEX_TABLE`、`MANIFEST_BUCKET`、`MANIFEST_PREFIX`、`ALLOW_UNAUTHENTICATED_QUERY`、`QUERY_TENANT_CLAIM`、`QUERY_MAX_TOP_K`、`QUERY_MAX_NEIGHBOR_EXPAND` 等查询配置。
 - 通过 `EMBEDDING_PROFILES_JSON`、`ALLOW_UNAUTHENTICATED_QUERY`、`QUERY_TENANT_CLAIM`、`QUERY_MAX_TOP_K`、`QUERY_MAX_NEIGHBOR_EXPAND` 控制查询行为。
+- 默认 session 策略为 stateless-first；如需显式会话，再通过 `MCP_SESSION_TABLE` 或 `REMOTE_MCP_SESSION_TABLE` 切换到 DynamoDB session backend。
 
 ### 4.6 Backfill Lambda
 
