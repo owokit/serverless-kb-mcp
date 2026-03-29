@@ -405,8 +405,12 @@ def _assert_prod_deploy_alignment(errors: list[str]) -> None:
     CN: 确保 prod deploy 收敛为单一脚本入口和 AWS 凭证配置。"""
     prod_text = (REPO_ROOT / ".github" / "workflows" / "prod-deploy.yml").read_text(encoding="utf-8")
 
-    if "bash scripts/prod-deploy.sh" not in prod_text:
-        errors.append(".github/workflows/prod-deploy.yml must call scripts/prod-deploy.sh")
+    if 'ENTRYPOINT="scripts/prod-deploy.sh"' not in prod_text:
+        errors.append(".github/workflows/prod-deploy.yml must resolve scripts/prod-deploy.sh as the primary entrypoint")
+    if "serverless-kb-mcp/scripts/prod-deploy.sh" not in prod_text:
+        errors.append(".github/workflows/prod-deploy.yml must fall back to serverless-kb-mcp/scripts/prod-deploy.sh")
+    if 'bash "$ENTRYPOINT" --release-tag' not in prod_text:
+        errors.append(".github/workflows/prod-deploy.yml must invoke the resolved prod deploy entrypoint")
     for legacy_marker in (
         "Set up runtime",
         "Resolve packaged release assets",

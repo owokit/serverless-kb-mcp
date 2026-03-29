@@ -86,4 +86,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           CONFIRM_RELEASE_TAG: ${{ inputs.confirm_release_tag }}
-        run: bash scripts/prod-deploy.sh --release-tag "$RELEASE_TAG" --confirm-release-tag "$CONFIRM_RELEASE_TAG"
+        run: |
+          set -euo pipefail
+
+          ENTRYPOINT="scripts/prod-deploy.sh"
+          if [ ! -f "$ENTRYPOINT" ] && [ -f "serverless-kb-mcp/scripts/prod-deploy.sh" ]; then
+            ENTRYPOINT="serverless-kb-mcp/scripts/prod-deploy.sh"
+          fi
+
+          if [ ! -f "$ENTRYPOINT" ]; then
+            echo "::error::prod deploy script not found at scripts/prod-deploy.sh or serverless-kb-mcp/scripts/prod-deploy.sh"
+            exit 1
+          fi
+
+          bash "$ENTRYPOINT" --release-tag "$RELEASE_TAG" --confirm-release-tag "$CONFIRM_RELEASE_TAG"
