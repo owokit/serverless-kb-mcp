@@ -97,8 +97,10 @@ jobs:
           echo "::notice::Release 'main' does not exist yet. Building release assets from the checked-out source."
           mkdir -p ./release-assets/layers
           uv sync --locked --project ocr-service
-          uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/list_lambda_artifacts.py >> "$GITHUB_ENV"
-          uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/list_layer_artifacts.py >> "$GITHUB_ENV"
+          FUNCTIONS="$(uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/list_lambda_artifacts.py --format plain | xargs)"
+          LAYERS="$(uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/list_layer_artifacts.py --format plain | xargs)"
+          export FUNCTIONS
+          export LAYERS
           uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/build_lambda_artifacts.py \
             --repo-name "${{ github.event.repository.name }}" \
             --output-dir "./release-assets" \
