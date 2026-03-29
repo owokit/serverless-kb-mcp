@@ -101,6 +101,9 @@
 - architecture-reset-refactor
   - [ai/skills-src/architecture-reset-refactor/SKILL.md](ai/skills-src/architecture-reset-refactor/SKILL.md)
   - 适用于用户明确允许不考虑旧兼容性时，先审视当前架构，再按当前最优结构做大规模重构与目录重排。
+- serverless-kb-architecture
+  - [ai/skills-src/serverless-kb-architecture/SKILL.md](ai/skills-src/serverless-kb-architecture/SKILL.md)
+  - 适用于本仓库整体 serverless 文档检索系统的架构设计、边界收敛、重构、测试和文档同步，覆盖 ingestion、query、storage、infra 和 skill 之间的协同。
 - durable-s3-embed-pipeline
   - [ai/skills-src/durable-s3-embed-pipeline/SKILL.md](ai/skills-src/durable-s3-embed-pipeline/SKILL.md)
   - 适用于最小可用的 `S3 Event Notification -> SQS -> Ingest Lambda -> Step Functions Standard -> SQS -> Embed Lambda` 架构设计、资源拆分、职责边界和带序号时序图说明。
