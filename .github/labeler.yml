@@ -41,7 +41,7 @@
           - ".env.example"
           - ".gitignore"
           - "infra/cdk/package.json"
-          - "package-lock.json"
+          - "infra/cdk/package-lock.json"
           - "pytest.ini"
           - "ocr-service/pyproject.toml"
           - "ocr-service/pytest.ini"

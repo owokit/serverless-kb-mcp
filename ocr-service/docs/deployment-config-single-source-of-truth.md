@@ -17,7 +17,7 @@
 - `embedding_profiles` 显式列出每个 profile 的 `provider`、`model`、`dimension`、`vector_bucket_name`、`vector_index_name` 和开关
 - `defaults` 保存运行时默认值，例如 Lambda 超时、OCR 参数和查询阈值
 - `lambda_settings` 保存每个 Lambda 函数的内存和超时设置
-- OpenAI 兼容 base URL 的主入口是 `OPENAI_API_BASE_URL`，不再接受 `OPEN_BASE_URL` 兼容别名；`AZURE_OPENAI_URL` 不再使用
+- OpenAI 兼容 base URL 的主入口是 `OPENAI_API_BASE_URL`，不再接受 `OPENAI_BASE_URL` 兼容别名；`AZURE_OPENAI_URL` 不再使用
 - 如果兼容端点本身带有自定义路径前缀，例如 OpenRouter 的 `/api/v1`，运行时必须保留该前缀，不要再强行规范化成 `/v1`
 - `.env.example` 指向 `infra/pipeline-config.json`
 
