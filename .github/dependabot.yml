@@ -26,7 +26,7 @@ updates:
   # EN: pip dependency updates for the Python service package.
   # CN: Python 服务包的 pip 依赖更新。
   - package-ecosystem: "pip"
-    directory: "/mcp"
+    directory: "/services"
     schedule:
       interval: "weekly"
     labels:
