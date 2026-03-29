@@ -1,11 +1,12 @@
 import * as cdk from 'aws-cdk-lib';
+import * as path from 'node:path';
 import { ApiStack } from '../lib/api-stack';
 import { ComputeStack } from '../lib/compute-stack';
 import { FoundationStack } from '../lib/foundation-stack';
 import { loadPipelineConfig, resolveDeploymentInputs, applyNameSuffix } from '../lib/config';
 
 const app = new cdk.App();
-const repoRoot = process.cwd();
+const repoRoot = path.resolve(__dirname, '../../..');
 const configPath =
   process.env.MCP_PIPELINE_CONFIG_PATH ??
   app.node.tryGetContext('configPath') ??
