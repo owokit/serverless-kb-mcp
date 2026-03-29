@@ -19,6 +19,23 @@ on:
         description: Type the exact name prefix again to confirm destructive teardown
         required: true
         type: string
+  workflow_call:
+    inputs:
+      name_prefix:
+        description: Deployment name prefix used to derive resource names
+        required: false
+        default: mcp-doc-pipeline-prod
+        type: string
+      region:
+        description: AWS region override; leave empty to use the repository secret
+        required: false
+        default: ""
+        type: string
+      confirm_destroy:
+        description: Type the exact name prefix again to confirm destructive teardown
+        required: false
+        default: mcp-doc-pipeline-prod
+        type: string
 
 permissions:
   contents: read
