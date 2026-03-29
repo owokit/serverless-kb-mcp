@@ -13,7 +13,7 @@ from serverless_mcp.domain.models import S3ObjectRef
 
 def test_paddle_manifest_builder_splits_layout_markdown_into_multiple_assets() -> None:
     """
-    EN: Paddle manifest builder splits layout markdown into multiple assets.
+    EN: Paddle manifest builder splits markdown into multiple chunk assets.
     CN: 同上。
     """
     builder = PaddleOCRManifestBuilder()
@@ -24,37 +24,28 @@ def test_paddle_manifest_builder_splits_layout_markdown_into_multiple_assets() -
         json_lines=[
             {
                 "result": {
-                    "layoutParsingResults": [
-                        {
-                            "markdown": {
-                                "text": "# Page 1 A\nhello world\n\n![inline](https://example.com/crop-1.png)",
-                                "images": {"crop-1.png": "https://example.com/crop-1.png"},
-                            },
-                            "outputImages": {"rendered-a.jpg": "https://example.com/rendered-a.jpg"},
-                        },
-                        {
-                            "markdown": {
-                                "text": "## Page 1 B\nsecond block\n\n![inline-2](https://example.com/crop-2.png)",
-                                "images": {"crop-2.png": "https://example.com/crop-2.png"},
-                            },
-                            "outputImages": {},
-                        },
-                    ]
+                    "layoutParsingResults": []
                 }
             }
         ],
+        markdown_text=(
+            "# Page 1 A\nhello world\n\n![inline](https://example.com/crop-1.png)\n\n"
+            "## Page 1 B\nsecond block\n\n![inline-2](https://example.com/crop-2.png)"
+        ),
         binary_loader=lambda url: (f"binary:{url}".encode("utf-8"), "image/png"),
     )
 
     assert manifest.doc_type == "pdf"
     assert len(manifest.chunks) == 2
-    assert [chunk.section_path for chunk in manifest.chunks] == [("page-1", "layout-1"), ("page-1", "layout-2")]
+    assert [chunk.section_path for chunk in manifest.chunks] == [("Page 1 A",), ("Page 1 A", "Page 1 B")]
+    assert manifest.chunks[0].chunk_type == "section_text_chunk"
     assert manifest.chunks[0].text.startswith("# Page 1 A")
     assert "assets/asset-000001.png" in manifest.chunks[0].text
-    assert "assets/asset-000004.png" in manifest.chunks[1].text
+    assert "assets/asset-000002.png" in manifest.chunks[1].text
     assert all(chunk.metadata["source_format"] == "paddleocr_async" for chunk in manifest.chunks)
+    assert [chunk.metadata["layout_index"] for chunk in manifest.chunks] == [1, 2]
 
-    assert len(manifest.assets) == 7
+    assert len(manifest.assets) == 6
     assert manifest.metadata["raw_json_asset_count"] == 1
     assert manifest.metadata["layout_markdown_asset_count"] == 2
     assert manifest.metadata["document_markdown_asset_count"] == 1
@@ -62,24 +53,24 @@ def test_paddle_manifest_builder_splits_layout_markdown_into_multiple_assets() -
 
     assets_by_path = {asset.metadata["relative_path"]: asset for asset in manifest.assets}
     raw_json_asset = assets_by_path["raw.jsonl"]
-    layout_md_asset_1 = assets_by_path["pages/page-000001-layout-001.md"]
-    layout_md_asset_2 = assets_by_path["pages/page-000001-layout-002.md"]
     document_md_asset = assets_by_path["document.md"]
+    section_md_asset_1 = assets_by_path["sections/section-000001.md"]
+    section_md_asset_2 = assets_by_path["sections/section-000002.md"]
 
     assert raw_json_asset.chunk_type == "ocr_json_chunk"
     assert raw_json_asset.payload.startswith(b"{")
+    assert assets_by_path["assets/asset-000001.png"].chunk_type == "page_image_chunk"
     assert assets_by_path["assets/asset-000002.png"].chunk_type == "page_image_chunk"
-    assert layout_md_asset_1.chunk_type == "document_markdown_chunk"
-    assert layout_md_asset_1.mime_type == "text/markdown"
-    assert layout_md_asset_1.payload == b"# Page 1 A\nhello world\n\n![inline](assets/asset-000001.png)"
-    assert layout_md_asset_2.chunk_type == "document_markdown_chunk"
-    assert layout_md_asset_2.payload == b"## Page 1 B\nsecond block\n\n![inline-2](assets/asset-000004.png)"
+    assert section_md_asset_1.chunk_type == "document_markdown_chunk"
+    assert section_md_asset_1.mime_type == "text/markdown"
+    assert section_md_asset_1.payload == b"# Page 1 A\nhello world\n\n![inline](assets/asset-000001.png)"
+    assert section_md_asset_2.chunk_type == "document_markdown_chunk"
+    assert section_md_asset_2.payload == b"## Page 1 B\nsecond block\n\n![inline-2](assets/asset-000002.png)"
     assert document_md_asset.chunk_type == "document_markdown_chunk"
     assert document_md_asset.mime_type == "text/markdown"
     assert document_md_asset.payload == (
-        b"<!-- page:1 layout:1 -->\n\n# Page 1 A\nhello world\n\n![inline](assets/asset-000001.png)"
-        b"\n\n---\n\n"
-        b"<!-- page:1 layout:2 -->\n\n## Page 1 B\nsecond block\n\n![inline-2](assets/asset-000004.png)"
+        b"# Page 1 A\nhello world\n\n![inline](assets/asset-000001.png)\n\n"
+        b"## Page 1 B\nsecond block\n\n![inline-2](assets/asset-000002.png)"
     )
 
 
@@ -108,27 +99,20 @@ def test_paddle_manifest_builder_recursively_splits_oversized_layout_markdown(mo
         json_lines=[
             {
                 "result": {
-                    "layoutParsingResults": [
-                        {
-                            "markdown": {
-                                "text": (
-                                    "# Intro\n\n"
-                                    "Paragraph one.\n\n"
-                                    "```python\n"
-                                    "print('a')\n"
-                                    "print('b')\n"
-                                    "```\n\n"
-                                    "## Next\n\n"
-                                    "Another paragraph."
-                                ),
-                                "images": {},
-                            },
-                            "outputImages": {},
-                        }
-                    ]
+                    "layoutParsingResults": []
                 }
             }
         ],
+        markdown_text=(
+            "# Intro\n\n"
+            "Paragraph one.\n\n"
+            "```python\n"
+            "print('a')\n"
+            "print('b')\n"
+            "```\n\n"
+            "## Next\n\n"
+            "Another paragraph."
+        ),
         binary_loader=lambda url: (f"binary:{url}".encode("utf-8"), "image/png"),
     )
 
@@ -137,4 +121,3 @@ def test_paddle_manifest_builder_recursively_splits_oversized_layout_markdown(mo
     assert manifest.chunks[0].text.startswith("# Intro")
     assert any("```python" in chunk.text for chunk in manifest.chunks)
     assert any(chunk.text.startswith("## Next") for chunk in manifest.chunks)
-

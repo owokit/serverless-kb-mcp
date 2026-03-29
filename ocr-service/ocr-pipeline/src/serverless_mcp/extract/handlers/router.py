@@ -99,10 +99,14 @@ def lambda_handler(event: dict, _context) -> dict:
                 "job": job_payload,
                 "processing_state": processing_state_payload,
                 "json_url": json_url,
+                "markdown_url": markdown_url,
             }:
                 if not isinstance(json_url, str) or not json_url.strip():
                     raise ValueError("json_url is required for persist_ocr_result")
                 normalized_json_url = json_url.strip()
+                if not isinstance(markdown_url, str) or not markdown_url.strip():
+                    raise ValueError("markdown_url is required for persist_ocr_result")
+                normalized_markdown_url = markdown_url.strip()
                 job = validate_job(job_payload, required_for="persist_ocr_result")
                 processing_state = validate_processing_state(
                     processing_state_payload,
@@ -116,11 +120,14 @@ def lambda_handler(event: dict, _context) -> dict:
                     processing_state_pk=processing_state.pk,
                     json_url_host=urlparse(normalized_json_url).hostname,
                     json_url_path=urlparse(normalized_json_url).path,
+                    markdown_url_host=urlparse(normalized_markdown_url).hostname,
+                    markdown_url_path=urlparse(normalized_markdown_url).path,
                 )
                 result = workflow.persist_ocr_result(
                     job=job,
                     processing_state=processing_state,
                     json_url=normalized_json_url,
+                    markdown_url=normalized_markdown_url,
                 )
             case {"action": "mark_failed", "job": job_payload}:
                 job = validate_job(job_payload, required_for="mark_failed")

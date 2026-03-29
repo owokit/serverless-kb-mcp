@@ -237,6 +237,7 @@ class StepFunctionsExtractWorkflow:
             poll_attempt=payload["poll_attempt"],
             state=payload.get("state"),
             json_url=bool(payload.get("json_url")),
+            markdown_url=bool(payload.get("markdown_url")),
             elapsed_ms=round((monotonic() - start) * 1000, 2),
         )
         return payload
@@ -247,6 +248,7 @@ class StepFunctionsExtractWorkflow:
         job: ExtractJobMessage,
         processing_state: ObjectStateRecord,
         json_url: str,
+        markdown_url: str,
     ) -> dict:
         """
         EN: Download OCR output, build the manifest, and persist extraction results.
@@ -254,6 +256,8 @@ class StepFunctionsExtractWorkflow:
         """
         if not json_url:
             raise ValueError("json_url is required when persisting OCR output")
+        if not markdown_url:
+            raise ValueError("markdown_url is required when persisting OCR output")
         start = monotonic()
         emit_trace(
             "persist_ocr_result.start",
@@ -261,6 +265,8 @@ class StepFunctionsExtractWorkflow:
             trace_id=job.trace_id,
             json_url_host=urlparse(json_url).hostname,
             json_url_path=urlparse(json_url).path,
+            markdown_url_host=urlparse(markdown_url).hostname,
+            markdown_url_path=urlparse(markdown_url).path,
             previous_version_id=processing_state.previous_version_id,
         )
         ocr_client = self._require_ocr_client()
@@ -273,10 +279,20 @@ class StepFunctionsExtractWorkflow:
             json_line_count=len(json_lines),
             elapsed_ms=round((monotonic() - download_start) * 1000, 2),
         )
+        markdown_download_start = monotonic()
+        markdown_text = ocr_client.download_markdown(markdown_url)
+        emit_trace(
+            "persist_ocr_result.markdown_download_done",
+            document_uri=job.source.document_uri,
+            trace_id=job.trace_id,
+            markdown_char_count=len(markdown_text),
+            elapsed_ms=round((monotonic() - markdown_download_start) * 1000, 2),
+        )
         build_start = monotonic()
         manifest = self._require_manifest_builder().build_manifest(
             source=job.source,
             json_lines=json_lines,
+            markdown_text=markdown_text,
             binary_loader=ocr_client.download_binary,
         )
         emit_trace(

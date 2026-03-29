@@ -44,9 +44,9 @@ class _FakeWorkflow:
         self.poll_job_id = job_id
         return {"action": "poll_ocr_job", "job_id": job_id}
 
-    def persist_ocr_result(self, *, job, processing_state, json_url):
-        self.persist_call = (job, processing_state, json_url)
-        return {"action": "persist_ocr_result", "json_url": json_url}
+    def persist_ocr_result(self, *, job, processing_state, json_url, markdown_url):
+        self.persist_call = (job, processing_state, json_url, markdown_url)
+        return {"action": "persist_ocr_result", "json_url": json_url, "markdown_url": markdown_url}
 
     def mark_failed(self, *, job, failure):
         self.persist_call = (job, failure.error, failure.cause, failure.domain)
@@ -158,6 +158,35 @@ def test_lambda_handler_rejects_empty_json_url_for_persist_ocr_result(monkeypatc
                     "embed_status": "PENDING",
                 },
                 "json_url": "   ",
+                "markdown_url": "https://example.com/result.md",
+            },
+            None,
+        )
+
+
+def test_lambda_handler_rejects_empty_markdown_url_for_persist_ocr_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    EN: Verify that persist_ocr_result rejects a blank markdown_url value.
+    CN: 楠岃瘉 persist_ocr_result 鎷掔粷绌虹櫧鐨?markdown_url 鍊笺€?
+    """
+    workflow = _FakeWorkflow()
+    components = _FakeComponents(workflow)
+    monkeypatch.setattr("serverless_mcp.extract.handlers.router._get_components", lambda: components)
+
+    with pytest.raises(ValueError, match="markdown_url is required for persist_ocr_result"):
+        lambda_handler(
+            {
+                "action": "persist_ocr_result",
+                "job": _job_payload(),
+                "processing_state": {
+                    "pk": "tenant-a#bucket-a#docs/guide.md",
+                    "latest_version_id": "v1",
+                    "latest_sequencer": "0001",
+                    "extract_status": "EXTRACTED",
+                    "embed_status": "PENDING",
+                },
+                "json_url": "https://example.com/result.jsonl",
+                "markdown_url": "   ",
             },
             None,
         )

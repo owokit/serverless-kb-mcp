@@ -12,6 +12,7 @@
 - `serverless_mcp/mcp_gateway/`：查询侧 MCP gateway，负责协议装配、tool 注册和 query-side service 调度。
 - `serverless_mcp/entrypoints/`：Lambda 与 API 入口层，只保留 handler 与最薄适配。
 - `serverless_mcp/extract/`、`serverless_mcp/embed/`、`serverless_mcp/query/`、`serverless_mcp/status/`、`serverless_mcp/ocr/`：业务实现与应用服务。
+- `serverless_mcp/ocr/` 里的 PaddleOCR 异步结果处理现在遵循“`jsonUrl` 保留回放、`markdownUrl` 作为 chunk 切分输入”的分工，不再从 JSON 自行合成 Markdown。
 - `serverless_mcp/storage/`：持久化实现，包括状态、manifest、projection 和路径工具。
 - `tests/`：服务包级测试。
 

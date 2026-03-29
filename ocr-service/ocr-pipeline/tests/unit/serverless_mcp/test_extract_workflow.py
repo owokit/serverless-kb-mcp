@@ -31,6 +31,7 @@ class _Status:
     job_id: str
     state: str
     json_url: str | None = None
+    markdown_url: str | None = None
     error_message: str | None = None
 
 
@@ -152,11 +153,15 @@ class _FakeOCRClient:
             job_id=job_id,
             state=state,
             json_url="https://example.com/result.jsonl",
+            markdown_url="https://example.com/result.md",
             error_message=None,
         )
 
     def download_json_lines(self, json_url):
         return [{"result": {"layoutParsingResults": [{"markdown": {"text": "hello"}, "outputImages": {}}]}}]
+
+    def download_markdown(self, markdown_url):
+        return "# Hello\n\nhello"
 
     def download_binary(self, url):
         return b"binary", "image/png"
@@ -165,23 +170,31 @@ class _FakeOCRClient:
 class _FakeManifestBuilder:
     # EN: Stand-in for PaddleOCRManifestBuilder returning a fixed manifest.
     # CN: 杩斿洖鍥哄畾 manifest 鐨?PaddleOCRManifestBuilder 鏇胯韩銆?
-    def build_manifest(self, *, source, json_lines, binary_loader):
+    def build_manifest(self, *, source, json_lines, markdown_text, binary_loader):
         return ChunkManifest(
             source=source,
             doc_type="pdf",
             chunks=[
                 ExtractedChunk(
                     chunk_id="chunk#000001",
-                    chunk_type="page_text_chunk",
+                    chunk_type="section_text_chunk",
                     text="hello",
                     doc_type="pdf",
                     token_estimate=2,
-                    page_no=1,
-                    page_span=(1, 1),
-                    metadata={"source_format": "pdf"},
+                    section_path=("hello",),
+                    metadata={"source_format": "paddleocr_async", "layout_index": 1},
                 )
             ],
-            metadata={"source_format": "pdf", "page_count": 1, "visual_page_numbers": [], "page_image_asset_count": 0},
+            metadata={
+                "source_format": "paddleocr_async",
+                "page_count": 1,
+                "page_image_asset_count": 0,
+                "raw_json_asset_count": 1,
+                "layout_markdown_asset_count": 1,
+                "document_markdown_asset_count": 1,
+                "markdown_asset_count": 2,
+                "ocr_engine": "PaddleOCR-VL-1.5",
+            },
         )
 
 
@@ -219,6 +232,7 @@ def test_step_functions_workflow_polls_until_ocr_completes() -> None:
         job=ExtractJobMessage(source=source, trace_id="trace-1"),
         processing_state=ObjectStateRecord(**prepared["processing_state"]),
         json_url=status["json_url"] or "",
+        markdown_url=status["markdown_url"] or "",
     )
 
     assert result["chunk_count"] == 1
