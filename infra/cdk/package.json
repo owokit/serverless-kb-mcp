@@ -2,10 +2,10 @@
   "name": "infra-cdk",
   "private": true,
   "scripts": {
-    "synth": "cd ../.. && npm --prefix infra/cdk exec -- cdk synth",
-    "diff": "cd ../.. && npm --prefix infra/cdk exec -- cdk diff",
-    "deploy": "cd ../.. && npm --prefix infra/cdk exec -- cdk deploy --all --method direct --concurrency 3 --require-approval never --progress events",
-    "destroy": "cd ../.. && npm --prefix infra/cdk exec -- cdk destroy --all --force --progress events"
+    "synth": "cdk --app \"npx ts-node bin/app.ts\" synth",
+    "diff": "cdk --app \"npx ts-node bin/app.ts\" diff",
+    "deploy": "cdk --app \"npx ts-node bin/app.ts\" deploy --all --method direct --concurrency 3 --require-approval never --progress events",
+    "destroy": "cdk --app \"npx ts-node bin/app.ts\" destroy --all --force --progress events"
   },
   "dependencies": {
     "aws-cdk": "^2.1113.0",
