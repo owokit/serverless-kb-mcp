@@ -38,6 +38,9 @@ jobs:
   prod-deploy:
     environment: production
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: serverless-kb-mcp
 
     env:
       AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
@@ -56,12 +59,14 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - name: Set up runtime
         uses: owokit/serverless-kb-mcp/.github/actions/setup-runtime@main
         with:
           setup-node: true
           setup-python: true
+          node-cache-dependency-path: serverless-kb-mcp/infra/cdk/package-lock.json
 
       - name: Validate release tag confirmation
         run: |
@@ -190,5 +195,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: prod-deploy-report
-          path: prod-deploy-report.json
+          path: serverless-kb-mcp/prod-deploy-report.json
           if-no-files-found: warn
