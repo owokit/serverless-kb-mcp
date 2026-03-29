@@ -59,7 +59,7 @@ jobs:
       - name: Install CDK toolchain
         run: |
           set -euo pipefail
-          npm ci --prefix infra/cdk
+          npm ci --prefix ocr-service/infra/cdk
 
       # EN: Prefer OIDC-based AWS credentials when a role ARN is configured.
       # CN: 当配置了 role ARN 时优先使用基于 OIDC 的 AWS 凭据。
@@ -108,9 +108,9 @@ jobs:
 
           node - <<'NODE'
           const fs = require('node:fs');
-          const config = JSON.parse(fs.readFileSync('infra/pipeline-config.json', 'utf8'));
+          const config = JSON.parse(fs.readFileSync('ocr-service/infra/pipeline-config.json', 'utf8'));
           if (config.name_prefix !== process.env.INPUT_NAME_PREFIX) {
-            throw new Error(`name_prefix does not match infra/pipeline-config.json: ${config.name_prefix}`);
+            throw new Error(`name_prefix does not match ocr-service/infra/pipeline-config.json: ${config.name_prefix}`);
           }
           NODE
         env:
@@ -121,4 +121,4 @@ jobs:
       - name: Destroy AWS resources with CDK
         run: |
           set -euo pipefail
-          npm --prefix infra/cdk run destroy
+          npm --prefix ocr-service/infra/cdk run destroy
