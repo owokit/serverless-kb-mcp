@@ -8,8 +8,6 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from mcp.types import LATEST_PROTOCOL_VERSION
-
 from serverless_mcp.domain.models import (
     ChunkManifest,
     ExtractedChunk,
@@ -19,6 +17,7 @@ from serverless_mcp.domain.models import (
     S3ObjectRef,
 )
 from serverless_mcp.entrypoints import remote_mcp as remote_mcp_handler
+from serverless_mcp.mcp_gateway.server import MCP_PROTOCOL_VERSION
 import serverless_mcp.mcp_gateway.tools.get_document_excerpt as excerpt_tool_module
 import serverless_mcp.mcp_gateway.tools.get_ingestion_status as status_tool_module
 import serverless_mcp.mcp_gateway.tools.list_document_versions as versions_tool_module
@@ -199,7 +198,7 @@ def _build_api_gateway_event(body: dict[str, object], *, session_id: str | None 
     headers = {
         "accept": "application/json, text/event-stream",
         "content-type": "application/json; charset=utf-8",
-        "mcp-protocol-version": LATEST_PROTOCOL_VERSION,
+        "mcp-protocol-version": MCP_PROTOCOL_VERSION,
     }
     if session_id:
         headers["mcp-session-id"] = session_id
@@ -248,7 +247,7 @@ def test_discovery_get_returns_query_gateway_document() -> None:
 
     assert response["statusCode"] == 200
     payload = json.loads(response["body"])
-    assert payload["protocolVersion"] == LATEST_PROTOCOL_VERSION
+    assert payload["protocolVersion"] == MCP_PROTOCOL_VERSION
     assert payload["endpoint"] == "/mcp"
     assert payload["serverInfo"]["name"] == "mcp-doc-pipeline"
     assert "resources" not in payload["capabilities"]
@@ -274,7 +273,7 @@ def test_lambda_handler_initialize_tools_list_and_call(monkeypatch) -> None:
                 "id": 1,
                 "method": "initialize",
                 "params": {
-                    "protocolVersion": LATEST_PROTOCOL_VERSION,
+                    "protocolVersion": MCP_PROTOCOL_VERSION,
                     "capabilities": {},
                     "clientInfo": {"name": "pytest", "version": "1.0.0"},
                 },
@@ -287,9 +286,24 @@ def test_lambda_handler_initialize_tools_list_and_call(monkeypatch) -> None:
     assert initialize_response["headers"]["MCP-Version"] == "0.6"
     session_id = initialize_response["headers"]["MCP-Session-Id"]
     initialize_payload = json.loads(initialize_response["body"])
-    assert initialize_payload["result"]["protocolVersion"] == "2024-11-05"
+    assert initialize_payload["result"]["protocolVersion"] == MCP_PROTOCOL_VERSION
     assert initialize_payload["result"]["serverInfo"]["name"] == "mcp-doc-pipeline"
     assert initialize_payload["result"]["capabilities"]["tools"] == {"list": True, "call": True}
+
+    initialized_notification = remote_mcp_handler.lambda_handler(
+        _build_api_gateway_event(
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+                "params": {},
+            },
+            session_id=session_id,
+        ),
+        None,
+    )
+
+    assert initialized_notification["statusCode"] == 202
+    assert initialized_notification["body"] == ""
 
     tools_list_response = remote_mcp_handler.lambda_handler(
         _build_api_gateway_event(
@@ -313,6 +327,20 @@ def test_lambda_handler_initialize_tools_list_and_call(monkeypatch) -> None:
         "list_document_versions",
         "get_ingestion_status",
     }
+
+    stateless_tools_list_response = remote_mcp_handler.lambda_handler(
+        _build_api_gateway_event(
+            {
+                "jsonrpc": "2.0",
+                "id": 22,
+                "method": "tools/list",
+                "params": {},
+            }
+        ),
+        None,
+    )
+
+    assert stateless_tools_list_response["statusCode"] == 200
 
     tools_call_response = remote_mcp_handler.lambda_handler(
         _build_api_gateway_event(
@@ -342,6 +370,50 @@ def test_lambda_handler_initialize_tools_list_and_call(monkeypatch) -> None:
     assert content["results"][0]["delivery"]["url"].startswith("https://cdn.example.com/")
     assert context.query_service.calls[0]["tenant_id"] == "tenant-a"
     assert context.query_service.calls[0]["security_scope"] == ()
+
+
+def test_lambda_handler_rejects_invalid_json_and_invalid_tool_params(monkeypatch) -> None:
+    """
+    EN: The vendored handler should reject malformed JSON and invalid tool calls.
+    CN: vendored handler 应拒绝损坏 JSON 和非法 tool 调用。
+    """
+    _install_gateway_context(monkeypatch)
+
+    parse_error_response = remote_mcp_handler.lambda_handler(
+        {
+            "httpMethod": "POST",
+            "path": "/mcp",
+            "headers": {"content-type": "application/json"},
+            "body": "{\"jsonrpc\": \"2.0\",",
+        },
+        None,
+    )
+
+    assert parse_error_response["statusCode"] == 400
+    assert "Parse error" in json.loads(parse_error_response["body"])["error"]["message"]
+
+    invalid_params_response = remote_mcp_handler.lambda_handler(
+        _build_api_gateway_event(
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_documents",
+                    "arguments": {
+                        "tenant_id": "tenant-a",
+                    },
+                },
+            },
+            session_id="session-a",
+        ),
+        None,
+    )
+
+    assert invalid_params_response["statusCode"] == 500
+    invalid_params_payload = json.loads(invalid_params_response["body"])
+    assert invalid_params_payload["error"]["code"] == -32603
+    assert "Error executing tool" in invalid_params_payload["error"]["message"]
 
 
 def test_gateway_tools_return_business_payloads(monkeypatch) -> None:

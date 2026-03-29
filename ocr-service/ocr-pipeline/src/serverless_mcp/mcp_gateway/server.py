@@ -10,7 +10,6 @@ from typing import Any
 
 from awslabs.mcp_lambda_handler import MCPLambdaHandler
 from awslabs.mcp_lambda_handler.session import NoOpSessionStore
-from mcp.types import LATEST_PROTOCOL_VERSION
 
 from serverless_mcp.mcp_gateway.tools.get_document_excerpt import get_document_excerpt
 from serverless_mcp.mcp_gateway.tools.get_ingestion_status import get_ingestion_status
@@ -19,6 +18,9 @@ from serverless_mcp.mcp_gateway.tools.search_documents import search_documents
 
 SERVER_NAME = "mcp-doc-pipeline"
 SERVER_VERSION = "1.0.0"
+# EN: Mirror the vendored handler's initialize response protocolVersion.
+# CN: 该常量必须与 vendored handler 的 initialize 响应 protocolVersion 保持一致。
+MCP_PROTOCOL_VERSION = "2024-11-05"
 
 
 @lru_cache(maxsize=1)
@@ -41,7 +43,7 @@ def build_discovery_document() -> dict[str, Any]:
     CN: 为 GET 探针构建紧凑的人类可读 discovery 文档。
     """
     return {
-        "protocolVersion": LATEST_PROTOCOL_VERSION,
+        "protocolVersion": MCP_PROTOCOL_VERSION,
         "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
         "capabilities": {
             "tools": {"list": True, "call": True},

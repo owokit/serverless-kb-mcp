@@ -43,6 +43,8 @@
 
 - Lambda wrapper 由 `tools/packaging/serverless_mcp/package_lambda.py` 生成。
 - Lambda wrapper 注册表由 `tools/packaging/serverless_mcp/lambda_wrappers.py` 维护，并作为打包流水线的唯一事实来源。
+- `awslabs.mcp_lambda_handler` 以源码 vendored 方式保留在 `src/awslabs/mcp_lambda_handler/`，`package_lambda.py` 会在暂存产物阶段显式校验它可以被 import。
+- 当前不依赖外部 pip 安装的 `awslabs.mcp_lambda_handler` 轮子，更新时直接替换 vendored 源码并重新同步打包产物。
 - 打包产物名称由仓库名、函数名和目标产物类型共同决定。
 - 运行时导入路径必须始终指向 `serverless_mcp`，不要再引用旧的 `s3vectors_mcp` 目录名，也不要再引用旧的 `mcp.server` 命名空间。
 
