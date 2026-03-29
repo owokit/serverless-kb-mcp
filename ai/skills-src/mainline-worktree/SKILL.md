@@ -1,8 +1,7 @@
 ---
-description: 适用于新建 worktree、任务分支或本地任务目录时使用：默认从 `origin/main` 派生，但在创建 worktree 之前必须先把本地 `main` 更新到最新 `origin/main`，并处理分支/路径冲突。
 name: mainline-worktree
+description: 适用于新建 worktree、任务分支或本地任务目录时使用：默认从 `origin/main` 派生，但在创建 worktree 之前必须先把本地 `main` 更新到最新 `origin/main`，并处理分支/路径冲突。
 ---
-
 
 # Mainline Worktree
 

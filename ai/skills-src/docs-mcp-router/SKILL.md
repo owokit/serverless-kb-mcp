@@ -1,8 +1,7 @@
 ---
-description: 将 AWS、Azure、Google、GitHub、Cloudflare、OpenAI 和 Anthropic 的文档问题路由到对应的官方 MCP 或第一方文档来源。用于 Codex 需要最新 API 文档、SDK 参考、示例、故障排查、发布说明或产品指引时。
 name: docs-mcp-router
+description: 将 AWS、Azure、Google、GitHub、Cloudflare、OpenAI 和 Anthropic 的文档问题路由到对应的官方 MCP 或第一方文档来源。用于 Codex 需要最新 API 文档、SDK 参考、示例、故障排查、发布说明或产品指引时。
 ---
-
 
 # 文档 MCP 路由
 

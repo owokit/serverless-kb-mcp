@@ -1,8 +1,7 @@
 ---
-description: 适用于 OpenAI Embedding / Azure OpenAI、S3 Vectors、普通 S3 manifest、DynamoDB 状态与索引设计。
 name: vector-manifest-storage
+description: 适用于 OpenAI Embedding / Azure OpenAI、S3 Vectors、普通 S3 manifest、DynamoDB 状态与索引设计。
 ---
-
 
 # 向量与 Manifest 存储
 

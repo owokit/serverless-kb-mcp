@@ -1,8 +1,13 @@
 ---
-description: 检查 GitHub PR 的 review comments、状态检查和描述完整性，并核对是否使用仓库 PR 模板。
 name: check-pr
+description: 检查 GitHub PR 的 review comments、状态检查和描述完整性，并核对是否使用仓库 PR 模板。
+license: MIT
+compatibility: Requires git and gh (GitHub CLI) installed and authenticated.
+metadata:
+  author: owokit
+  version: "1.0"
+allowed-tools: Bash(gh:*) Bash(git:*)
 ---
-
 
 # Check PR
 

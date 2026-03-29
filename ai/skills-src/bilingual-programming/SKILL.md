@@ -1,8 +1,7 @@
 ---
-description: 多语言中英文双语编程技能，包含交叉注释格式、性能优化和综合日志最佳实践。
 name: bilingual-programming
+description: "多语言中英文双语编程技能，包含交叉注释格式、性能优化和综合日志最佳实践。"
 ---
-
 
 # 双语编程技能
 

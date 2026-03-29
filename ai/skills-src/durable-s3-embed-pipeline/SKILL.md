@@ -1,8 +1,7 @@
 ---
-description: 用于设计、解释或审查本仓库默认的文档处理链路，覆盖 S3 Event Notification、SQS ingest queue、Ingest Lambda、Step Functions Standard、extract workflow lambdas、SQS embed queue 和 Embed Lambda。
 name: durable-s3-embed-pipeline
+description: 用于设计、解释或审查本仓库默认的文档处理链路，覆盖 S3 Event Notification、SQS ingest queue、Ingest Lambda、Step Functions Standard、extract workflow lambdas、SQS embed queue 和 Embed Lambda。
 ---
-
 
 # Durable S3 Embed Pipeline
 

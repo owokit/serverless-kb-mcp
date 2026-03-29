@@ -1,8 +1,7 @@
 ---
-description: GitHub issue 优先工作流：先建 issue，再改代码，并强制使用仓库内的 issue/PR 模板。
 name: github-issue-workflow
+description: GitHub issue 优先工作流：先建 issue，再改代码，并强制使用仓库内的 issue/PR 模板。
 ---
-
 
 # GitHub Issue 工作流
 

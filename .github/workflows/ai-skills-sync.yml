@@ -1,0 +1,50 @@
+# EN: Verify AI skills source and generated directories are in sync.
+# CN: 校验 AI skills 源目录与生成目录是否一致。
+name: AI Skills Sync
+
+on:
+  pull_request:
+    paths:
+      - "ai/skills-src/**"
+      - "ai/scripts/sync-ai.py"
+      - ".github/workflows/ai-skills-sync.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-skills-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync-check:
+    name: Sync check
+    runs-on: ubuntu-latest
+    steps:
+      # EN: Keep repository checkout consistent with the PR head commit.
+      # CN: 保持仓库检出与 PR head commit 一致。
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-python: true
+
+      # EN: Run the sync script to regenerate skills.
+      # CN: 运行同步脚本重新生成 skills。
+      - name: Run skills sync
+        run: python ai/scripts/sync-ai.py
+
+      # EN: Check if any generated files differ from the committed versions.
+      # CN: 检查生成的文件是否与已提交版本不同。
+      - name: Verify no drift
+        run: |
+          set -euo pipefail
+          if ! git diff --exit-code --quiet .agents/skills/ .claude/skills/; then
+            echo "ERROR: Generated skills differ from committed files."
+            echo "Run 'python ai/scripts/sync-ai.py' and commit the changes."
+            git diff --stat .agents/skills/ .claude/skills/
+            exit 1
+          fi
+          echo "Skills are in sync."

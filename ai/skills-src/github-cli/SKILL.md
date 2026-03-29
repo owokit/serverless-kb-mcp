@@ -1,8 +1,7 @@
 ---
-description: 面向 `gh` CLI 的 GitHub 通用操作技能，覆盖 issue、PR、分支、仓库元数据、workflow/run 读取与评论写入。使用于智能体需要创建、读取、更新、评论或关闭 GitHub issue/PR，管理分支，检查 GitHub Actions，或选择 `gh`、`git`、`gh api` 命令时。
 name: github-cli
+description: 面向 `gh` CLI 的 GitHub 通用操作技能，覆盖 issue、PR、分支、仓库元数据、workflow/run 读取与评论写入。使用于智能体需要创建、读取、更新、评论或关闭 GitHub issue/PR，管理分支，检查 GitHub Actions，或选择 `gh`、`git`、`gh api` 命令时。
 ---
-
 
 # GitHub CLI
 

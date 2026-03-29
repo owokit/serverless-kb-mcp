@@ -1,8 +1,7 @@
 ---
-description: Use when designing or changing OCR, layout analysis, Step Functions extraction flow, per-format extraction, chunk types, or multimodal slicing rules.
 name: multimodal-extract-chunking
+description: Use when designing or changing OCR, layout analysis, Step Functions extraction flow, per-format extraction, chunk types, or multimodal slicing rules.
 ---
-
 
 # 多模态提取与切片
 

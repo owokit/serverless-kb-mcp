@@ -1,8 +1,7 @@
 ---
-description: 适用于 S3 Versioning、S3 Event Notification、SQS ingest queue、对象版本身份、幂等、object_state 和入口治理。
 name: versioned-s3-ingest
+description: 适用于 S3 Versioning、S3 Event Notification、SQS ingest queue、对象版本身份、幂等、object_state 和入口治理。
 ---
-
 
 # Versioned S3 Ingest
 

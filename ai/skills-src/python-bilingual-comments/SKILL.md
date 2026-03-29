@@ -1,8 +1,7 @@
 ---
-description: 适用于当前 Python 项目的模块 docstring、类 docstring、函数 docstring、方法 docstring、块注释和行内注释。当需要新增、补齐、重写或审查注释，并且要求采用“英文一行、中文一行、英文在前、中文在后”的双语格式时使用本 skill。
 name: python-bilingual-comments
+description: 适用于当前 Python 项目的模块 docstring、类 docstring、函数 docstring、方法 docstring、块注释和行内注释。当需要新增、补齐、重写或审查注释，并且要求采用“英文一行、中文一行、英文在前、中文在后”的双语格式时使用本 skill。
 ---
-
 
 # Python 双语注释
 

@@ -72,46 +72,46 @@
 
 ## Skill 导航
 
-> Skills 现在只维护在 `.codex/skills`，这里是仓库内唯一的权威 skill 目录。
+> Skills 唯一事实源在 `ai/skills-src/`，通过 `ai/scripts/sync-ai.py` 生成到 `.agents/skills/`（Codex）和 `.claude/skills/`（Claude Code）。
 
 - github-issue-workflow
-  - [.codex/skills/github-issue-workflow/SKILL.md](.codex/skills/github-issue-workflow/SKILL.md)
+  - [ai/skills-src/github-issue-workflow/SKILL.md](ai/skills-src/github-issue-workflow/SKILL.md)
   - 面向 Codex 的 GitHub issue 优先工作流：先建 issue，再改代码；在技能入口提供简要说明、流程规则、评论规范和 PR 关联要求。
 - github-cli
-  - [.codex/skills/github-cli/SKILL.md](.codex/skills/github-cli/SKILL.md)
+  - [ai/skills-src/github-cli/SKILL.md](ai/skills-src/github-cli/SKILL.md)
   - 面向 `gh` CLI 的通用 GitHub 操作入口，覆盖 issue、PR、分支、workflow/run 读取与评论写入。
 - mainline-worktree
-  - [.codex/skills/mainline-worktree/SKILL.md](.codex/skills/mainline-worktree/SKILL.md)
+  - [ai/skills-src/mainline-worktree/SKILL.md](ai/skills-src/mainline-worktree/SKILL.md)
   - 适用于新建 worktree 前先同步本地 `main` 与 `origin/main`、创建任务分支和语义化命名。
 - versioned-s3-ingest
-  - [.codex/skills/versioned-s3-ingest/SKILL.md](.codex/skills/versioned-s3-ingest/SKILL.md)
+  - [ai/skills-src/versioned-s3-ingest/SKILL.md](ai/skills-src/versioned-s3-ingest/SKILL.md)
   - 适用于 `S3 Versioning`、`S3 Event Notification`、`SQS ingest queue`、幂等、`object_state`、版本推进与旧版本治理。
 - check-pr
-  - [.codex/skills/check-pr/SKILL.md](.codex/skills/check-pr/SKILL.md)
+  - [ai/skills-src/check-pr/SKILL.md](ai/skills-src/check-pr/SKILL.md)
   - 适用于 GitHub PR 的未解决评论、状态检查、描述完整性和回评修复。
 - multimodal-extract-chunking
-  - [.codex/skills/multimodal-extract-chunking/SKILL.md](.codex/skills/multimodal-extract-chunking/SKILL.md)
+  - [ai/skills-src/multimodal-extract-chunking/SKILL.md](ai/skills-src/multimodal-extract-chunking/SKILL.md)
   - 适用于 OCR、版面分析、`Step Functions Standard` 轮询式异步抽取、PDF/PPT/图片切片、多模态 chunk 设计。
 - vector-manifest-storage
-  - [.codex/skills/vector-manifest-storage/SKILL.md](.codex/skills/vector-manifest-storage/SKILL.md)
+  - [ai/skills-src/vector-manifest-storage/SKILL.md](ai/skills-src/vector-manifest-storage/SKILL.md)
   - 适用于 OpenAI Embedding / Azure OpenAI、`S3 Vectors` metadata、普通 `S3 manifest`、`DynamoDB` 状态与索引。
 - project-delivery-guardrails
-  - [.codex/skills/project-delivery-guardrails/SKILL.md](.codex/skills/project-delivery-guardrails/SKILL.md)
+  - [ai/skills-src/project-delivery-guardrails/SKILL.md](ai/skills-src/project-delivery-guardrails/SKILL.md)
   - 适用于设计或修改代码前先梳理仓库结构、职责边界、文件落位和实施顺序，避免实现发散。
 - architecture-reset-refactor
-  - [.codex/skills/architecture-reset-refactor/SKILL.md](.codex/skills/architecture-reset-refactor/SKILL.md)
+  - [ai/skills-src/architecture-reset-refactor/SKILL.md](ai/skills-src/architecture-reset-refactor/SKILL.md)
   - 适用于用户明确允许不考虑旧兼容性时，先审视当前架构，再按当前最优结构做大规模重构与目录重排。
 - durable-s3-embed-pipeline
-  - [.codex/skills/durable-s3-embed-pipeline/SKILL.md](.codex/skills/durable-s3-embed-pipeline/SKILL.md)
+  - [ai/skills-src/durable-s3-embed-pipeline/SKILL.md](ai/skills-src/durable-s3-embed-pipeline/SKILL.md)
   - 适用于最小可用的 `S3 Event Notification -> SQS -> Ingest Lambda -> Step Functions Standard -> SQS -> Embed Lambda` 架构设计、资源拆分、职责边界和带序号时序图说明。
 - python-bilingual-comments
-  - [.codex/skills/python-bilingual-comments/SKILL.md](.codex/skills/python-bilingual-comments/SKILL.md)
+  - [ai/skills-src/python-bilingual-comments/SKILL.md](ai/skills-src/python-bilingual-comments/SKILL.md)
   - 适用于当前 Python 项目的模块 docstring、类注释、函数注释、方法注释、块注释和行内注释双语规范，要求英文一行、中文一行逐行对应。
 - docs-mcp-router
-  - [.codex/skills/docs-mcp-router/SKILL.md](.codex/skills/docs-mcp-router/SKILL.md)
+  - [ai/skills-src/docs-mcp-router/SKILL.md](ai/skills-src/docs-mcp-router/SKILL.md)
   - 将 AWS、Azure、Google、GitHub、Cloudflare、OpenAI 和 Anthropic 的文档问题路由到对应的官方 MCP 或第一方文档来源。
 - bilingual-programming
-  - [.codex/skills/bilingual-programming/SKILL.md](.codex/skills/bilingual-programming/SKILL.md)
+  - [ai/skills-src/bilingual-programming/SKILL.md](ai/skills-src/bilingual-programming/SKILL.md)
   - 适用于跨语言代码注释、脚本注释、workflow 注释、UTF-8 编码、`@param`/`@return` 完整性与性能意识；默认要求英文一行、中文一行逐行对应，禁止单行中英混写。
 
 ## 当前已定结论
@@ -147,7 +147,7 @@
 
 ## 维护规则
 
-- Skills 只维护在 `.codex/skills`；新增、修改、删除 skill 都以这一处为准。
+- Skills 唯一事实源在 `ai/skills-src/`；通过 `ai/scripts/sync-ai.py` 生成 `.agents/skills/`（Codex）和 `.claude/skills/`（Claude Code）；新增、修改、删除 skill 都以 `ai/skills-src/` 为准。
 - 如果只是某一类问题的细化规则变化，改对应 skill。
 - 如果是全项目方向变化、skill 边界变化、或技能导航变化，再改本文件。
 - 如果 `AGENTS.md` 与 skill 冲突，先统一设计，再同步更新对应的 Codex skill 与本文件，避免规则漂移。
