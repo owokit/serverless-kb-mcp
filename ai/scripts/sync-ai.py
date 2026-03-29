@@ -116,13 +116,6 @@ def main():
     print("\nGenerating .claude/skills/...")
     sync_skills(src_dir, claude_dir)
 
-    print("\nGenerating .codex/skills/...")
-    codex_dir = repo_root / ".codex" / "skills"
-    if codex_dir.exists():
-        shutil.rmtree(codex_dir)
-    codex_dir.mkdir(parents=True)
-    sync_skills(src_dir, codex_dir)
-
     print("\nDone.")
 
 
