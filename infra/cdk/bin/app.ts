@@ -21,7 +21,7 @@ const allowPlaceholderAssets = /^(1|true|yes)$/i.test(process.env.MCP_ALLOW_PLAC
 
 const accountId = process.env.CDK_DEFAULT_ACCOUNT ?? process.env.AWS_ACCOUNT_ID ?? '';
 const regionId = process.env.CDK_DEFAULT_REGION ?? process.env.AWS_REGION ?? '';
-if (!accountId || !regionId) {
+if ((pipelineConfig.name_suffix ?? 'auto') === 'auto' && (!accountId || !regionId)) {
   throw new Error('CDK_DEFAULT_ACCOUNT and CDK_DEFAULT_REGION must be set to resolve resource name suffix.');
 }
 applyNameSuffix(pipelineConfig, accountId, regionId);
