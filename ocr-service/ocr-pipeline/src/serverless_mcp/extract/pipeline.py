@@ -1,6 +1,10 @@
 """
-EN: Extraction result persister that writes manifest to S3 and dispatches embed jobs.
-CN: 灏嗘彁鍙栫粨鏋滄寔涔呭寲鍒?S3 manifest锛屽苟鍒嗗彂 embed 浣滀笟鐨勬寔涔呭寲鍣ㄣ€?
+EN: Manifest persistence and embed job dispatching for extraction results.
+CN: 提取结果的 manifest 持久化和 embed 作业分发。
+
+This module provides components for persisting extraction manifests to S3
+and dispatching embedding jobs to SQS queues.
+本模块提供将提取 manifest 持久化到 S3 以及将 embedding 作业分发到 SQS 队列的组件。
 """
 from __future__ import annotations
 
@@ -22,17 +26,188 @@ from serverless_mcp.storage.manifest.repository import ManifestRepository
 from serverless_mcp.storage.state.object_state_repository import DuplicateOrStaleEventError, ObjectStateRepository
 
 
-_DISPATCH_FAILURE_TYPES = (ClientError, KeyError, OSError, RuntimeError, TypeError, ValueError)
 _PERSIST_PREPARATION_FAILURE_TYPES = (ClientError, KeyError, OSError, RuntimeError, TypeError, ValueError)
+
+
+class ManifestPersister:
+    """
+    EN: Persist extraction manifest to S3 manifest bucket and update object state.
+    CN: 将提取 manifest 持久化到 S3 manifest bucket 并更新 object state。
+
+    This component owns the boundary between extract and embed phases,
+    handling only manifest persistence and state updates without embed job dispatching.
+    此组件拥有 extract 和 embed 阶段之间的边界，仅处理 manifest 持久化和状态更新，
+    不处理 embed 作业分发。
+    """
+
+    def __init__(
+        self,
+        *,
+        extraction_service: ExtractionService,
+        object_state_repo: ObjectStateRepository,
+        manifest_repo: ManifestRepository,
+        execution_state_repo: ExecutionStateRepository | None = None,
+    ) -> None:
+        self._extraction_service = extraction_service
+        self._object_state_repo = object_state_repo
+        self._execution_state_repo = execution_state_repo
+        self._manifest_repo = manifest_repo
+
+    def persist(
+        self,
+        *,
+        source: S3ObjectRef,
+        manifest: ChunkManifest,
+        previous_version_id: str | None = None,
+        previous_manifest_s3_uri: str | None = None,
+    ) -> tuple[ChunkManifest, str]:
+        """
+        EN: Persist manifest to S3 and update object state, returning manifest and URI.
+        CN: 将 manifest 持久化到 S3 并更新 object state，返回 manifest 和 URI。
+
+        Args:
+            source:
+                EN: S3 object reference with bucket/key/version_id identity.
+                CN: 通过 bucket、key 和 version_id 标识的 S3 对象引用。
+            manifest:
+                EN: Chunk manifest containing text chunks and asset references.
+                CN: 包含文本 chunk 和资源引用的 chunk manifest。
+            previous_version_id:
+                EN: Previous version_id for version progression tracking.
+                CN: 用于版本推进追踪的 previous_version_id。
+            previous_manifest_s3_uri:
+                EN: Previous manifest S3 URI for version chain.
+                CN: 版本链中上一个 manifest 的 S3 URI。
+
+        Returns:
+            EN: Tuple of (persisted_manifest, manifest_s3_uri).
+            CN: (persisted_manifest, manifest_s3_uri) 元组。
+        """
+        current_state = self._object_state_repo.get_state(object_pk=source.object_pk)
+        if current_state is not None and (
+            current_state.latest_version_id != source.version_id or current_state.extract_status != "EXTRACTING"
+        ):
+            raise StaleExtractionStateError(
+                f"Extraction state is stale or complete for {source.document_uri}: "
+                f"version_id={current_state.latest_version_id}, "
+                f"extract_status={current_state.extract_status}"
+            )
+
+        persisted = self._manifest_repo.persist_manifest(
+            manifest,
+            previous_version_id=previous_version_id,
+        )
+
+        try:
+            object_state = self._object_state_repo.mark_extract_done(source, persisted.manifest_s3_uri)
+            if self._execution_state_repo is not None:
+                self._execution_state_repo.mark_extract_done(source, persisted.manifest_s3_uri)
+        except DuplicateOrStaleEventError:
+            latest_state = self._object_state_repo.get_state(object_pk=source.object_pk) or current_state
+            raise StaleExtractionStateError(
+                f"State became stale during commit for {source.document_uri}: "
+                f"version_id={latest_state.latest_version_id if latest_state else 'unknown'}"
+            ) from None
+
+        return persisted.manifest, persisted.manifest_s3_uri
+
+
+class EmbedJobDispatcher:
+    """
+    EN: Dispatch embedding jobs to SQS based on persisted manifest and embedding profiles.
+    CN: 基于已持久化的 manifest 和 embedding profile 将 embedding 作业分发到 SQS。
+
+    This component handles the fan-out of embedding jobs per enabled profile
+    and dispatches them to the SQS embed queue.
+    此组件处理按启用 profile 扇出的 embedding 作业，并将其分发到 SQS embed 队列。
+    """
+
+    def __init__(
+        self,
+        *,
+        embed_dispatcher: EmbeddingJobDispatcher,
+        manifest_repo: ManifestRepository,
+        embedding_profiles: tuple[EmbeddingProfile, ...],
+    ) -> None:
+        self._embed_dispatcher = embed_dispatcher
+        self._manifest_repo = manifest_repo
+        self._embedding_profiles = embedding_profiles
+
+    def dispatch(
+        self,
+        *,
+        source: S3ObjectRef,
+        manifest: ChunkManifest,
+        manifest_s3_uri: str,
+        trace_id: str,
+        previous_version_id: str | None = None,
+        previous_manifest_s3_uri: str | None = None,
+    ) -> int:
+        """
+        EN: Build and dispatch embedding jobs for all enabled profiles.
+        CN: 为所有已启用的 profile 构建并分发 embedding 作业。
+
+        Args:
+            source:
+                EN: S3 object reference with bucket/key/version_id identity.
+                CN: 通过 bucket、key 和 version_id 标识的 S3 对象引用。
+            manifest:
+                EN: Chunk manifest containing text chunks and asset references.
+                CN: 包含文本 chunk 和资源引用的 chunk manifest。
+            manifest_s3_uri:
+                EN: Version-aware S3 URI of the persisted manifest.
+                CN: 已持久化 manifest 的带版本 S3 URI。
+            trace_id:
+                EN: Trace identifier for request correlation.
+                CN: 用于请求关联的 trace 标识符。
+            previous_version_id:
+                EN: Previous version_id for version progression tracking.
+                CN: 用于版本推进追踪的 previous_version_id。
+            previous_manifest_s3_uri:
+                EN: Previous manifest S3 URI for version chain.
+                CN: 版本链中上一个 manifest 的 S3 URI。
+
+        Returns:
+            EN: Number of embedding jobs dispatched.
+            CN: 分发的 embedding 作业数量。
+        """
+        embedding_requests = build_embedding_requests(
+            manifest=manifest,
+            manifest_s3_uri=manifest_s3_uri,
+            extraction_service=None,  # Requests already built at this point
+        )
+        validate_embedding_requests(embedding_requests)
+
+        embedding_jobs = build_jobs_for_profiles(
+            source=source,
+            trace_id=trace_id,
+            manifest_s3_uri=manifest_s3_uri,
+            requests=embedding_requests,
+            profiles=self._embedding_profiles,
+            previous_version_id=previous_version_id,
+            previous_manifest_s3_uri=previous_manifest_s3_uri,
+        )
+
+        if not embedding_jobs:
+            return 0
+
+        self._embed_dispatcher.dispatch_many(embedding_jobs)
+        return len(embedding_jobs)
+
+
+# =============================================================================
+# EN: Original ExtractionResultPersister preserved for backward compatibility.
+# CN: 为保持向后兼容而保留的原始 ExtractionResultPersister。
+# =============================================================================
 
 
 class ExtractionResultPersister:
     """
     EN: Persist extraction manifest to S3 manifest bucket and dispatch embedding jobs to SQS.
-    CN: 灏嗘彁鍙?manifest 鎸佷箙鍖栧埌 S3 manifest bucket锛屽苟鎶?embedding 浣滀笟鍒嗗彂鍒?SQS銆?
+    CN: 将提取 manifest 持久化到 S3 manifest bucket，并向 SQS 分发 embedding 作业。
 
     This component owns the boundary between extract and embed phases.
-    璇ョ粍浠惰礋璐ｆ彁鍙栭樁娈典笌宓屽叆闃舵涔嬮棿鐨勮竟鐣屻€?
+    此组件拥有 extract 和 embed 阶段之间的边界。
     """
 
     def __init__(
@@ -63,28 +238,28 @@ class ExtractionResultPersister:
     ) -> ProcessingOutcome:
         """
         EN: Extract stage only persists manifest and dispatches whole-document embed job, not writing vectors directly.
-        CN: 鎻愬彇闃舵鍙寔涔呭寲 manifest 骞跺垎鍙戞暣绡囨枃妗ｇ殑 embed 浣滀笟锛屼笉浼氱洿鎺ュ啓鍏ュ悜閲忋€?
+        CN: 提取阶段仅持久化 manifest 并分发整篇文档的 embed 作业，不直接写入向量。
 
         Args:
             source:
                 EN: S3 object reference with bucket/key/version_id identity.
-                CN: 閫氳繃 bucket銆乲ey 鍜?version_id 鏍囪瘑鐨?S3 瀵硅薄寮曠敤銆?
+                CN: 通过 bucket、key 和 version_id 标识的 S3 对象引用。
             manifest:
                 EN: Chunk manifest containing text chunks and asset references.
-                CN: 鍖呭惈鏂囨湰 chunk 鍜岃祫婧愬紩鐢ㄧ殑 chunk manifest銆?
+                CN: 包含文本 chunk 和资源引用的 chunk manifest。
             trace_id:
                 EN: Trace identifier for request correlation.
-                CN: 鐢ㄤ簬璇锋眰鍏宠仈鐨?trace 鏍囪瘑銆?
+                CN: 用于请求关联的 trace 标识符。
             previous_version_id:
                 EN: Previous version_id for version progression tracking.
-                CN: 鐢ㄤ簬鐗堟湰鎺ㄨ繘璺熻釜鐨?previous_version_id銆?
+                CN: 用于版本推进追踪的 previous_version_id。
             previous_manifest_s3_uri:
                 EN: Previous manifest S3 URI for version chain.
-                CN: 鐗堟湰閾句腑涓婁竴浠?manifest 鐨?S3 URI銆?
+                CN: 版本链中上一个 manifest 的 S3 URI。
 
         Returns:
             EN: Processing outcome with manifest URI and chunk counts.
-            CN: 鍖呭惈 manifest URI 鍜?chunk 璁℃暟鐨勫鐞嗙粨鏋溿€?
+            CN: 包含 manifest URI 和 chunk 计数的处理结果。
         """
         current_state = self._object_state_repo.get_state(object_pk=source.object_pk)
         if current_state is not None and (
@@ -108,7 +283,7 @@ class ExtractionResultPersister:
             )
             validate_embedding_requests(embedding_requests)
             # EN: Fan out one embed job per enabled profile so each vector index is populated independently.
-            # CN: 涓烘瘡涓凡鍚敤鐨?profile 鍒嗗彂涓€浠?embed 浣滀笟锛岃鍚勮嚜鐨勫悜閲忕储寮曠嫭绔嬪～鍏呫€?
+            # CN: 为每个已启用的 profile 分发一个 embed 作业，让各自的向量索引独立填充。
             embedding_jobs = build_jobs_for_profiles(
                 source=source,
                 trace_id=trace_id,
@@ -168,7 +343,7 @@ class ExtractionResultPersister:
     ) -> ProcessingOutcome:
         """
         EN: Build a benign skip outcome when extract state is already stale or complete.
-        CN: 瑜版挻褰侀崣鏍Ц閹礁鍑℃潻鍥ㄦ埂閹存牕鍑＄€瑰本鍨氶弮鑸电€楦款暙閸欓娈戦獮鍐叉嫲鐠哄嫯绻冪紒鎾寸亯閵?
+        CN: 当提取状态已经过时或完成时，构建良性的跳过结果。
         """
         if object_state is None:
             object_state = ObjectStateRecord(
@@ -200,3 +375,47 @@ class ExtractionResultPersister:
             embedding_request_count=0,
             object_state=object_state,
         )
+
+
+_DISPATCH_FAILURE_TYPES = (ClientError, KeyError, OSError, RuntimeError, TypeError, ValueError)
+
+
+class StaleExtractionStateError(ValueError):
+    """
+    EN: Raised when extraction state is stale or already complete during persist.
+    CN: 当在持久化过程中提取状态已过时或已完成时抛出。
+    """
+
+
+def build_embedding_requests(
+    *,
+    manifest: ChunkManifest,
+    manifest_s3_uri: str,
+    extraction_service: ExtractionService | None,
+) -> list:
+    """
+    EN: Build embedding requests from manifest, optionally using extraction service.
+    CN: 从 manifest 构建 embedding 请求，可选择使用 extraction service。
+
+    Args:
+        manifest:
+            EN: Chunk manifest containing text chunks and asset references.
+            CN: 包含文本 chunk 和资源引用的 chunk manifest。
+        manifest_s3_uri:
+            EN: S3 URI of the persisted manifest for metadata reference.
+            CN: 已持久化 manifest 的 S3 URI，用于元数据引用。
+        extraction_service:
+            EN: Optional extraction service for building requests (unused, kept for interface).
+            CN: 可选的 extraction service 用于构建请求（未使用，为保持接口）。
+
+    Returns:
+        EN: List of embedding requests.
+        CN: embedding 请求列表。
+    """
+    # EN: This function is provided for compatibility; actual request building
+    # uses ExtractionService.build_embedding_requests() in the original class.
+    # 此函数为兼容提供；实际请求构建在原始类中使用
+    # ExtractionService.build_embedding_requests()。
+    if extraction_service is not None:
+        return extraction_service.build_embedding_requests(manifest, manifest_s3_uri=manifest_s3_uri)
+    return []

@@ -17,7 +17,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SERVICE_ROOT = REPO_ROOT / "services" / "ocr-pipeline"
+SERVICE_ROOT = REPO_ROOT / "ocr-service" / "ocr-pipeline"
 SERVICE_PARENT = SERVICE_ROOT / "src"
 SCRIPT_ROOT = Path(__file__).resolve().parent
 

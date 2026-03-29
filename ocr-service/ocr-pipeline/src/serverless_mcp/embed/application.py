@@ -48,6 +48,128 @@ class _EmbeddingClient(Protocol):
     def embed_bytes(self, *, payload: bytes, mime_type: str, request) -> list[float]: ...
 
 
+class VersionCleanupService:
+    """
+    EN: Handle cleanup of previous version vectors, projection state, and manifests.
+    CN: 处理旧版本向量、投影状态和 manifest 的清理。
+
+    This service is responsible for:
+    1. Deleting stale vectors when a new version is indexed
+    2. Cleaning up projection state records for the previous version
+    3. Deleting previous version manifests after all profiles have indexed
+    此服务负责：
+    1. 在新版本被索引时删除过时向量
+    2. 清理上一版本的投影状态记录
+    3. 在所有 profile 索引完成后删除上一版本的 manifest
+    """
+
+    def __init__(
+        self,
+        *,
+        vector_repo: S3VectorRepository,
+        manifest_repo: ManifestRepository | None,
+        projection_state_repo: EmbeddingProjectionStateRepository | None,
+        embedding_profiles: dict[str, EmbeddingProfile],
+    ) -> None:
+        self._vector_repo = vector_repo
+        self._manifest_repo = manifest_repo
+        self._projection_state_repo = projection_state_repo
+        self._embedding_profiles = embedding_profiles
+
+    def cleanup_previous_version_vectors(
+        self,
+        *,
+        job: EmbeddingJobMessage,
+        profile: EmbeddingProfile,
+    ) -> None:
+        """
+        EN: Delete vectors and projection state records for the previous version under the given profile.
+        CN: 删除指定 profile 下旧版本的向量和 projection state 记录。
+
+        Args:
+            job:
+                EN: Embedding job message containing version information.
+                CN: 包含版本信息的 embedding 作业消息。
+            profile:
+                EN: The embedding profile whose vectors should be cleaned up.
+                CN: 应该清理其向量的 embedding profile。
+        """
+        if not job.previous_version_id:
+            return
+        if not self._manifest_repo:
+            raise ValueError("manifest_repo is required for previous version vector governance")
+
+        # EN: Locate the previous manifest, falling back to repository lookup if the URI was not carried in the job.
+        # CN: 定位上一版 manifest；如果作业中没有携带 URI，则回退到仓库查询。
+        previous_manifest_s3_uri = job.previous_manifest_s3_uri or self._manifest_repo.find_manifest_s3_uri(
+            source=job.source,
+            version_id=job.previous_version_id,
+        )
+        if not previous_manifest_s3_uri:
+            return
+
+        try:
+            previous_manifest = self._manifest_repo.load_manifest(previous_manifest_s3_uri)
+        except ClientError as exc:
+            # EN: If the previous manifest was already deleted, treat it as no-op.
+            # CN: 如果旧 manifest 已经被删掉，就当作 no-op。
+            if _is_missing_object_error(exc):
+                return
+            raise
+
+        stale_keys = _build_vector_keys(profile_id=job.profile_id, manifest=previous_manifest)
+        # EN: Delete stale vectors and clean up per-version projection records.
+        # CN: 删除过期向量并清理按版本划分的 projection 记录。
+        self._vector_repo.delete_vectors(profile=profile, keys=stale_keys)
+        if self._projection_state_repo is not None:
+            self._projection_state_repo.delete_version_records(source=job.source, version_id=job.previous_version_id)
+
+    def cleanup_previous_manifest_if_complete(
+        self,
+        *,
+        job: EmbeddingJobMessage,
+    ) -> None:
+        """
+        EN: Delete the previous version's manifest artifacts only when all active profiles have indexed the new version.
+        CN: 只有当所有启用写入的 profile 都对该版本达到 INDEXED 时才删除旧 manifest 产物。
+
+        Args:
+            job:
+                EN: Embedding job message containing version information.
+                CN: 包含版本信息的 embedding 作业消息。
+        """
+        if not job.previous_version_id or not self._manifest_repo:
+            return
+        if not self._is_version_complete(job.source.object_pk, job.source.version_id):
+            return
+        self._manifest_repo.delete_previous_version_artifacts(
+            source=job.source,
+            previous_version_id=job.previous_version_id,
+            previous_manifest_s3_uri=job.previous_manifest_s3_uri,
+        )
+
+    def _is_version_complete(self, object_pk: str, version_id: str) -> bool:
+        """
+        EN: Check whether all write-enabled profiles have reached INDEXED status for this version.
+        CN: 检查所有启用写入的 profile 是否已达到该版本的 INDEXED 状态。
+        """
+        enabled_profiles = [profile for profile in self._embedding_profiles.values() if profile.enable_write]
+        if not enabled_profiles:
+            return False
+        if self._projection_state_repo is None:
+            return len(enabled_profiles) == 1
+
+        for profile in enabled_profiles:
+            state = self._projection_state_repo.get_state(
+                object_pk=object_pk,
+                version_id=version_id,
+                profile_id=profile.profile_id,
+            )
+            if state is None or state.query_status != "INDEXED":
+                return False
+        return True
+
+
 class EmbedWorker:
     """
     EN: Process one profile-scoped embedding job, then clean previous-version artifacts once the new vectors are durably written.
@@ -65,6 +187,7 @@ class EmbedWorker:
         execution_state_repo: ExecutionStateRepository | None = None,
         manifest_repo: ManifestRepository | None = None,
         projection_state_repo: EmbeddingProjectionStateRepository | None = None,
+        version_cleanup_service: VersionCleanupService | None = None,
     ) -> None:
         if projection_state_repo is None and len(embedding_profiles) > 1:
             raise ValueError(
@@ -78,6 +201,19 @@ class EmbedWorker:
         self._execution_state_repo = execution_state_repo
         self._manifest_repo = manifest_repo
         self._projection_state_repo = projection_state_repo
+        self._version_cleanup_service = version_cleanup_service or self._build_default_version_cleanup_service()
+
+    def _build_default_version_cleanup_service(self) -> VersionCleanupService:
+        """
+        EN: Build the default VersionCleanupService with current dependencies.
+        CN: 使用当前依赖构建默认的 VersionCleanupService。
+        """
+        return VersionCleanupService(
+            vector_repo=self._vector_repo,
+            manifest_repo=self._manifest_repo,
+            projection_state_repo=self._projection_state_repo,
+            embedding_profiles=self._embedding_profiles,
+        )
 
     def process(self, job: EmbeddingJobMessage) -> EmbeddingOutcome:
         """
@@ -103,16 +239,7 @@ class EmbedWorker:
         try:
             # EN: Mark embed status as running; single-profile uses object_state, multi-profile uses projection_state.
             # CN: 标记嵌入为运行中；单 profile 写 object_state，多个 profile 写 projection_state。
-            if self._execution_state_repo is not None:
-                self._execution_state_repo.mark_embed_running(job.source)
-            if self._projection_state_repo is None:
-                self._object_state_repo.mark_embed_running(job.source)
-            if self._projection_state_repo is not None:
-                self._projection_state_repo.mark_running(
-                    source=job.source,
-                    profile=profile,
-                    manifest_s3_uri=job.manifest_s3_uri,
-                )
+            self._mark_embed_running(job)
             # EN: Embed each request into a vector, then persist all vectors to S3 Vectors.
             # CN: 先将每个请求嵌入为向量，再把所有向量持久化到 S3 Vectors。
             vectors = [
@@ -123,18 +250,7 @@ class EmbedWorker:
             # EN: Clean up previous-version vectors and projection state if a prior version exists.
             # CN: 如果存在上一版本，则清理上一版本的向量和 projection state。
             if job.previous_version_id:
-                try:
-                    self._cleanup_previous_version(job=job, profile=profile)
-                except _EMBED_FAILURE_TYPES as exc:
-                    emit_trace(
-                        "embed.cleanup_previous_version.failed",
-                        profile_id=job.profile_id,
-                        document_uri=job.source.document_uri,
-                        previous_version_id=job.previous_version_id,
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
-                    )
-                    self._object_state_repo.mark_embed_cleanup_failed(job.source, str(exc))
+                self._handle_version_cleanup(job=job, profile=profile)
             # EN: Complete object state and mark projection done, then attempt previous-version manifest cleanup.
             # CN: 完成 object_state 更新并标记 projection 完成，然后尝试清理旧版本 manifest。
             object_state = self._complete_object_state(job)
@@ -145,39 +261,100 @@ class EmbedWorker:
                 vector_count=len(vectors),
                 object_state=object_state,
             )
-            if self._projection_state_repo is not None:
-                self._projection_state_repo.mark_done(outcome=outcome, profile=profile)
-            elif self._execution_state_repo is not None:
-                self._execution_state_repo.mark_embed_done(job.source)
+            self._mark_embed_completed(job=job, outcome=outcome)
             if job.previous_version_id:
-                try:
-                    self._cleanup_previous_manifest_if_complete(job=job)
-                except _EMBED_FAILURE_TYPES as exc:
-                    emit_trace(
-                        "embed.cleanup_previous_manifest.failed",
-                        profile_id=job.profile_id,
-                        document_uri=job.source.document_uri,
-                        previous_version_id=job.previous_version_id,
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
-                    )
-                    self._object_state_repo.mark_embed_cleanup_failed(job.source, str(exc))
+                self._handle_manifest_cleanup(job=job)
         except _EMBED_FAILURE_TYPES as exc:
-            # EN: On failure, mark embed as failed in the appropriate state repository.
-            # CN: 失败时，在对应的状态仓储中将嵌入标记为失败。
-            if self._execution_state_repo is not None:
-                self._execution_state_repo.mark_embed_failed(job.source, str(exc))
-            if self._projection_state_repo is None:
-                self._object_state_repo.mark_embed_failed(job.source, str(exc))
-            if self._projection_state_repo is not None:
-                self._projection_state_repo.mark_failed(
-                    source=job.source,
-                    profile=profile,
-                    manifest_s3_uri=job.manifest_s3_uri,
-                    error_message=str(exc),
-                )
+            self._mark_embed_failed(job=job, profile=profile, exc=exc)
             raise
         return outcome
+
+    def _mark_embed_running(self, job: EmbeddingJobMessage) -> None:
+        """
+        EN: Mark embed status as running in the appropriate state repository.
+        CN: 在对应的状态仓储中将嵌入标记为运行中。
+        """
+        if self._execution_state_repo is not None:
+            self._execution_state_repo.mark_embed_running(job.source)
+        if self._projection_state_repo is None:
+            self._object_state_repo.mark_embed_running(job.source)
+        if self._projection_state_repo is not None:
+            profile = self._require_profile(job.profile_id)
+            self._projection_state_repo.mark_running(
+                source=job.source,
+                profile=profile,
+                manifest_s3_uri=job.manifest_s3_uri,
+            )
+
+    def _handle_version_cleanup(self, *, job: EmbeddingJobMessage, profile: EmbeddingProfile) -> None:
+        """
+        EN: Handle cleanup of previous version vectors with error isolation.
+        CN: 处理旧版本向量清理，带错误隔离。
+        """
+        try:
+            self._version_cleanup_service.cleanup_previous_version_vectors(job=job, profile=profile)
+        except _EMBED_FAILURE_TYPES as exc:
+            emit_trace(
+                "embed.cleanup_previous_version.failed",
+                profile_id=job.profile_id,
+                document_uri=job.source.document_uri,
+                previous_version_id=job.previous_version_id,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+            self._object_state_repo.mark_embed_cleanup_failed(job.source, str(exc))
+
+    def _handle_manifest_cleanup(self, *, job: EmbeddingJobMessage) -> None:
+        """
+        EN: Handle manifest cleanup with error isolation, marking cleanup failure without propagating.
+        CN: 处理 manifest 清理，带错误隔离，标记清理失败但不传播错误。
+        """
+        try:
+            self._version_cleanup_service.cleanup_previous_manifest_if_complete(job=job)
+        except _EMBED_FAILURE_TYPES as exc:
+            emit_trace(
+                "embed.cleanup_previous_manifest.failed",
+                profile_id=job.profile_id,
+                document_uri=job.source.document_uri,
+                previous_version_id=job.previous_version_id,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+            self._object_state_repo.mark_embed_cleanup_failed(job.source, str(exc))
+
+    def _mark_embed_completed(self, *, job: EmbeddingJobMessage, outcome: EmbeddingOutcome) -> None:
+        """
+        EN: Mark embed as completed in the appropriate state repository.
+        CN: 在对应的状态仓储中将嵌入标记为完成。
+        """
+        if self._projection_state_repo is not None:
+            profile = self._require_profile(job.profile_id)
+            self._projection_state_repo.mark_done(outcome=outcome, profile=profile)
+        elif self._execution_state_repo is not None:
+            self._execution_state_repo.mark_embed_done(job.source)
+
+    def _mark_embed_failed(
+        self,
+        *,
+        job: EmbeddingJobMessage,
+        profile: EmbeddingProfile,
+        exc: Exception,
+    ) -> None:
+        """
+        EN: On failure, mark embed as failed in the appropriate state repository.
+        CN: 失败时，在对应的状态仓储中将嵌入标记为失败。
+        """
+        if self._execution_state_repo is not None:
+            self._execution_state_repo.mark_embed_failed(job.source, str(exc))
+        if self._projection_state_repo is None:
+            self._object_state_repo.mark_embed_failed(job.source, str(exc))
+        if self._projection_state_repo is not None:
+            self._projection_state_repo.mark_failed(
+                source=job.source,
+                profile=profile,
+                manifest_s3_uri=job.manifest_s3_uri,
+                error_message=str(exc),
+            )
 
     def _embed_request(
         self,
@@ -226,7 +403,7 @@ class EmbedWorker:
         request_start = monotonic()
         payload_size_bytes: int | None = None
         try:
-            # EN: Route by content_kind 鈥?text goes directly, binary assets are loaded from S3 first.
+            # EN: Route by content_kind - text goes directly, binary assets are loaded from S3 first.
             # CN: 按 content_kind 路由，文本直接嵌入，二进制资产先从 S3 加载。
             if request.content_kind == "text":
                 if not request.text:
@@ -269,76 +446,22 @@ class EmbedWorker:
             metadata=metadata,
         )
 
-    def _cleanup_previous_version(self, *, job: EmbeddingJobMessage, profile: EmbeddingProfile) -> None:
+    def _complete_object_state(self, job: EmbeddingJobMessage) -> ObjectStateRecord:
         """
-        EN: Delete vectors and projection state records for the previous version under the given profile.
-        CN: 删除指定 profile 下旧版本的向量和 projection state 记录。
+        EN: Finalize object_state - single-profile marks done directly, multi-profile reads current state.
+        CN: 完成 object_state：单 profile 直接标记 done，多 profile 则读取当前状态。
         """
-        if not job.previous_version_id:
-            return
-        if not self._manifest_repo:
-            raise ValueError("manifest_repo is required for previous version vector governance")
-
-        # EN: Locate the previous manifest, falling back to repository lookup if the URI was not carried in the job.
-        # CN: 定位上一版 manifest；如果作业中没有携带 URI，则回退到仓库查询。
-        previous_manifest_s3_uri = job.previous_manifest_s3_uri or self._manifest_repo.find_manifest_s3_uri(
-            source=job.source,
-            version_id=job.previous_version_id,
-        )
-        if not previous_manifest_s3_uri:
-            return
-
-        try:
-            previous_manifest = self._manifest_repo.load_manifest(previous_manifest_s3_uri)
-        except ClientError as exc:
-            # EN: If the previous manifest was already deleted, treat it as no-op.
-            # CN: 如果旧 manifest 已经被删掉，就当作 no-op。
-            if _is_missing_object_error(exc):
-                return
-            raise
-
-        stale_keys = _build_vector_keys(profile_id=job.profile_id, manifest=previous_manifest)
-        # EN: Delete stale vectors and clean up per-version projection records.
-        # CN: 删除过期向量并清理按版本划分的 projection 记录。
-        self._vector_repo.delete_vectors(profile=profile, keys=stale_keys)
-        if self._projection_state_repo is not None:
-            self._projection_state_repo.delete_version_records(source=job.source, version_id=job.previous_version_id)
-
-    def _cleanup_previous_manifest_if_complete(self, *, job: EmbeddingJobMessage) -> None:
-        """
-        EN: Delete the previous version's manifest artifacts only when all active profiles have indexed the new version.
-        CN: 只有当所有启用写入的 profile 都对该版本达到 INDEXED 时才删除旧 manifest 产物。
-        """
-        if not job.previous_version_id or not self._manifest_repo:
-            return
-        if not self._is_version_complete(job.source.object_pk, job.source.version_id):
-            return
-        self._manifest_repo.delete_previous_version_artifacts(
-            source=job.source,
-            previous_version_id=job.previous_version_id,
-            previous_manifest_s3_uri=job.previous_manifest_s3_uri,
-        )
-
-    def _is_version_complete(self, object_pk: str, version_id: str) -> bool:
-        """
-        EN: Check whether all write-enabled profiles have reached INDEXED status for this version.
-        CN: 检查所有启用写入的 profile 是否已达到该版本的 INDEXED 状态。
-        """
-        enabled_profiles = [profile for profile in self._embedding_profiles.values() if profile.enable_write]
-        if not enabled_profiles:
-            return False
         if self._projection_state_repo is None:
-            return len(enabled_profiles) == 1
+            return self._object_state_repo.mark_embed_done(job.source)
 
-        for profile in enabled_profiles:
-            state = self._projection_state_repo.get_state(
-                object_pk=object_pk,
-                version_id=version_id,
-                profile_id=profile.profile_id,
-            )
-            if state is None or state.query_status != "INDEXED":
-                return False
-        return True
+        state = None
+        if self._execution_state_repo is not None:
+            state = self._execution_state_repo.get_state(object_pk=job.source.object_pk)
+        if state is None:
+            state = self._object_state_repo.get_state(object_pk=job.source.object_pk)
+        if state is None:
+            raise ValueError(f"object_state is missing for {job.source.document_uri}")
+        return state
 
     def _require_profile(self, profile_id: str) -> EmbeddingProfile:
         """
@@ -359,23 +482,6 @@ class EmbedWorker:
         if client is None:
             raise ValueError(f"Embedding client is not configured for profile: {profile_id}")
         return client
-
-    def _complete_object_state(self, job: EmbeddingJobMessage) -> ObjectStateRecord:
-        """
-        EN: Finalize object_state 鈥?single-profile marks done directly, multi-profile reads current state.
-        CN: 完成 object_state：单 profile 直接标记 done，多 profile 则读取当前状态。
-        """
-        if self._projection_state_repo is None:
-            return self._object_state_repo.mark_embed_done(job.source)
-
-        state = None
-        if self._execution_state_repo is not None:
-            state = self._execution_state_repo.get_state(object_pk=job.source.object_pk)
-        if state is None:
-            state = self._object_state_repo.get_state(object_pk=job.source.object_pk)
-        if state is None:
-            raise ValueError(f"object_state is missing for {job.source.document_uri}")
-        return state
 
 
 def _build_vector_keys(*, profile_id: str, manifest: ChunkManifest) -> list[str]:
