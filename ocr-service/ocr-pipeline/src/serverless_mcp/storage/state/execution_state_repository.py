@@ -58,6 +58,55 @@ class ExecutionStateRepository:
             return None
         return _deserialize_execution_state(item)
 
+    def get_states_batch(self, *, object_pks: list[str]) -> dict[str, ObjectStateRecord | None]:
+        """
+        EN: Load multiple execution state records by primary keys using batch get.
+        CN: 通过主键批量读取多个 execution-state 记录。
+
+        Args:
+            object_pks:
+                EN: List of primary keys of the execution-state records.
+                CN: execution-state 记录的主键列表。
+
+        Returns:
+            EN: Dictionary mapping object_pk to ObjectStateRecord (or None if not found).
+            CN: 从 object_pk 到 ObjectStateRecord 的字典（未找到时为 None）。
+        """
+        if not object_pks:
+            return {}
+
+        result: dict[str, ObjectStateRecord | None] = {}
+        remaining = object_pks[:]
+
+        while remaining:
+            batch = remaining[:100]
+            remaining = remaining[100:]
+
+            keys = [{"pk": {"S": pk}} for pk in batch]
+            response = self._ddb.batch_get_item(
+                RequestItems={
+                    self._table_name: {
+                        "Keys": keys,
+                        "ConsistentRead": True,
+                    }
+                }
+            )
+
+            items = response.get("Responses", {}).get(self._table_name, [])
+            for item in items:
+                record = _deserialize_execution_state(item)
+                result[record.pk] = record
+
+            unprocessed = response.get("UnprocessedKeys", {})
+            if unprocessed.get(self._table_name, {}).get("Keys"):
+                remaining.extend([pk for pk in batch if pk not in result])
+
+        for pk in object_pks:
+            if pk not in result:
+                result[pk] = None
+
+        return result
+
     def list_object_records(self) -> list[ObjectStateRecord]:
         """
         EN: Return all execution-state records currently stored in the table.

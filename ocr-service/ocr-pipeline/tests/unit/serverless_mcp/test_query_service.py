@@ -221,12 +221,18 @@ class _FakeObjectStateRepo:
             is_deleted=self._is_deleted,
         )
 
+    def get_states_batch(self, *, object_pks):
+        return {pk: self.get_state(object_pk=pk) for pk in object_pks}
+
 
 class _MissingObjectStateRepo:
     # EN: Object state repo returning None for all lookups.
     # CN: 同上。
     def get_state(self, *, object_pk):
         return None
+
+    def get_states_batch(self, *, object_pks):
+        return {pk: None for pk in object_pks}
 
 
 class _FakeProjectionStateRepo:
