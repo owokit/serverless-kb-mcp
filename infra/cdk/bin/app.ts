@@ -2,7 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { ApiStack } from '../lib/api-stack';
 import { ComputeStack } from '../lib/compute-stack';
 import { FoundationStack } from '../lib/foundation-stack';
-import { loadPipelineConfig, resolveDeploymentInputs } from '../lib/config';
+import { loadPipelineConfig, resolveDeploymentInputs, applyNameSuffix } from '../lib/config';
 
 const app = new cdk.App();
 const repoRoot = process.cwd();
@@ -18,6 +18,13 @@ const artifactDir =
 const deploymentInputs = resolveDeploymentInputs(process.env);
 const pipelineConfig = loadPipelineConfig(repoRoot, String(configPath));
 const allowPlaceholderAssets = /^(1|true|yes)$/i.test(process.env.MCP_ALLOW_PLACEHOLDER_ASSETS ?? '');
+
+const accountId = process.env.CDK_DEFAULT_ACCOUNT ?? process.env.AWS_ACCOUNT_ID ?? '';
+const regionId = process.env.CDK_DEFAULT_REGION ?? process.env.AWS_REGION ?? '';
+if ((pipelineConfig.name_suffix ?? 'auto') === 'auto' && (!accountId || !regionId)) {
+  throw new Error('CDK_DEFAULT_ACCOUNT and CDK_DEFAULT_REGION must be set to resolve resource name suffix.');
+}
+applyNameSuffix(pipelineConfig, accountId, regionId);
 
 const stackPrefix = pipelineConfig.name_prefix;
 const stackEnvironment = {

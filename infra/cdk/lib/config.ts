@@ -84,6 +84,7 @@ export interface LambdaRuntimeSettings {
 
 export interface PipelineConfig {
   name_prefix: string;
+  name_suffix?: string;
   repo_name: string;
   defaults: PipelineDefaults;
   resource_names: ResourceNames;
@@ -133,4 +134,84 @@ export function resolveDeploymentInputs(env: NodeJS.ProcessEnv): DeploymentInput
 function optionalEnv(env: NodeJS.ProcessEnv, key: string): string | undefined {
   const value = env[key]?.trim();
   return value ? value : undefined;
+}
+
+// EN: Resolve the name_suffix config value into the actual suffix string appended to every AWS resource name.
+// CN: 将 name_suffix 配置值解析为追加到每个 AWS 资源名称后的实际后缀字符串。
+export function resolveNameSuffix(suffix: string | undefined, account: string, region: string): string {
+  if (!suffix || suffix === '' || suffix === 'none') {
+    return '';
+  }
+  if (suffix === 'auto') {
+    return `${account}-${region}`;
+  }
+  return suffix;
+}
+
+// EN: AWS service-specific maximum name lengths used to validate suffixed resource names.
+// CN: AWS 服务级资源名称最大长度，用于校验追加后缀后的名称是否合规。
+const NAME_LENGTH_LIMITS: Record<string, number> = {
+  source_bucket: 63,
+  manifest_bucket: 63,
+  vector_bucket: 63,
+  ingest_queue: 80,
+  embed_queue: 80,
+  embed_dlq: 80,
+  object_state_table: 255,
+  execution_state_table: 255,
+  manifest_index_table: 255,
+  embedding_projection_state_table: 255,
+  state_machine: 80,
+  ingest_lambda: 64,
+  extract_prepare_lambda: 64,
+  extract_sync_lambda: 64,
+  extract_submit_lambda: 64,
+  extract_poll_lambda: 64,
+  extract_persist_lambda: 64,
+  extract_mark_failed_lambda: 64,
+  embed_lambda: 64,
+  remote_mcp_lambda: 64,
+  remote_mcp_api_gateway: 255,
+  backfill_lambda: 64,
+  job_status_lambda: 64,
+  core_dependency_layer: 140,
+  extract_dependency_layer: 140,
+  embedding_dependency_layer: 140,
+  lambda_role: 64,
+  state_machine_role: 64,
+  state_machine_log_group: 512,
+};
+
+// EN: Mutate pipelineConfig.resource_names and embedding_profiles in-place so every downstream consumer sees the suffixed names.
+// CN: 原地修改 pipelineConfig.resource_names 和 embedding_profiles，让所有下游消费者直接看到带后缀的名称。
+export function applyNameSuffix(config: PipelineConfig, account: string, region: string): void {
+  const suffix = resolveNameSuffix(config.name_suffix, account, region);
+  if (!suffix) {
+    return;
+  }
+
+  const names = config.resource_names as unknown as Record<string, string>;
+  for (const key of Object.keys(names)) {
+    names[key] = `${names[key]}-${suffix}`;
+  }
+
+  for (const profile of config.embedding_profiles) {
+    profile.vector_bucket_name = `${profile.vector_bucket_name}-${suffix}`;
+  }
+
+  // EN: Validate that no suffixed name exceeds its service-specific length limit.
+  // CN: 校验追加后缀后的名称是否超出对应服务的长度限制。
+  const violations: string[] = [];
+  for (const [key, limit] of Object.entries(NAME_LENGTH_LIMITS)) {
+    const name = names[key];
+    if (name && name.length > limit) {
+      violations.push(`  ${key}: "${name}" (${name.length} chars, limit: ${limit})`);
+    }
+  }
+  if (violations.length > 0) {
+    throw new Error(
+      `Resource name(s) exceed service limits after applying suffix "-${suffix}":\n${violations.join('\n')}\n` +
+      `Consider shortening "name_prefix" or using a custom shorter "name_suffix".`,
+    );
+  }
 }
