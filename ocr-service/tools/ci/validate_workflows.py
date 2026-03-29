@@ -54,6 +54,7 @@ EXPECTED_WORKFLOWS = {
     "package-release.yml",
     "prod-deploy.yml",
     "destroy.yml",
+    "ai-skills-sync.yml",
 }
 # EN: Mapping from workflow filename to its required display name.
 # CN: 工作流文件名到其必须使用的显示名称的映射。
@@ -78,6 +79,7 @@ EXPECTED_NAMES = {
     "package-release.yml": "Package Release",
     "prod-deploy.yml": "Prod Deploy",
     "destroy.yml": "Destroy",
+    "ai-skills-sync.yml": "AI Skills Sync",
 }
 # EN: Workflow files that must depend on specific parent workflows via workflow_run triggers.
 # CN: 必须通过 workflow_run 触发器依赖特定父工作流的文件。
@@ -120,6 +122,7 @@ EXPECTED_TRIGGER_REQUIREMENTS = {
     "package-release.yml": {"workflow_run", "workflow_dispatch"},
     "prod-deploy.yml": {"workflow_dispatch"},
     "destroy.yml": {"workflow_dispatch"},
+    "ai-skills-sync.yml": {"pull_request"},
 }
 
 

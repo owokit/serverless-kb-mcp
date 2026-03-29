@@ -47,5 +47,4 @@ jobs:
             git diff --stat .agents/skills/ .claude/skills/ .codex/skills/
             exit 1
           fi
-          fi
           echo "Skills are in sync."
