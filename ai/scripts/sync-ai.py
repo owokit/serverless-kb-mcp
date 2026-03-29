@@ -47,7 +47,7 @@ def build_frontmatter(fields: dict) -> str:
     """Build YAML frontmatter from common fields only."""
     parts = []
     for key in sorted(fields):
-        if key in COMMON_FRONTMAITER_FIELDS and fields[key]:
+        if key in COMMON_FRONTMATTER_FIELDS and fields[key]:
             parts.append(f"{key}: {fields[key]}")
     return "---\n" + "\n".join(parts) + "\n---\n\n"
 
