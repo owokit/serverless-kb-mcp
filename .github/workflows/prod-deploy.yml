@@ -97,16 +97,18 @@ jobs:
           echo "::notice::Release 'main' does not exist yet. Building release assets from the checked-out source."
           mkdir -p ./release-assets/layers
           uv sync --locked --project ocr-service
+          REPO_NAME="$(python3 -c "import json, pathlib; print(json.loads(pathlib.Path('infra/pipeline-config.json').read_text(encoding='utf-8'))['repo_name'])")"
           FUNCTIONS="$(uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/list_lambda_artifacts.py --format plain | xargs)"
           LAYERS="$(uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/list_layer_artifacts.py --format plain | xargs)"
+          export REPO_NAME
           export FUNCTIONS
           export LAYERS
           uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/build_lambda_artifacts.py \
-            --repo-name "${{ github.event.repository.name }}" \
+            --repo-name "$REPO_NAME" \
             --output-dir "./release-assets" \
             --functions "$FUNCTIONS"
           uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/build_layer_artifacts.py \
-            --repo-name "${{ github.event.repository.name }}" \
+            --repo-name "$REPO_NAME" \
             --output-dir "./release-assets/layers" \
             --layers "$LAYERS"
           node - <<'NODE'
