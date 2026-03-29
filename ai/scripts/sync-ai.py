@@ -10,13 +10,12 @@ Only the common frontmatter subset (name, description) is preserved in generated
 SKILL.md files to ensure cross-tool compatibility.
 """
 
-import sys
 import shutil
 from pathlib import Path
 
 
 # Common frontmatter fields to preserve in generated SKILL.md
-COMMON_FRONTMAITER_FIELDS = {"name", "description"}
+COMMON_FRONTMATTER_FIELDS = {"name", "description"}
 
 
 def extract_frontmatter(content: str) -> tuple[dict, str]:
