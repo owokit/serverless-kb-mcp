@@ -170,7 +170,7 @@ class _FakeOCRClient:
 class _FakeManifestBuilder:
     # EN: Stand-in for PaddleOCRManifestBuilder returning a fixed manifest.
     # CN: 杩斿洖鍥哄畾 manifest 鐨?PaddleOCRManifestBuilder 鏇胯韩銆?
-    def build_manifest(self, *, source, json_lines, markdown_text, binary_loader):
+    def build_manifest_from_markdown(self, *, source, markdown_text, binary_loader, json_lines=None):
         return ChunkManifest(
             source=source,
             doc_type="pdf",

@@ -289,10 +289,10 @@ class StepFunctionsExtractWorkflow:
             elapsed_ms=round((monotonic() - markdown_download_start) * 1000, 2),
         )
         build_start = monotonic()
-        manifest = self._require_manifest_builder().build_manifest(
+        manifest = self._require_manifest_builder().build_manifest_from_markdown(
             source=job.source,
-            json_lines=json_lines,
             markdown_text=markdown_text,
+            json_lines=json_lines,
             binary_loader=ocr_client.download_binary,
         )
         emit_trace(

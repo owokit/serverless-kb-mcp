@@ -13,6 +13,7 @@ from typing import Any
 
 from markdown_it import MarkdownIt
 
+from serverless_mcp.extract.markdown_chunker import split_markdown_for_embedding
 from serverless_mcp.runtime.observability import emit_trace
 from serverless_mcp.domain.models import EmbeddingPolicy, ExtractedChunk
 
@@ -169,8 +170,8 @@ def split_text_for_embedding(
     preferred_breaks: Iterable[str] = STRUCTURAL_BREAK_MARKERS,
 ) -> list[str]:
     """
-    EN: Split text into Markdown-aware chunks, falling back to tight token windows when needed.
-    CN: 鍏堟寜 Markdown 缁撴瀯鍒囧潡锛屾棤娉曟弧瓒抽檺鍒舵椂鍥為€€鍒扮揣鍑戠殑 token 绐楀彛銆?
+    EN: Split text into Markdown-aware chunks, using semchunk first and exact token fallback second.
+    CN: 先用 Markdown-aware + semchunk 切分，再用精确 token 回退兜底。
 
     Args:
         text:
@@ -192,11 +193,16 @@ def split_text_for_embedding(
         return []
 
     max_tokens = max(1, max_tokens)
-    blocks = _split_markdown_sections(text)
-    parts: list[str] = []
-    for block in blocks:
-        parts.extend(_pack_markdown_block(block, max_tokens=max_tokens, preferred_breaks=tuple(preferred_breaks)))
-    return [part for part in parts if part]
+    tokenizer = _get_token_encoder()
+    soft_token_target = max(1, min(max_tokens, round(max_tokens * 0.82)))
+    chunks = split_markdown_for_embedding(
+        text,
+        soft_token_target=soft_token_target,
+        hard_token_limit=max_tokens,
+        token_counter=estimate_tokens,
+        tokenizer=tokenizer,
+    )
+    return [chunk.text for chunk in chunks if chunk.text]
 
 
 def expand_oversized_chunks(
