@@ -221,6 +221,7 @@ def main() -> int:
     _assert_reference_only(SERVICE_ROOT / "examples" / "workflows" / "workflow_reference_only" / "gemini_local_pipeline.py", errors)
     _assert_reference_only(SERVICE_ROOT / "examples" / "workflows" / "workflow_reference_only" / "openai_embedding_smoke.py", errors)
     _assert_reference_only(SERVICE_ROOT / "examples" / "workflows" / "workflow_reference_only" / "s3_vectors_check.py", errors)
+    _assert_prod_deploy_alignment(errors)
     _assert_destroy_alignment(errors)
     _assert_labeler_alignment(errors)
     _assert_codeql_alignment(errors)
@@ -397,6 +398,34 @@ def _assert_destroy_alignment(errors: list[str]) -> None:
         errors.append(".github/workflows/destroy.yml must read infra/pipeline-config.json")
     if "scripts/deploy/pipeline-config.json" in destroy_text:
         errors.append(".github/workflows/destroy.yml must not reference scripts/deploy/pipeline-config.json")
+
+
+def _assert_prod_deploy_alignment(errors: list[str]) -> None:
+    """EN: Ensure prod deploy is reduced to a single script entrypoint and AWS credential setup.
+    CN: 确保 prod deploy 收敛为单一脚本入口和 AWS 凭证配置。"""
+    prod_text = (REPO_ROOT / ".github" / "workflows" / "prod-deploy.yml").read_text(encoding="utf-8")
+
+    if "bash serverless-kb-mcp/scripts/prod-deploy.sh" not in prod_text:
+        errors.append(".github/workflows/prod-deploy.yml must call serverless-kb-mcp/scripts/prod-deploy.sh")
+    for legacy_marker in (
+        "Set up runtime",
+        "Resolve packaged release assets",
+        "Install CDK toolchain",
+        "Resolve CDK environment",
+        "Validate release asset manifest",
+        "Deploy production backend",
+        "Record production deployment summary",
+        "Upload prod deploy report",
+        "MCP_CDK_ASSET_DIR:",
+        "working-directory: serverless-kb-mcp",
+    ):
+        if legacy_marker in prod_text:
+            errors.append(f".github/workflows/prod-deploy.yml must not contain legacy prod deploy step {legacy_marker!r}")
+
+    if "aws-actions/configure-aws-credentials@v6" not in prod_text:
+        errors.append(".github/workflows/prod-deploy.yml must configure AWS credentials before deploying")
+    if "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}" not in prod_text:
+        errors.append(".github/workflows/prod-deploy.yml must provide GH_TOKEN to the deploy script")
 
 
 def _assert_bilingual_comments(text: str, filename: str, errors: list[str]) -> None:
