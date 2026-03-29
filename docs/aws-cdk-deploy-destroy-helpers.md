@@ -26,12 +26,12 @@ npx cdk destroy --all --force --progress events
 ## 配置优先级
 
 1. GitHub Actions 输入参数
-2. 仓库根目录的 `pipeline-config.json`
+2. `infra/pipeline-config.json`
 3. 环境变量和密钥
 
 ## 资源范围
 
-- 资源命名仍由 `pipeline-config.json` 的 `resource_names` 统一控制
+- 资源命名仍由 `infra/pipeline-config.json` 的 `resource_names` 统一控制
 - 运行时参数仍由 `defaults` 和 `lambda_settings` 控制
 - `embedding_profiles` 决定要创建哪些 `S3 Vectors` index
 

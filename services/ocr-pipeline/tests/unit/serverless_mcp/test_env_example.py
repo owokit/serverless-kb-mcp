@@ -113,5 +113,5 @@ def test_env_example_points_pipeline_config_path_at_repo_root() -> None:
     """
     values = _read_env_example_values()
 
-    assert values["SERVERLESS_MCP_PIPELINE_CONFIG_PATH"] == "pipeline-config.json"
+    assert values["SERVERLESS_MCP_PIPELINE_CONFIG_PATH"] == "infra/pipeline-config.json"
     assert values["ALLOW_UNAUTHENTICATED_QUERY"] == "true"

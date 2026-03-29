@@ -108,9 +108,9 @@ jobs:
 
           node - <<'NODE'
           const fs = require('node:fs');
-          const config = JSON.parse(fs.readFileSync('pipeline-config.json', 'utf8'));
+          const config = JSON.parse(fs.readFileSync('infra/pipeline-config.json', 'utf8'));
           if (config.name_prefix !== process.env.INPUT_NAME_PREFIX) {
-            throw new Error(`name_prefix does not match pipeline-config.json: ${config.name_prefix}`);
+            throw new Error(`name_prefix does not match infra/pipeline-config.json: ${config.name_prefix}`);
           }
           NODE
         env:
