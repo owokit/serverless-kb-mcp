@@ -16,7 +16,17 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+def _find_repo_root() -> Path:
+    """EN: Locate the repository root that contains the ocr-service pipeline.
+    CN: 寻找包含 ocr-service pipeline 的仓库根目录。"""
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / "ocr-service" / "ocr-pipeline"
+        if candidate.is_dir():
+            return parent
+    raise RuntimeError("Unable to locate repository root containing ocr-service/ocr-pipeline")
+
+
+REPO_ROOT = _find_repo_root()
 SERVICE_ROOT = REPO_ROOT / "ocr-service" / "ocr-pipeline"
 SERVICE_PARENT = SERVICE_ROOT / "src"
 SCRIPT_ROOT = Path(__file__).resolve().parent
