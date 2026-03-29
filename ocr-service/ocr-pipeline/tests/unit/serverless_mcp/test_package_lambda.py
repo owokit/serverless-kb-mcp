@@ -27,6 +27,39 @@ def _load_lambda_wrappers():
 render_lambda_wrapper = _load_lambda_wrappers().render_lambda_wrapper
 
 
+def _write_fake_staged_packages(target: Path, *, function_name: str) -> None:
+    """EN: Create the staged service and vendored awslabs packages used by packaging tests.
+    CN: 为打包测试创建 staged service 与 vendored awslabs 包。"""
+    package_root = target / "serverless_mcp"
+    package_root.mkdir(parents=True, exist_ok=True)
+    (package_root / "__init__.py").write_text("", encoding="utf-8")
+    handler_file = {
+        "ingest": "ingest_handler.py",
+        "extract_prepare": "extract_handler.py",
+        "extract_sync": "extract_handler.py",
+        "extract_submit": "extract_handler.py",
+        "extract_poll": "extract_handler.py",
+        "extract_persist": "extract_handler.py",
+        "extract_mark_failed": "extract_handler.py",
+        "embed": "embed_handler.py",
+        "remote_mcp": "remote_mcp_handler.py",
+        "backfill": "backfill_handler.py",
+        "job_status": "job_status_handler.py",
+    }[function_name]
+    (package_root / handler_file).write_text("lambda_handler = object()\n", encoding="utf-8")
+
+    awslabs_root = target / "awslabs" / "mcp_lambda_handler"
+    awslabs_root.mkdir(parents=True, exist_ok=True)
+    (awslabs_root / "__init__.py").write_text(
+        "from .mcp_lambda_handler import MCPLambdaHandler\n",
+        encoding="utf-8",
+    )
+    (awslabs_root / "mcp_lambda_handler.py").write_text(
+        "class MCPLambdaHandler:\n    pass\n",
+        encoding="utf-8",
+    )
+
+
 def _load_package_script():
     script_path = Path(__file__).resolve().parents[4] / "tools" / "packaging" / "serverless_mcp" / "package_lambda.py"
     module_name = "package_lambda_test_module"
@@ -69,23 +102,7 @@ def test_package_lambda_generates_wrapper_and_project_sources(tmp_path, monkeypa
             return
 
         target = Path(args[args.index("--target") + 1])
-        package_root = target / "serverless_mcp"
-        package_root.mkdir(parents=True, exist_ok=True)
-        (package_root / "__init__.py").write_text("", encoding="utf-8")
-        handler_file = {
-            "ingest": "ingest_handler.py",
-            "extract_prepare": "extract_handler.py",
-            "extract_sync": "extract_handler.py",
-            "extract_submit": "extract_handler.py",
-            "extract_poll": "extract_handler.py",
-            "extract_persist": "extract_handler.py",
-            "extract_mark_failed": "extract_handler.py",
-            "embed": "embed_handler.py",
-            "remote_mcp": "remote_mcp_handler.py",
-            "backfill": "backfill_handler.py",
-            "job_status": "job_status_handler.py",
-        }[function_name]
-        (package_root / handler_file).write_text("lambda_handler = object()\n", encoding="utf-8")
+        _write_fake_staged_packages(target, function_name=function_name)
 
     monkeypatch.setattr(module, "_run", fake_run)
     monkeypatch.setattr(
@@ -115,7 +132,52 @@ def test_package_lambda_generates_wrapper_and_project_sources(tmp_path, monkeypa
 
     assert "lambda_function.py" in names
     assert "serverless_mcp/__init__.py" in names
+    assert "awslabs/mcp_lambda_handler/__init__.py" in names
+    assert "awslabs/mcp_lambda_handler/mcp_lambda_handler.py" in names
     assert wrapper_source == render_lambda_wrapper(function_name)
+
+
+def test_package_lambda_zip_imports_vendored_awslabs_handler(tmp_path, monkeypatch) -> None:
+    """
+    EN: The staged Lambda ZIP should import the vendored MCP handler successfully.
+    CN: staged Lambda ZIP 应能成功导入 vendored MCP handler。
+    """
+    module = _load_package_script()
+    output_dir = tmp_path / "dist"
+
+    def fake_run(*args: str) -> None:
+        if "--target" not in args:
+            return
+
+        target = Path(args[args.index("--target") + 1])
+        _write_fake_staged_packages(target, function_name="remote_mcp")
+
+    monkeypatch.setattr(module, "_run", fake_run)
+
+    zip_path = module.build_lambda_package(
+        function_key="remote_mcp",
+        repo_name="serverless-kb-mcp",
+        output_dir=output_dir,
+    )
+
+    with ZipFile(zip_path) as archive:
+        extracted = tmp_path / "unzipped"
+        archive.extractall(extracted)
+
+    saved_modules = {
+        name: sys.modules.pop(name)
+        for name in list(sys.modules)
+        if name == "awslabs" or name.startswith("awslabs.")
+    }
+    sys.path.insert(0, str(extracted))
+    try:
+        import awslabs.mcp_lambda_handler as handler_module
+        from awslabs.mcp_lambda_handler import MCPLambdaHandler
+
+        assert handler_module.MCPLambdaHandler is MCPLambdaHandler
+    finally:
+        sys.path.remove(str(extracted))
+        sys.modules.update(saved_modules)
 
 
 def test_package_lambda_reuses_shared_staging_for_same_dependency_group(tmp_path, monkeypatch) -> None:
@@ -133,10 +195,7 @@ def test_package_lambda_reuses_shared_staging_for_same_dependency_group(tmp_path
             return
 
         target = Path(args[args.index("--target") + 1])
-        package_root = target / "serverless_mcp"
-        package_root.mkdir(parents=True, exist_ok=True)
-        (package_root / "__init__.py").write_text("", encoding="utf-8")
-        (package_root / "remote_mcp_handler.py").write_text("lambda_handler = object()\n", encoding="utf-8")
+        _write_fake_staged_packages(target, function_name="remote_mcp")
 
     monkeypatch.setattr(module, "_run", fake_run)
 
@@ -171,14 +230,9 @@ def test_build_lambda_packages_reuses_each_dependency_group_once(tmp_path, monke
             return
 
         target = Path(args[args.index("--target") + 1])
+        _write_fake_staged_packages(target, function_name="remote_mcp")
         package_root = target / "serverless_mcp"
-        package_root.mkdir(parents=True, exist_ok=True)
-        (package_root / "__init__.py").write_text("", encoding="utf-8")
-        for handler_file in (
-            "remote_mcp_handler.py",
-            "extract_handler.py",
-        ):
-            (package_root / handler_file).write_text("lambda_handler = object()\n", encoding="utf-8")
+        (package_root / "extract_handler.py").write_text("lambda_handler = object()\n", encoding="utf-8")
 
     monkeypatch.setattr(module, "_run", fake_run)
 

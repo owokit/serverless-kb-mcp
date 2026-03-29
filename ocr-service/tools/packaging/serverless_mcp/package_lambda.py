@@ -6,6 +6,7 @@ CN: 通过暂存服务依赖并注入 handler wrapper 来构建单个 Lambda ZIP
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -157,8 +158,31 @@ def _ensure_project_staging(*, label: str) -> Path:
     )
 
     _prune_transient_files(staging)
+    _validate_staged_imports(staging)
     _SHARED_STAGING_CACHE[cache_key] = _SharedStaging(tempdir=tempdir, staging=staging)
     return staging
+
+
+def _validate_staged_imports(staging: Path) -> None:
+    """EN: Fail fast if the staged Lambda payload cannot import the vendored MCP handler.
+    CN: 如果暂存的 Lambda 产物无法导入 vendored MCP handler，则尽早失败。"""
+    env = os.environ.copy()
+    pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(staging) if not pythonpath else f"{staging}{os.pathsep}{pythonpath}"
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from awslabs.mcp_lambda_handler import MCPLambdaHandler\n"
+                "import awslabs.mcp_lambda_handler as module\n"
+                "assert module.MCPLambdaHandler is MCPLambdaHandler\n"
+                "print(module.__file__)\n"
+            ),
+        ],
+        check=True,
+        env=env,
+    )
 
 
 def _run(*args: str) -> None:
