@@ -101,6 +101,9 @@
 - architecture-reset-refactor
   - [ai/skills-src/architecture-reset-refactor/SKILL.md](ai/skills-src/architecture-reset-refactor/SKILL.md)
   - 适用于用户明确允许不考虑旧兼容性时，先审视当前架构，再按当前最优结构做大规模重构与目录重排。
+- remote-mcp-query-gateway
+  - [ai/skills-src/remote-mcp-query-gateway/SKILL.md](ai/skills-src/remote-mcp-query-gateway/SKILL.md)
+  - 适用于本仓库远程 MCP 查询侧网关的设计、重构、测试与文档同步，覆盖 API Gateway /mcp、Lambda 入口、AWS Labs `mcp-lambda-handler`、业务化 tools 和 query-side services。
 - durable-s3-embed-pipeline
   - [ai/skills-src/durable-s3-embed-pipeline/SKILL.md](ai/skills-src/durable-s3-embed-pipeline/SKILL.md)
   - 适用于最小可用的 `S3 Event Notification -> SQS -> Ingest Lambda -> Step Functions Standard -> SQS -> Embed Lambda` 架构设计、资源拆分、职责边界和带序号时序图说明。
