@@ -58,7 +58,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up runtime
-        uses: ./.github/actions/setup-runtime
+        uses: owokit/serverless-kb-mcp/.github/actions/setup-runtime@main
         with:
           setup-node: true
           setup-python: true
