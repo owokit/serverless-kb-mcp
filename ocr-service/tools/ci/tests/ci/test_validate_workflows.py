@@ -256,7 +256,7 @@ def test_destroy_workflow_uses_root_pipeline_config() -> None:
 
     assert "name: Destroy" in text
     assert "workflow_dispatch" in text
-    assert "infra/pipeline-config.json" in text
+    assert "ocr-service/infra/pipeline-config.json" in text
     assert "scripts/deploy/pipeline-config.json" not in text
 
 
