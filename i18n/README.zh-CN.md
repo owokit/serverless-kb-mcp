@@ -60,7 +60,7 @@
 | [服务实现说明](../ocr-service/ocr-pipeline/README.md) | 包级实现说明 |
 | [开源边界说明](../docs/open-source-boundaries.md) | 仓库边界与外部使用约束 |
 | [开源交付策略](../docs/open-source-ci-strategy.md) | 开源 CI 与交付模型 |
-| [简体中文入口](README.zh-CN.md) | 简体中文入口与本地导航 |
+| [简体中文入口](../README.md) | 简体中文入口与本地导航 |
 
 ## Python 工具链
 

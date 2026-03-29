@@ -635,8 +635,6 @@ class ManifestRepository:
         """
         try:
             return self.load_manifest(manifest_s3_uri)
-        except KeyError:
-            return None
         except ClientError as exc:
             if _is_missing_object_error(exc):
                 return None
