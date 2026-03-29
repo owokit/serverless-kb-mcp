@@ -1,43 +1,37 @@
 """
-EN: Smoke tests for the MCP discovery ASGI app and streamable HTTP routing.
-CN: MCP discovery ASGI app 与 streamable HTTP 路由的冒烟测试。
+EN: Smoke tests for the MCP discovery document, Lambda handler, and tool contract.
+CN: MCP discovery 文档、Lambda handler 和 tool 契约的冒烟测试。
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
+from types import SimpleNamespace
 
-import pytest
 from mcp.types import LATEST_PROTOCOL_VERSION
-from starlette.testclient import TestClient
 
-from serverless_mcp.domain.models import QueryResponse, QueryResultContext, QueryResultItem, S3ObjectRef
+from serverless_mcp.domain.models import (
+    ChunkManifest,
+    ExtractedChunk,
+    QueryResponse,
+    QueryResultContext,
+    QueryResultItem,
+    S3ObjectRef,
+)
 from serverless_mcp.entrypoints import remote_mcp as remote_mcp_handler
-
-
-class _RecorderApp:
-    # EN: ASGI app that records received scopes.
-    # CN: 记录接收到的 scope 的 ASGI app。
-    def __init__(self) -> None:
-        self.scopes: list[dict[str, object]] = []
-
-    async def __call__(self, scope, receive, send) -> None:
-        self.scopes.append(scope)
+import serverless_mcp.mcp_gateway.tools.get_document_excerpt as excerpt_tool_module
+import serverless_mcp.mcp_gateway.tools.get_ingestion_status as status_tool_module
+import serverless_mcp.mcp_gateway.tools.list_document_versions as versions_tool_module
+import serverless_mcp.mcp_gateway.tools.search_documents as search_tool_module
 
 
 class _FakeSettings:
-    def __init__(
-        self,
-        *,
-        allow_unauthenticated_query: bool = True,
-        remote_mcp_default_tenant_id: str | None = None,
-    ) -> None:
+    def __init__(self) -> None:
         self.query_max_top_k = 20
         self.query_max_neighbor_expand = 2
-        self.allow_unauthenticated_query = allow_unauthenticated_query
+        self.allow_unauthenticated_query = True
         self.query_tenant_claim = "tenant_id"
-        self.remote_mcp_default_tenant_id = remote_mcp_default_tenant_id
+        self.remote_mcp_default_tenant_id = "lookup"
         self.cloudfront_distribution_domain = "cdn.example.com"
         self.cloudfront_key_pair_id = "K123"
         self.cloudfront_private_key_pem = "-----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY-----"
@@ -63,12 +57,12 @@ class _FakeQueryService:
                     key="hit-1",
                     distance=0.01,
                     source=source,
-                    manifest_s3_uri=None,
+                    manifest_s3_uri="s3://manifests/manifests/guide.json",
                     metadata={"doc_type": "pdf", "__fusion_score__": 0.75, "__profile_hits__": 2},
                     match=QueryResultContext(
                         chunk_id="chunk#1",
                         chunk_type="page_text_chunk",
-                        text="hello",
+                        text="hello world",
                     ),
                 )
             ],
@@ -77,199 +71,144 @@ class _FakeQueryService:
 
 class _FakeDeliveryService:
     def deliver_source_document(self, source):
-        class _Delivery:
-            # EN: Stand-in for CloudFront delivery result.
-            # CN: CloudFront 分发结果替身。
-            url = f"https://cdn.example.com/documents/{source.bucket}/{source.key}?versionId={source.version_id}"
-            expires_at = "2026-03-17T00:00:00+00:00"
-
-        return _Delivery()
+        return SimpleNamespace(
+            url=f"https://cdn.example.com/documents/{source.bucket}/{source.key}?versionId={source.version_id}",
+            expires_at="2026-03-17T00:00:00+00:00",
+        )
 
 
-def _run(app, scope: dict[str, object]) -> list[dict[str, object]]:
-    messages: list[dict[str, object]] = []
-
-    async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
-
-    async def send(message):
-        messages.append(message)
-
-    asyncio.run(app(scope, receive, send))
-    return messages
-
-
-def test_plain_get_returns_mcp_discovery_document() -> None:
-    """
-    EN: Plain get returns mcp discovery document.
-    CN: 普通 GET 应返回 MCP discovery 文档。
-    """
-    app = remote_mcp_handler._McpGatewayASGIApp(_RecorderApp())
-
-    messages = _run(
-        app,
-        {
-            "type": "http",
-            "method": "GET",
-            "path": "/mcp",
-            "raw_path": b"/mcp",
-            "headers": [(b"accept", b"text/html")],
-        },
-    )
-
-    assert messages[0]["status"] == 200
-    payload = json.loads(messages[1]["body"].decode("utf-8"))
-    assert payload["protocolVersion"] == LATEST_PROTOCOL_VERSION
-    assert payload["endpoint"] == "/mcp"
-    assert payload["serverInfo"]["name"] == "mcp-doc-pipeline"
-    assert payload["tools"][0]["name"] == "search_documents"
+class _FakeManifestRepo:
+    def load_manifest(self, manifest_s3_uri: str):
+        return ChunkManifest(
+            source=S3ObjectRef(
+                tenant_id="tenant-a",
+                bucket="bucket-a",
+                key="docs/guide.pdf",
+                version_id="v2",
+            ),
+            doc_type="pdf",
+            chunks=[
+                ExtractedChunk(
+                    chunk_id="chunk#1",
+                    chunk_type="page_text_chunk",
+                    text="first chunk text",
+                    doc_type="pdf",
+                    token_estimate=12,
+                ),
+                ExtractedChunk(
+                    chunk_id="chunk#2",
+                    chunk_type="page_text_chunk",
+                    text="second chunk text",
+                    doc_type="pdf",
+                    token_estimate=14,
+                ),
+            ],
+        )
 
 
-def test_streamable_http_get_passes_through_to_mcp_app() -> None:
-    """
-    EN: Streamable http get passes through to mcp app.
-    CN: streamable HTTP GET 应透传到 MCP app。
-    """
-    recorder = _RecorderApp()
-    app = remote_mcp_handler._McpGatewayASGIApp(recorder)
+class _FakeStatusService:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
 
-    _run(
-        app,
-        {
-            "type": "http",
-            "method": "GET",
-            "path": "/",
-            "raw_path": b"/",
-            "headers": [(b"accept", b"text/event-stream")],
-        },
-    )
-
-    assert recorder.scopes[0]["path"] == "/mcp"
-    assert recorder.scopes[0]["raw_path"] == b"/mcp"
-
-
-def test_streamable_http_initialize_tools_list_and_call(monkeypatch: pytest.MonkeyPatch) -> None:
-    """
-    EN: Official streamable HTTP supports initialize, tools/list, and tools/call.
-    CN: 官方 streamable HTTP 需要支持 initialize、tools/list 和 tools/call。
-    """
-    service = _FakeQueryService()
-    monkeypatch.setattr(remote_mcp_handler, "_build_service", lambda: service)
-    monkeypatch.setattr(
-        remote_mcp_handler,
-        "load_settings",
-        lambda: _FakeSettings(allow_unauthenticated_query=True, remote_mcp_default_tenant_id="lookup"),
-    )
-    monkeypatch.setattr(remote_mcp_handler, "_build_delivery_service", lambda: _FakeDeliveryService())
-
-    app = remote_mcp_handler._build_mcp_server().streamable_http_app()
-    with TestClient(app) as client:
-        headers = {
-            "accept": "application/json, text/event-stream",
-            "content-type": "application/json",
-            "mcp-protocol-version": LATEST_PROTOCOL_VERSION,
+    def build_status(self, request):
+        if isinstance(request, dict):
+            bucket = request["bucket"]
+            key = request["key"]
+            version_id = request.get("version_id")
+            tenant_id = request.get("tenant_id")
+        else:
+            bucket = request.bucket
+            key = request.key
+            version_id = request.version_id
+            tenant_id = request.tenant_id
+        self.calls.append(
+            {
+                "bucket": bucket,
+                "key": key,
+                "version_id": version_id,
+                "tenant_id": tenant_id,
+            }
+        )
+        return {
+            "bucket": bucket,
+            "key": key,
+            "version_id": version_id or "v2",
+            "tenant_id": tenant_id,
+            "overall_status": "INDEXED",
+            "manifest": {"manifest_s3_uri": "s3://manifests/manifests/guide.json"},
+            "lookup": {"object_pk": "tenant-a#bucket-a#docs/guide.pdf"},
         }
 
-        initialize_response = client.post(
-            "/mcp",
-            json={
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": LATEST_PROTOCOL_VERSION,
-                    "capabilities": {},
-                    "clientInfo": {"name": "test", "version": "1.0.0"},
+
+class _FakeS3Client:
+    def list_object_versions(self, **kwargs):
+        return {
+            "Versions": [
+                {
+                    "Key": kwargs["Prefix"],
+                    "VersionId": "v2",
+                    "IsLatest": True,
+                    "LastModified": "2026-03-01T00:00:00+00:00",
+                    "Size": 111,
+                    "ETag": '"etag-2"',
                 },
-            },
-            headers=headers,
-        )
-        assert initialize_response.status_code == 200
-        initialize_payload = initialize_response.json()
-        assert initialize_payload["result"]["protocolVersion"] == LATEST_PROTOCOL_VERSION
-        assert initialize_payload["result"]["serverInfo"]["name"] == "mcp-doc-pipeline"
-
-        tools_list_response = client.post(
-            "/mcp",
-            json={
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/list",
-                "params": {},
-            },
-            headers=headers,
-        )
-        assert tools_list_response.status_code == 200
-        tools_payload = tools_list_response.json()
-        tool_names = {tool["name"] for tool in tools_payload["result"]["tools"]}
-        assert "search_documents" in tool_names
-
-        tools_call_response = client.post(
-            "/mcp",
-            json={
-                "jsonrpc": "2.0",
-                "id": 3,
-                "method": "tools/call",
-                "params": {
-                    "name": "search_documents",
-                    "arguments": {
-                        "query": "hello",
-                        "tenant_id": "tenant-a",
-                        "top_k": 5,
-                        "neighbor_expand": 1,
-                    },
+                {
+                    "Key": kwargs["Prefix"],
+                    "VersionId": "v1",
+                    "IsLatest": False,
+                    "LastModified": "2026-02-01T00:00:00+00:00",
+                    "Size": 90,
+                    "ETag": '"etag-1"',
                 },
-            },
-            headers=headers,
-        )
-        assert tools_call_response.status_code == 200
-        tools_call_payload = tools_call_response.json()
-        assert tools_call_payload["result"]["isError"] is False
-        search_payload = json.loads(tools_call_payload["result"]["content"][0]["text"])
-        assert search_payload["query"] == "hello"
-        assert search_payload["results"][0]["delivery"]["url"].startswith("https://cdn.example.com/")
-        assert service.calls[0]["tenant_id"] == "tenant-a"
-
-        anonymous_tools_call_response = client.post(
-            "/mcp",
-            json={
-                "jsonrpc": "2.0",
-                "id": 4,
-                "method": "tools/call",
-                "params": {
-                    "name": "search_documents",
-                    "arguments": {
-                        "query": "hello",
-                        "top_k": 5,
-                        "neighbor_expand": 1,
-                    },
-                },
-            },
-            headers=headers,
-        )
-        assert anonymous_tools_call_response.status_code == 200
-        anonymous_tools_call_payload = anonymous_tools_call_response.json()
-        assert anonymous_tools_call_payload["result"]["isError"] is False
-        anonymous_search_payload = json.loads(anonymous_tools_call_payload["result"]["content"][0]["text"])
-        assert anonymous_search_payload["query"] == "hello"
-        assert service.calls[1]["tenant_id"] == "lookup"
+            ],
+            "DeleteMarkers": [
+                {
+                    "Key": kwargs["Prefix"],
+                    "VersionId": "v0",
+                    "IsLatest": False,
+                    "LastModified": "2026-01-01T00:00:00+00:00",
+                }
+            ],
+        }
 
 
-def test_lambda_handler_can_initialize_twice_without_reusing_stale_streamable_session() -> None:
-    """
-    EN: Lambda handler can initialize twice without reusing a stale streamable HTTP session manager.
-    CN: Lambda 处理器可以连续初始化两次，而不会复用已失效的 streamable HTTP session manager。
-    """
-    event = {
+def _build_gateway_context() -> SimpleNamespace:
+    return SimpleNamespace(
+        settings=_FakeSettings(),
+        query_service=_FakeQueryService(),
+        status_service=_FakeStatusService(),
+        manifest_repo=_FakeManifestRepo(),
+        s3_client=_FakeS3Client(),
+        delivery_service=_FakeDeliveryService(),
+        object_state_repo=None,
+        execution_state_repo=None,
+        projection_state_repo=None,
+    )
+
+
+def _install_gateway_context(monkeypatch) -> SimpleNamespace:
+    context = _build_gateway_context()
+    monkeypatch.setattr(search_tool_module, "get_gateway_context", lambda: context)
+    monkeypatch.setattr(excerpt_tool_module, "get_gateway_context", lambda: context)
+    monkeypatch.setattr(versions_tool_module, "get_gateway_context", lambda: context)
+    monkeypatch.setattr(status_tool_module, "get_gateway_context", lambda: context)
+    return context
+
+
+def _build_api_gateway_event(body: dict[str, object], *, session_id: str | None = None) -> dict[str, object]:
+    headers = {
+        "accept": "application/json, text/event-stream",
+        "content-type": "application/json; charset=utf-8",
+        "mcp-protocol-version": LATEST_PROTOCOL_VERSION,
+    }
+    if session_id:
+        headers["mcp-session-id"] = session_id
+    return {
         "version": "2.0",
         "routeKey": "POST /mcp",
         "rawPath": "/mcp",
         "rawQueryString": "",
-        "headers": {
-            "accept": "application/json, text/event-stream",
-            "content-type": "application/json",
-            "mcp-protocol-version": LATEST_PROTOCOL_VERSION,
-        },
+        "headers": headers,
         "requestContext": {
             "accountId": "123456789012",
             "apiId": "test",
@@ -288,7 +227,47 @@ def test_lambda_handler_can_initialize_twice_without_reusing_stale_streamable_se
             "time": "28/Mar/2026:00:00:00 +0000",
             "timeEpoch": 1774665600000,
         },
-        "body": json.dumps(
+        "body": json.dumps(body),
+        "isBase64Encoded": False,
+    }
+
+
+def test_discovery_get_returns_query_gateway_document() -> None:
+    """
+    EN: Plain GET probes should return the lightweight discovery document.
+    CN: 普通 GET 探针应返回轻量 discovery 文档。
+    """
+    response = remote_mcp_handler.lambda_handler(
+        {
+            "httpMethod": "GET",
+            "path": "/mcp",
+            "headers": {"accept": "application/json"},
+        },
+        None,
+    )
+
+    assert response["statusCode"] == 200
+    payload = json.loads(response["body"])
+    assert payload["protocolVersion"] == LATEST_PROTOCOL_VERSION
+    assert payload["endpoint"] == "/mcp"
+    assert payload["serverInfo"]["name"] == "mcp-doc-pipeline"
+    assert [tool["name"] for tool in payload["tools"]] == [
+        "search_documents",
+        "get_document_excerpt",
+        "list_document_versions",
+        "get_ingestion_status",
+    ]
+
+
+def test_lambda_handler_initialize_tools_list_and_call(monkeypatch) -> None:
+    """
+    EN: The vendored MCP handler should support initialize, tools/list, and tools/call.
+    CN: vendored MCP handler 应支持 initialize、tools/list 和 tools/call。
+    """
+    context = _install_gateway_context(monkeypatch)
+
+    initialize_response = remote_mcp_handler.lambda_handler(
+        _build_api_gateway_event(
             {
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -300,12 +279,127 @@ def test_lambda_handler_can_initialize_twice_without_reusing_stale_streamable_se
                 },
             }
         ),
-        "isBase64Encoded": False,
+        None,
+    )
+
+    assert initialize_response["statusCode"] == 200
+    assert initialize_response["headers"]["MCP-Version"] == "0.6"
+    session_id = initialize_response["headers"]["MCP-Session-Id"]
+    initialize_payload = json.loads(initialize_response["body"])
+    assert initialize_payload["result"]["protocolVersion"] == "2024-11-05"
+    assert initialize_payload["result"]["serverInfo"]["name"] == "mcp-doc-pipeline"
+    assert initialize_payload["result"]["capabilities"]["tools"] == {"list": True, "call": True}
+
+    tools_list_response = remote_mcp_handler.lambda_handler(
+        _build_api_gateway_event(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/list",
+                "params": {},
+            },
+            session_id=session_id,
+        ),
+        None,
+    )
+
+    assert tools_list_response["statusCode"] == 200
+    tools_payload = json.loads(tools_list_response["body"])
+    tool_names = {tool["name"] for tool in tools_payload["result"]["tools"]}
+    assert tool_names == {
+        "search_documents",
+        "get_document_excerpt",
+        "list_document_versions",
+        "get_ingestion_status",
     }
 
-    first_response = remote_mcp_handler.lambda_handler(event, None)
-    second_response = remote_mcp_handler.lambda_handler(event, None)
+    tools_call_response = remote_mcp_handler.lambda_handler(
+        _build_api_gateway_event(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_documents",
+                    "arguments": {
+                        "query": "hello",
+                        "tenant_id": "tenant-a",
+                        "top_k": 5,
+                        "neighbor_expand": 1,
+                    },
+                },
+            },
+            session_id=session_id,
+        ),
+        None,
+    )
 
-    assert first_response["statusCode"] == 200
-    assert second_response["statusCode"] == 200
+    assert tools_call_response["statusCode"] == 200
+    tools_call_payload = json.loads(tools_call_response["body"])
+    content = json.loads(tools_call_payload["result"]["content"][0]["text"])
+    assert content["query"] == "hello"
+    assert content["results"][0]["delivery"]["url"].startswith("https://cdn.example.com/")
+    assert context.query_service.calls[0]["tenant_id"] == "tenant-a"
+    assert context.query_service.calls[0]["security_scope"] == ()
 
+
+def test_gateway_tools_return_business_payloads(monkeypatch) -> None:
+    """
+    EN: Query-side tools should return business payloads without exposing storage internals.
+    CN: 查询侧 tools 应返回业务载荷，而不是暴露存储内部细节。
+    """
+    context = _install_gateway_context(monkeypatch)
+
+    search_payload = json.loads(
+        search_tool_module.search_documents(
+            query="hello",
+            tenant_id="tenant-a",
+            top_k=5,
+            neighbor_expand=1,
+        )
+    )
+    excerpt_payload = json.loads(
+        excerpt_tool_module.get_document_excerpt(
+            bucket="bucket-a",
+            key="docs/guide.pdf",
+            version_id="v2",
+            tenant_id="tenant-a",
+            max_chunks=2,
+            max_chars=4000,
+        )
+    )
+    versions_payload = json.loads(
+        versions_tool_module.list_document_versions(
+            bucket="bucket-a",
+            key="docs/guide.pdf",
+            tenant_id="tenant-a",
+            limit=2,
+        )
+    )
+    status_payload = json.loads(
+        status_tool_module.get_ingestion_status(
+            bucket="bucket-a",
+            key="docs/guide.pdf",
+            version_id="v2",
+            tenant_id="tenant-a",
+        )
+    )
+
+    assert search_payload["query"] == "hello"
+    assert search_payload["results"][0]["delivery"]["expires_at"] == "2026-03-17T00:00:00+00:00"
+    assert "vector_bucket_name" not in search_payload
+
+    assert excerpt_payload["manifest_s3_uri"] == "s3://manifests/manifests/guide.json"
+    assert excerpt_payload["excerpt"] == "first chunk text\n\nsecond chunk text"
+    assert [chunk["chunk_id"] for chunk in excerpt_payload["chunks"]] == ["chunk#1", "chunk#2"]
+    assert excerpt_payload["status"]["overall_status"] == "INDEXED"
+
+    assert versions_payload["bucket"] == "bucket-a"
+    assert [version["version_id"] for version in versions_payload["versions"]] == ["v2", "v1"]
+    assert versions_payload["versions"][0]["status"]["overall_status"] == "INDEXED"
+    assert versions_payload["versions"][1]["is_delete_marker"] is False
+
+    assert status_payload["overall_status"] == "INDEXED"
+    assert status_payload["bucket"] == "bucket-a"
+
+    assert context.status_service.calls[0]["tenant_id"] == "tenant-a"
