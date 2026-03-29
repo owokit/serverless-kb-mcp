@@ -25,6 +25,12 @@ export function createPipelineRoles(params: PipelineRoleParams): LambdaRoleBundl
   const lambdaRoles = new Map<LambdaRoleKey, iam.Role>();
   for (const roleKey of LAMBDA_ROLE_KEYS) {
     const roleName = roleKey === 'query' ? params.names.lambda_role : `${params.names.lambda_role}-${roleKey}`;
+    if (roleName.length > 64) {
+      throw new Error(
+        `IAM role name "${roleName}" exceeds 64-char limit (${roleName.length} chars). ` +
+        `Shorten "name_prefix" or "lambda_role" in pipeline-config.json, or use a custom shorter "name_suffix".`,
+      );
+    }
     const role = new iam.Role(params.stack, `LambdaRole${pascal(roleKey)}`, {
       roleName,
       assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'),
