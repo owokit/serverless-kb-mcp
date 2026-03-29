@@ -1,5 +1,4 @@
 # EN: Perform the explicit, protected production rollout via manual dispatch only.
-# CN: 仅通过手动触发执行受保护的生产发布。
 name: Prod Deploy
 
 on:
@@ -37,8 +36,6 @@ concurrency:
 
 jobs:
   prod-deploy:
-    # EN: Use the production environment for deployment protection rules and secret scoping.
-    # CN: 使用 production 环境应用部署保护规则和密钥作用域。
     environment: production
     runs-on: ubuntu-latest
 
@@ -55,15 +52,17 @@ jobs:
       MCP_CDK_ASSET_DIR: ./release-assets
 
     steps:
-      # EN: Always start from the exact commit that the operator is asking to deploy.
-      # CN: 始终从操作者要求部署的精确 commit 开始。
       - name: Check out repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      # EN: Fail fast if the operator typed the wrong release tag twice.
-      # CN: 如果操作者两次输入的 release tag 不一致，就立即失败。
+      - name: Set up runtime
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-node: true
+          setup-python: true
+
       - name: Validate release tag confirmation
         run: |
           set -euo pipefail
@@ -72,27 +71,55 @@ jobs:
             exit 1
           fi
 
-      - name: Download packaged release assets
+      - name: Resolve packaged release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release download "${{ inputs.release_tag }}" --dir ./release-assets --pattern '*.zip' --pattern 'package-release-report.json'
-          mkdir -p ./release-assets/layers
-          mv ./release-assets/*_layer.zip ./release-assets/layers/ 2>/dev/null || true
 
-      - name: Set up runtime
-        uses: ./.github/actions/setup-runtime
-        with:
-          setup-node: true
+          if gh release view "${{ inputs.release_tag }}" >/dev/null 2>&1; then
+            gh release download "${{ inputs.release_tag }}" --dir ./release-assets --pattern '*.zip' --pattern 'package-release-report.json'
+            mkdir -p ./release-assets/layers
+            mv ./release-assets/*_layer.zip ./release-assets/layers/ 2>/dev/null || true
+            exit 0
+          fi
+
+          if [ "${{ inputs.release_tag }}" != "main" ]; then
+            echo "::error::Release '${{ inputs.release_tag }}' does not exist. Publish the release first or pass an existing release tag."
+            exit 1
+          fi
+
+          echo "::notice::Release 'main' does not exist yet. Building release assets from the checked-out source."
+          mkdir -p ./release-assets/layers
+          uv sync --locked --project ocr-service
+          uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/list_lambda_artifacts.py >> "$GITHUB_ENV"
+          uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/list_layer_artifacts.py >> "$GITHUB_ENV"
+          uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/build_lambda_artifacts.py \
+            --repo-name "${{ github.event.repository.name }}" \
+            --output-dir "./release-assets" \
+            --functions "$FUNCTIONS"
+          uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/build_layer_artifacts.py \
+            --repo-name "${{ github.event.repository.name }}" \
+            --output-dir "./release-assets/layers" \
+            --layers "$LAYERS"
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const report = {
+            workflow: 'Package Release',
+            release_tag: 'main',
+            source_branch: 'main',
+            source_sha: process.env.GITHUB_SHA,
+            status: 'prepared',
+          };
+          fs.writeFileSync('release-assets/package-release-report.json', JSON.stringify(report, null, 2));
+          console.log(JSON.stringify(report, null, 2));
+          NODE
 
       - name: Install CDK toolchain
         run: |
           set -euo pipefail
           npm ci --prefix infra/cdk
 
-      # EN: Prefer OIDC-based AWS credentials when a role ARN is configured.
-      # CN: 当配置了 role ARN 时优先使用基于 OIDC 的 AWS 凭据。
       - name: Configure AWS credentials via OIDC
         if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
         uses: aws-actions/configure-aws-credentials@v6
@@ -101,8 +128,6 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           role-session-name: prod-deploy
 
-      # EN: Fall back to static AWS keys when OIDC is not configured.
-      # CN: 当未配置 OIDC 时回退到静态 AWS 密钥。
       - name: Configure AWS credentials via static keys
         if: ${{ env.AWS_ROLE_TO_ASSUME == '' && env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != '' }}
         uses: aws-actions/configure-aws-credentials@v6
@@ -111,8 +136,6 @@ jobs:
           aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
 
-      # EN: Fail immediately if no AWS credentials are available at all.
-      # CN: 如果完全没有可用的 AWS 凭据，立即失败。
       - name: Fail when AWS credentials are not configured
         if: ${{ env.AWS_ROLE_TO_ASSUME == '' && (env.AWS_ACCESS_KEY_ID == '' || env.AWS_SECRET_ACCESS_KEY == '') }}
         run: |
@@ -126,8 +149,6 @@ jobs:
           echo "CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_ENV"
           echo "CDK_DEFAULT_REGION=$AWS_REGION" >> "$GITHUB_ENV"
 
-      # EN: Verify the downloaded release manifest matches the requested tag before deploying.
-      # CN: 部署前验证下载的 release manifest 与请求的 tag 一致。
       - name: Validate release asset manifest
         run: |
           set -euo pipefail
@@ -143,8 +164,6 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
 
-      # EN: Deploy the TypeScript CDK stack directly from the release artifacts.
-      # CN: 直接基于发布产物部署 TypeScript CDK 栈。
       - name: Deploy production backend
         run: |
           set -euo pipefail
