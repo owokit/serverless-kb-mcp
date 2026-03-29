@@ -41,10 +41,10 @@ jobs:
       - name: Verify no drift
         run: |
           set -euo pipefail
-          if ! git diff --exit-code --quiet .agents/skills/ .claude/skills/ .codex/skills/; then
+          if ! git diff --exit-code --quiet .agents/skills/ .claude/skills/; then
             echo "ERROR: Generated skills differ from committed files."
             echo "Run 'python ai/scripts/sync-ai.py' and commit the changes."
-            git diff --stat .agents/skills/ .claude/skills/ .codex/skills/
+            git diff --stat .agents/skills/ .claude/skills/
             exit 1
           fi
           echo "Skills are in sync."
