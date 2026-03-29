@@ -7,6 +7,7 @@ from __future__ import annotations
 import math
 import re
 from functools import lru_cache
+from collections import deque
 from collections.abc import Iterable
 from typing import Any
 
@@ -222,11 +223,11 @@ def expand_oversized_chunks(
     safe_text_tokens = max(1, safe_text_tokens)
     # EN: BFS-style queue: oversized chunks are re-enqueued for further splitting.
     # CN: 同上。
-    queue: list[ExtractedChunk] = list(chunks)
+    queue: deque[ExtractedChunk] = deque(chunks)
     expanded: list[ExtractedChunk] = []
 
     while queue:
-        chunk = queue.pop(0)
+        chunk = queue.popleft()
         normalized_text = normalize_text(chunk.text)
         token_estimate = chunk.token_estimate if chunk.token_estimate > 0 else estimate_tokens(normalized_text)
 
@@ -275,7 +276,7 @@ def expand_oversized_chunks(
             )
 
             if part_tokens > safe_text_tokens and part != normalized_text:
-                queue.insert(0, part_chunk)
+                queue.appendleft(part_chunk)
                 continue
 
             if part_tokens > safe_text_tokens:
@@ -287,8 +288,7 @@ def expand_oversized_chunks(
                     forced_part = normalize_text(forced_part)
                     if not forced_part:
                         continue
-                    queue.insert(
-                        0,
+                    queue.appendleft(
                         ExtractedChunk(
                             chunk_id=f"{part_chunk.chunk_id}#sub{forced_index:02d}",
                             chunk_type=chunk.chunk_type,
