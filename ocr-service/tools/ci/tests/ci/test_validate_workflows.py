@@ -97,7 +97,9 @@ def test_prod_deploy_is_reduced_to_a_single_script_entrypoint() -> None:
     text = workflow_path.read_text(encoding="utf-8")
 
     assert "name: Prod Deploy" in text
-    assert "bash scripts/prod-deploy.sh --release-tag" in text
+    assert 'ENTRYPOINT="scripts/prod-deploy.sh"' in text
+    assert "serverless-kb-mcp/scripts/prod-deploy.sh" in text
+    assert 'bash "$ENTRYPOINT" --release-tag' in text
     assert "aws-actions/configure-aws-credentials@v6" in text
     assert "MCP_CDK_ASSET_DIR:" not in text
     assert "Validate release asset manifest" not in text
