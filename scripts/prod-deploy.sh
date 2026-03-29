@@ -159,6 +159,7 @@ main() {
   done
 
   [[ "$release_tag" == "$confirm_release_tag" ]] || die "release_tag confirmation does not match"
+  export RELEASE_TAG="$release_tag"
 
   ROOT="$(resolve_repo_root)"
   CONFIG_PATH="$ROOT/infra/pipeline-config.json"

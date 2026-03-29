@@ -30,6 +30,7 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "resolve_repo_root" in script_text
     assert "MCP_CDK_ASSET_DIR" in script_text
     assert "MCP_PIPELINE_CONFIG_PATH" in script_text
+    assert 'export RELEASE_TAG="$release_tag"' in script_text
     assert "gh release download" in script_text
     assert "uv sync --locked --project ocr-service" in script_text
     assert "npm ci --prefix infra/cdk" in script_text
