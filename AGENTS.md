@@ -147,7 +147,7 @@
 
 ## 维护规则
 
-- Skills 唯一事实源在 `ai/skills-src/`；通过 `ai/scripts/sync-ai.py` 生成 `.agents/skills/`（Codex）和 `.claude/skills/`（Claude Code）；新增、修改、删除 skill 都以 `ai/skills-src/` 为准。修改 skill 后必须运行 `python ai/scripts/sync-ai.py` 并将源与生成物一起提交；禁止直接修改 `.agents/skills/`、`.claude/skills/` 或 `.opencode/skills/`。
+- Skills 唯一事实源在 `ai/skills-src/`；通过 `ai/scripts/sync-ai.py` 生成 `.agents/skills/`（Codex）和 `.claude/skills/`（Claude Code）；新增、修改、删除 skill 都以 `ai/skills-src/` 为准。修改 skill 后必须运行 `python ai/scripts/sync-ai.py` 并将源与生成物一起提交；禁止直接修改 `.agents/skills/` 或 `.claude/skills/`。
 - 如果只是某一类问题的细化规则变化，改对应 skill。
 - 如果是全项目方向变化、skill 边界变化、或技能导航变化，再改本文件。
 - 如果 `AGENTS.md` 与 skill 冲突，先统一设计，再同步更新对应的 Codex skill 与本文件，避免规则漂移。
