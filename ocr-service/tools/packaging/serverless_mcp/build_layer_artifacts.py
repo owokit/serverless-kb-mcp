@@ -30,6 +30,10 @@ if str(SCRIPT_ROOT) not in sys.path:
 from layer_artifacts import LAYER_DEPENDENCIES, build_layer_zip_name, parse_layer_keys
 
 
+LAMBDA_PYTHON_VERSION = "3.14"
+LAMBDA_PYTHON_PLATFORM = "x86_64-manylinux2014"
+
+
 @dataclass(slots=True)
 class _SharedStaging:
     """EN: Cache entry that pairs a TemporaryDirectory with its staging path.
@@ -130,6 +134,10 @@ def _ensure_layer_staging(*, dependencies: tuple[str, ...], label: str) -> Path:
         "pip",
         "install",
         "--upgrade",
+        "--python-version",
+        LAMBDA_PYTHON_VERSION,
+        "--python-platform",
+        LAMBDA_PYTHON_PLATFORM,
         *dependencies,
         "--target",
         str(staging),
