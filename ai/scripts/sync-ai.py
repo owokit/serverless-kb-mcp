@@ -66,7 +66,7 @@ def generate_skill(skill_path: Path, output_dir: Path) -> None:
     # Filter to common fields only
     filtered_frontmatter = {
         k: v for k, v in frontmatter.items()
-        if k in COMMON_FRONTMAITER_FIELDS and v
+        if k in COMMON_FRONTMATTER_FIELDS and v
     }
 
     # Build new SKILL.md with filtered frontmatter + body

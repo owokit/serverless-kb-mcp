@@ -65,9 +65,10 @@ jobs:
               "Security CI",
               "Issue Hierarchy Guard",
               "Package Release",
-                  "Prod Deploy",
+              "Prod Deploy",
               "Destroy",
               "Branch Lifecycle Cleanup",
+              "AI Skills Sync",
           ]
           missing = [item for item in expected if item not in docs]
           if "docs/open-source-ci-strategy.md" not in agents:
@@ -97,8 +98,9 @@ jobs:
 
       # EN: Write the docs failure back to the PR so the review thread always carries the blocker.
       # CN: 将文档失败回写到 PR，确保审查线程里始终能看到阻塞点。
+      # Note: Skip for fork PRs since GITHUB_TOKEN doesn't have write permission on fork PRs.
       - name: Comment docs failure on the PR
-        if: failure()
+        if: failure() && github.event.pull_request.head.repo.full_name == github.event.pull_request.base.repo.full_name
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}

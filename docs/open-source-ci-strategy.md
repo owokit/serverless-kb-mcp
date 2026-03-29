@@ -149,6 +149,13 @@
 - 触发：`workflow_dispatch`
 - 职责：手动销毁环境
 
+### `ai-skills-sync.yml`
+
+- 展示名：`AI Skills Sync`
+- 触发：`pull_request`
+- 职责：校验 AI skills 源目录与生成目录是否一致
+- 路径：`ai/skills-src/**`、`ai/scripts/sync-ai.py`
+
 ## 参考材料
 
 - `examples/workflows/workflow_reference_only/*` 仅作为 reference-only 素材，不进入默认 PR 门禁。

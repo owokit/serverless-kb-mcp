@@ -130,7 +130,7 @@ def test_failure_comment_workflows_request_pr_lookup_permissions() -> None:
 
 
 def test_open_source_ci_strategy_documents_relay_section() -> None:
-    docs_path = REPO_ROOT / "ocr-service" / "docs" / "open-source-ci-strategy.md"
+    docs_path = REPO_ROOT / "docs" / "open-source-ci-strategy.md"
     text = docs_path.read_text(encoding="utf-8")
 
     assert "### `ci-failure-comment-relay.yml`" in text
@@ -141,7 +141,7 @@ def test_open_source_ci_strategy_documents_relay_section() -> None:
 
 
 def test_open_source_ci_strategy_documents_branch_lifecycle_cleanup() -> None:
-    docs_path = REPO_ROOT / "ocr-service" / "docs" / "open-source-ci-strategy.md"
+    docs_path = REPO_ROOT / "docs" / "open-source-ci-strategy.md"
     text = docs_path.read_text(encoding="utf-8")
 
     assert "### `merged-branch-cleanup.yml`" in text
@@ -256,7 +256,7 @@ def test_destroy_workflow_uses_root_pipeline_config() -> None:
 
     assert "name: Destroy" in text
     assert "workflow_dispatch" in text
-    assert "ocr-service/infra/pipeline-config.json" in text
+    assert "infra/pipeline-config.json" in text
     assert "scripts/deploy/pipeline-config.json" not in text
 
 

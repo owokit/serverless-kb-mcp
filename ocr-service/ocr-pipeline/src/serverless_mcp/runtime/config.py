@@ -6,9 +6,8 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass, replace
 from functools import lru_cache
-from dataclasses import dataclass
-from dataclasses import replace
 from pathlib import Path
 
 from serverless_mcp.embed.provider_urls import normalize_openai_base_url
@@ -16,7 +15,7 @@ from serverless_mcp.domain.models import EmbeddingProfile
 
 
 # EN: PaddleOCR result URLs are hosted on BCE BOS regional subdomains by default.
-# CN: PaddleOCR 缁撴灉 URL 榛樿鎸備綅浜庡尯鍩熷瓙鍩熷悕 BCE BOS 銆?
+# CN: PaddleOCR 缁撴灟URL榛樿?涓庡尯鍩熷瓙鍩熷悕 BCE BOS 銆?
 DEFAULT_PADDLE_OCR_ALLOWED_HOSTS: tuple[str, ...] = ("*.bcebos.com",)
 PIPELINE_CONFIG_PATH_ENV_VAR = "SERVERLESS_MCP_PIPELINE_CONFIG_PATH"
 
@@ -91,32 +90,56 @@ DEFAULT_PADDLE_HTTP_TIMEOUT_SECONDS = 60
 DEFAULT_PADDLE_STATUS_TIMEOUT_SECONDS = 10
 
 
+# =============================================================================
+# EN: Individual configuration dataclasses for focused responsibility areas.
+# CN: 面向职责领域的独立配置 dataclass。
+# =============================================================================
+
+
 @dataclass(frozen=True, slots=True)
-class Settings:
+class AWSSettings:
     """
-    EN: Immutable configuration container loaded from environment variables.
-    CN: 从环境变量加载的不可变配置容器。
+    EN: AWS resource names for DynamoDB tables and S3 buckets.
+    CN: DynamoDB 表和 S3 bucket 的 AWS 资源名称。
     """
+
     object_state_table: str
-    manifest_index_table: str | None
-    manifest_bucket: str | None
-    manifest_prefix: str
     execution_state_table: str | None = None
-    step_functions_state_machine_arn: str | None = None
-    embed_queue_url: str | None = None
+    manifest_index_table: str | None = None
+    manifest_bucket: str | None = None
+    manifest_prefix: str = DEFAULT_MANIFEST_PREFIX
     embedding_projection_state_table: str | None = None
     vector_bucket_name: str | None = None
     vector_index_name: str | None = None
+    step_functions_state_machine_arn: str | None = None
+    embed_queue_url: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingSettings:
+    """
+    EN: Embedding provider API keys, base URLs, models, and HTTP timeouts.
+    CN: Embedding provider API keys、base URLs、models 和 HTTP 超时配置。
+    """
+
     gemini_api_key: str | None = None
     gemini_api_base_url: str = DEFAULT_GEMINI_API_BASE_URL
     gemini_embedding_model: str = DEFAULT_GEMINI_EMBEDDING_MODEL
-    gemini_http_timeout_seconds: int = 120
+    gemini_http_timeout_seconds: int = DEFAULT_GEMINI_HTTP_TIMEOUT_SECONDS
     openai_api_key: str | None = None
     openai_api_base_url: str | None = None
     openai_embedding_model: str = DEFAULT_OPENAI_EMBEDDING_MODEL
-    openai_http_timeout_seconds: int = 120
-    metrics_namespace: str = "McpKnowledgeS3Vectors"
-    service_name: str = "serverless-mcp-service"
+    openai_http_timeout_seconds: int = DEFAULT_OPENAI_HTTP_TIMEOUT_SECONDS
+    embedding_profiles: tuple[EmbeddingProfile, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class OCRSettings:
+    """
+    EN: PaddleOCR API configuration including base URL, model, polling, and timeouts.
+    CN: PaddleOCR API 配置，包括 base URL、model、轮询和超时设置。
+    """
+
     paddle_api_base_url: str = DEFAULT_PADDLE_API_BASE_URL
     paddle_api_token: str | None = None
     paddle_ocr_model: str = DEFAULT_PADDLE_OCR_MODEL
@@ -125,6 +148,15 @@ class Settings:
     paddle_http_timeout_seconds: int = DEFAULT_PADDLE_HTTP_TIMEOUT_SECONDS
     paddle_status_timeout_seconds: int = DEFAULT_PADDLE_STATUS_TIMEOUT_SECONDS
     paddle_allowed_hosts: tuple[str, ...] = DEFAULT_PADDLE_OCR_ALLOWED_HOSTS
+
+
+@dataclass(frozen=True, slots=True)
+class SecuritySettings:
+    """
+    EN: Authentication, CloudFront delivery, and query access control settings.
+    CN: 认证、CloudFront 分发和查询访问控制设置。
+    """
+
     allow_unauthenticated_query: bool = False
     query_tenant_claim: str = DEFAULT_QUERY_TENANT_CLAIM
     remote_mcp_default_tenant_id: str | None = DEFAULT_REMOTE_MCP_DEFAULT_TENANT_ID
@@ -136,6 +168,92 @@ class Settings:
     cloudfront_private_key_pem: str | None = None
     cloudfront_private_key_secret_arn: str | None = None
     cloudfront_url_ttl_seconds: int = DEFAULT_CLOUDFRONT_URL_TTL_SECONDS
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeSettings:
+    """
+    EN: Runtime observability and service identification settings.
+    CN: 运行时可观察性和服务标识设置。
+    """
+
+    metrics_namespace: str = "McpKnowledgeS3Vectors"
+    service_name: str = "serverless-mcp-service"
+
+
+# =============================================================================
+# EN: Combined settings container for backward compatibility.
+# CN: 保持向后兼容的组合 settings 容器。
+# =============================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class Settings:
+    """
+    EN: Immutable configuration container loaded from environment variables.
+    CN: 从环境变量加载的不可变配置容器。
+
+    This class maintains backward compatibility by aggregating all smaller settings
+    classes. New code should prefer injecting only the settings sub-classes needed.
+    此类通过聚合所有较小的 settings 类来保持向后兼容性。新代码应优先注入所需的 settings 子类。
+    """
+
+    # EN: AWS resource names for DynamoDB tables and S3 buckets.
+    # CN: DynamoDB 表和 S3 bucket 的 AWS 资源名称。
+    object_state_table: str
+    manifest_index_table: str | None = None
+    manifest_bucket: str | None = None
+    manifest_prefix: str = DEFAULT_MANIFEST_PREFIX
+    execution_state_table: str | None = None
+    step_functions_state_machine_arn: str | None = None
+    embed_queue_url: str | None = None
+    embedding_projection_state_table: str | None = None
+    vector_bucket_name: str | None = None
+    vector_index_name: str | None = None
+
+    # EN: Embedding provider settings.
+    # CN: Embedding provider 设置。
+    gemini_api_key: str | None = None
+    gemini_api_base_url: str = DEFAULT_GEMINI_API_BASE_URL
+    gemini_embedding_model: str = DEFAULT_GEMINI_EMBEDDING_MODEL
+    gemini_http_timeout_seconds: int = 120
+    openai_api_key: str | None = None
+    openai_api_base_url: str | None = None
+    openai_embedding_model: str = DEFAULT_OPENAI_EMBEDDING_MODEL
+    openai_http_timeout_seconds: int = 120
+
+    # EN: Runtime observability settings.
+    # CN: 运行时可观察性设置。
+    metrics_namespace: str = "McpKnowledgeS3Vectors"
+    service_name: str = "serverless-mcp-service"
+
+    # EN: PaddleOCR settings.
+    # CN: PaddleOCR 设置。
+    paddle_api_base_url: str = DEFAULT_PADDLE_API_BASE_URL
+    paddle_api_token: str | None = None
+    paddle_ocr_model: str = DEFAULT_PADDLE_OCR_MODEL
+    paddle_poll_interval_seconds: int = DEFAULT_PADDLE_POLL_INTERVAL_SECONDS
+    paddle_max_poll_attempts: int = DEFAULT_PADDLE_MAX_POLL_ATTEMPTS
+    paddle_http_timeout_seconds: int = DEFAULT_PADDLE_HTTP_TIMEOUT_SECONDS
+    paddle_status_timeout_seconds: int = DEFAULT_PADDLE_STATUS_TIMEOUT_SECONDS
+    paddle_allowed_hosts: tuple[str, ...] = DEFAULT_PADDLE_OCR_ALLOWED_HOSTS
+
+    # EN: Security and query access control settings.
+    # CN: 安全和查询访问控制设置。
+    allow_unauthenticated_query: bool = False
+    query_tenant_claim: str = DEFAULT_QUERY_TENANT_CLAIM
+    remote_mcp_default_tenant_id: str | None = DEFAULT_REMOTE_MCP_DEFAULT_TENANT_ID
+    query_max_top_k: int = DEFAULT_QUERY_MAX_TOP_K
+    query_max_neighbor_expand: int = DEFAULT_QUERY_MAX_NEIGHBOR_EXPAND
+    query_profile_timeout_seconds: float = 15.0
+    cloudfront_distribution_domain: str | None = None
+    cloudfront_key_pair_id: str | None = None
+    cloudfront_private_key_pem: str | None = None
+    cloudfront_private_key_secret_arn: str | None = None
+    cloudfront_url_ttl_seconds: int = DEFAULT_CLOUDFRONT_URL_TTL_SECONDS
+
+    # EN: Embedding profiles configuration.
+    # CN: Embedding profiles 配置。
     embedding_profiles: tuple[EmbeddingProfile, ...] = ()
 
     @classmethod
@@ -259,6 +377,106 @@ class Settings:
                 vector_bucket_name=os.environ.get("VECTOR_BUCKET_NAME"),
                 vector_index_name=os.environ.get("VECTOR_INDEX_NAME"),
             ),
+        )
+
+    def to_aws(self) -> AWSSettings:
+        """
+        EN: Extract AWS resource names into a focused settings class.
+        CN: 将 AWS 资源名称提取到独立的 settings 类中。
+
+        Returns:
+            EN: AWSSettings instance with AWS resource names.
+            CN: 包含 AWS 资源名称的 AWSSettings 实例。
+        """
+        return AWSSettings(
+            object_state_table=self.object_state_table,
+            execution_state_table=self.execution_state_table,
+            manifest_index_table=self.manifest_index_table,
+            manifest_bucket=self.manifest_bucket,
+            manifest_prefix=self.manifest_prefix,
+            embedding_projection_state_table=self.embedding_projection_state_table,
+            vector_bucket_name=self.vector_bucket_name,
+            vector_index_name=self.vector_index_name,
+            step_functions_state_machine_arn=self.step_functions_state_machine_arn,
+            embed_queue_url=self.embed_queue_url,
+        )
+
+    def to_embedding(self) -> EmbeddingSettings:
+        """
+        EN: Extract embedding provider settings into a focused settings class.
+        CN: 将 embedding provider 设置提取到独立的 settings 类中。
+
+        Returns:
+            EN: EmbeddingSettings instance with embedding configuration.
+            CN: 包含 embedding 配置的 EmbeddingSettings 实例。
+        """
+        return EmbeddingSettings(
+            gemini_api_key=self.gemini_api_key,
+            gemini_api_base_url=self.gemini_api_base_url,
+            gemini_embedding_model=self.gemini_embedding_model,
+            gemini_http_timeout_seconds=self.gemini_http_timeout_seconds,
+            openai_api_key=self.openai_api_key,
+            openai_api_base_url=self.openai_api_base_url,
+            openai_embedding_model=self.openai_embedding_model,
+            openai_http_timeout_seconds=self.openai_http_timeout_seconds,
+            embedding_profiles=self.embedding_profiles,
+        )
+
+    def to_ocr(self) -> OCRSettings:
+        """
+        EN: Extract PaddleOCR settings into a focused settings class.
+        CN: 将 PaddleOCR 设置提取到独立的 settings 类中。
+
+        Returns:
+            EN: OCRSettings instance with PaddleOCR configuration.
+            CN: 包含 PaddleOCR 配置的 OCRSettings 实例。
+        """
+        return OCRSettings(
+            paddle_api_base_url=self.paddle_api_base_url,
+            paddle_api_token=self.paddle_api_token,
+            paddle_ocr_model=self.paddle_ocr_model,
+            paddle_poll_interval_seconds=self.paddle_poll_interval_seconds,
+            paddle_max_poll_attempts=self.paddle_max_poll_attempts,
+            paddle_http_timeout_seconds=self.paddle_http_timeout_seconds,
+            paddle_status_timeout_seconds=self.paddle_status_timeout_seconds,
+            paddle_allowed_hosts=self.paddle_allowed_hosts,
+        )
+
+    def to_security(self) -> SecuritySettings:
+        """
+        EN: Extract security and access control settings into a focused settings class.
+        CN: 将安全和访问控制设置提取到独立的 settings 类中。
+
+        Returns:
+            EN: SecuritySettings instance with security configuration.
+            CN: 包含安全配置的 SecuritySettings 实例。
+        """
+        return SecuritySettings(
+            allow_unauthenticated_query=self.allow_unauthenticated_query,
+            query_tenant_claim=self.query_tenant_claim,
+            remote_mcp_default_tenant_id=self.remote_mcp_default_tenant_id,
+            query_max_top_k=self.query_max_top_k,
+            query_max_neighbor_expand=self.query_max_neighbor_expand,
+            query_profile_timeout_seconds=self.query_profile_timeout_seconds,
+            cloudfront_distribution_domain=self.cloudfront_distribution_domain,
+            cloudfront_key_pair_id=self.cloudfront_key_pair_id,
+            cloudfront_private_key_pem=self.cloudfront_private_key_pem,
+            cloudfront_private_key_secret_arn=self.cloudfront_private_key_secret_arn,
+            cloudfront_url_ttl_seconds=self.cloudfront_url_ttl_seconds,
+        )
+
+    def to_runtime(self) -> RuntimeSettings:
+        """
+        EN: Extract runtime observability settings into a focused settings class.
+        CN: 将运行时可观察性设置提取到独立的 settings 类中。
+
+        Returns:
+            EN: RuntimeSettings instance with runtime configuration.
+            CN: 包含运行时配置的 RuntimeSettings 实例。
+        """
+        return RuntimeSettings(
+            metrics_namespace=self.metrics_namespace,
+            service_name=self.service_name,
         )
 
 

@@ -47,7 +47,7 @@ export function resolveAssetPath(assetPath: string, allowPlaceholderAssets: bool
 // EN: Render the extract workflow definition by replacing placeholder Lambda ARNs with the real stack outputs.
 // CN: 通过把占位 Lambda ARN 替换成真实栈输出，渲染 extract workflow 定义。
 export function renderStateMachineDefinition(lambdaFunctions: Map<LambdaFunctionKey, lambda.Function>): string {
-  const templatePath = path.resolve(process.cwd(), 'ocr-service/ocr-pipeline/src/serverless_mcp/workflows/extract_state_machine.asl.json');
+  const templatePath = path.resolve(process.cwd(), '../../../ocr-service/ocr-pipeline/src/serverless_mcp/workflows/extract_state_machine.asl.json');
   let template = fs.readFileSync(templatePath, 'utf8');
   const placeholders: Array<[string, LambdaFunctionKey]> = [
     ['${PREPARE_LAMBDA_ARN}', 'extract_prepare'],

@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
-    workflow_path = Path(__file__).resolve().parents[4] / ".github" / "workflows" / "prod-deploy.yml"
+    workflow_path = Path(__file__).resolve().parents[5] / ".github" / "workflows" / "prod-deploy.yml"
     workflow_text = workflow_path.read_text(encoding="utf-8")
 
     assert "name: Prod Deploy" in workflow_text
@@ -25,7 +25,7 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
 
 
 def test_destroy_workflow_uses_cdk_destroy_with_placeholder_assets() -> None:
-    workflow_path = Path(__file__).resolve().parents[4] / ".github" / "workflows" / "destroy.yml"
+    workflow_path = Path(__file__).resolve().parents[5] / ".github" / "workflows" / "destroy.yml"
     workflow_text = workflow_path.read_text(encoding="utf-8")
 
     assert "name: Destroy" in workflow_text
@@ -41,7 +41,7 @@ def test_destroy_workflow_uses_cdk_destroy_with_placeholder_assets() -> None:
 
 
 def test_cdk_package_scripts_use_split_stack_speedup_flags() -> None:
-    package_path = Path(__file__).resolve().parents[4] / "infra" / "cdk" / "package.json"
+    package_path = Path(__file__).resolve().parents[5] / "infra" / "cdk" / "package.json"
     package_text = package_path.read_text(encoding="utf-8")
 
     assert '"deploy": "cd ../.. && npm --prefix infra/cdk exec -- cdk deploy --all --method direct --concurrency 3 --require-approval never --progress events"' in package_text
@@ -49,8 +49,8 @@ def test_cdk_package_scripts_use_split_stack_speedup_flags() -> None:
 
 
 def test_cdk_app_instantiates_three_top_level_stacks_and_regional_api() -> None:
-    app_path = Path(__file__).resolve().parents[4] / "infra" / "cdk" / "bin" / "app.ts"
-    api_path = Path(__file__).resolve().parents[4] / "infra" / "cdk" / "lib" / "pipeline" / "api.ts"
+    app_path = Path(__file__).resolve().parents[5] / "infra" / "cdk" / "bin" / "app.ts"
+    api_path = Path(__file__).resolve().parents[5] / "infra" / "cdk" / "lib" / "pipeline" / "api.ts"
     app_text = app_path.read_text(encoding="utf-8")
     api_text = api_path.read_text(encoding="utf-8")
 

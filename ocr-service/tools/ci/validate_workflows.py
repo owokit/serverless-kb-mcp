@@ -54,6 +54,7 @@ EXPECTED_WORKFLOWS = {
     "package-release.yml",
     "prod-deploy.yml",
     "destroy.yml",
+    "ai-skills-sync.yml",
 }
 # EN: Mapping from workflow filename to its required display name.
 # CN: 工作流文件名到其必须使用的显示名称的映射。
@@ -78,6 +79,7 @@ EXPECTED_NAMES = {
     "package-release.yml": "Package Release",
     "prod-deploy.yml": "Prod Deploy",
     "destroy.yml": "Destroy",
+    "ai-skills-sync.yml": "AI Skills Sync",
 }
 # EN: Workflow files that must depend on specific parent workflows via workflow_run triggers.
 # CN: 必须通过 workflow_run 触发器依赖特定父工作流的文件。
@@ -120,6 +122,7 @@ EXPECTED_TRIGGER_REQUIREMENTS = {
     "package-release.yml": {"workflow_run", "workflow_dispatch"},
     "prod-deploy.yml": {"workflow_dispatch"},
     "destroy.yml": {"workflow_dispatch"},
+    "ai-skills-sync.yml": {"pull_request"},
 }
 
 
@@ -349,7 +352,7 @@ def _assert_shared_runtime_config(errors: list[str]) -> None:
 def _assert_docs_alignment(errors: list[str]) -> None:
     """EN: Ensure CI strategy docs and AGENTS.md contain references to all expected workflows.
     CN: 确保 CI 策略文档和 AGENTS.md 引用了全部预期的工作流。"""
-    docs_text = (SERVICE_ROOT / "docs" / "open-source-ci-strategy.md").read_text(encoding="utf-8")
+    docs_text = (REPO_ROOT / "docs" / "open-source-ci-strategy.md").read_text(encoding="utf-8")
     agents_text = (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8")
 
     for workflow_name in EXPECTED_NAMES.values():
@@ -390,8 +393,8 @@ def _assert_destroy_alignment(errors: list[str]) -> None:
     """EN: Ensure the destroy workflow reads the infra/ pipeline config instead of the old root path.
     CN: 确保 destroy workflow 读取 infra/ 下的 pipeline 配置，而不是旧的根目录路径。"""
     destroy_text = (REPO_ROOT / ".github" / "workflows" / "destroy.yml").read_text(encoding="utf-8")
-    if "ocr-service/infra/pipeline-config.json" not in destroy_text:
-        errors.append(".github/workflows/destroy.yml must read ocr-service/infra/pipeline-config.json")
+    if "infra/pipeline-config.json" not in destroy_text:
+        errors.append(".github/workflows/destroy.yml must read infra/pipeline-config.json")
     if "scripts/deploy/pipeline-config.json" in destroy_text:
         errors.append(".github/workflows/destroy.yml must not reference scripts/deploy/pipeline-config.json")
 
