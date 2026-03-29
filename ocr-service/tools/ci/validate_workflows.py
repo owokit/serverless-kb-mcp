@@ -405,8 +405,8 @@ def _assert_prod_deploy_alignment(errors: list[str]) -> None:
     CN: 确保 prod deploy 收敛为单一脚本入口和 AWS 凭证配置。"""
     prod_text = (REPO_ROOT / ".github" / "workflows" / "prod-deploy.yml").read_text(encoding="utf-8")
 
-    if "bash serverless-kb-mcp/scripts/prod-deploy.sh" not in prod_text:
-        errors.append(".github/workflows/prod-deploy.yml must call serverless-kb-mcp/scripts/prod-deploy.sh")
+    if "bash scripts/prod-deploy.sh" not in prod_text:
+        errors.append(".github/workflows/prod-deploy.yml must call scripts/prod-deploy.sh")
     for legacy_marker in (
         "Set up runtime",
         "Resolve packaged release assets",
