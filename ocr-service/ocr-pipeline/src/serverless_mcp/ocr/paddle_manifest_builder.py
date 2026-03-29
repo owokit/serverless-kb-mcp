@@ -85,10 +85,7 @@ class PaddleOCRManifestBuilder:
             markdown_sections = [((), normalized)] if normalized else []
 
         for layout_index, (section_path, section_text) in enumerate(markdown_sections, start=1):
-            asset_index += 1
             rewritten_section = self._rewrite_markdown_links(section_text, local_asset_paths) if section_text else ""
-            if not rewritten_section:
-                continue
             assets.append(
                 ExtractedAsset(
                     asset_id=f"ocr#markdown-section-{layout_index:06d}",
