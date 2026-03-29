@@ -86,4 +86,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           CONFIRM_RELEASE_TAG: ${{ inputs.confirm_release_tag }}
-        run: bash serverless-kb-mcp/scripts/prod-deploy.sh --release-tag "$RELEASE_TAG" --confirm-release-tag "$CONFIRM_RELEASE_TAG"
+        run: bash scripts/prod-deploy.sh --release-tag "$RELEASE_TAG" --confirm-release-tag "$CONFIRM_RELEASE_TAG"

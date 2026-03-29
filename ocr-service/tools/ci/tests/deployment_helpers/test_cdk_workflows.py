@@ -15,7 +15,7 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     script_text = script_path.read_text(encoding="utf-8")
 
     assert "name: Prod Deploy" in workflow_text
-    assert "bash serverless-kb-mcp/scripts/prod-deploy.sh --release-tag" in workflow_text
+    assert "bash scripts/prod-deploy.sh --release-tag" in workflow_text
     assert "aws-actions/configure-aws-credentials@v6" in workflow_text
     assert "MCP_CDK_ASSET_DIR:" not in workflow_text
     assert "Validate release asset manifest" not in workflow_text
