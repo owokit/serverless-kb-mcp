@@ -145,7 +145,7 @@ arn:aws:lambda:ap-southeast-1:123456789012:function:mcp-doc-pipeline-prod-lambda
 | `CheckPollBudget` | `Choice` | 检查轮询次数是否用尽 |
 | `PromotePollAttempt` | `Pass` | 把轮询计数推进到下一轮 |
 | `BuildPollBudgetFailure` | `Pass` | 轮询超预算时构造统一失败对象 |
-| `PersistOcrResult` | `Task` | 下载 `json_url`，构建 manifest，并持久化结果 |
+| `PersistOcrResult` | `Task` | 下载 `json_url` 和 `markdown_url`，用 Markdown 作为 chunk 切分输入并持久化结果 |
 | `MarkFailed` | `Task` | 把失败状态写回 `object_state`，便于治理和排障 |
 
 如果你想先验证结构对不对，直接看模板里的 4 个关键连接：
@@ -165,7 +165,7 @@ arn:aws:lambda:ap-southeast-1:123456789012:function:mcp-doc-pipeline-prod-lambda
 `SubmitOcrJob` 不是单纯从 `S3` 下载文件，它还会把整份文档同步提交到外部 `PaddleOCR` API。
 所以这里把两层超时分开了：`PADDLE_OCR_HTTP_TIMEOUT_SECONDS` 仍然控制单次提交请求的 HTTP 等待，默认 `60 秒`；`extract workflow Lambda` 各自使用独立函数超时，提交和轮询不会共用同一个 60 秒上限。
 现在 `extract workflow Lambdas` 已经补了更细的 CloudWatch 追踪日志，能区分卡在 `fetch`、`submit`、`poll` 还是 `persist`。
-`PersistOcrResult` 会先下载 OCR 返回的 `jsonUrl`，再从每个 `layoutParsingResults` 项的 `markdown.text` 组装拆分后的 `.md` 派生文件和 manifest。
+`PersistOcrResult` 会先下载 OCR 返回的 `jsonUrl` 和 `markdownUrl`，再直接把 `markdownUrl` 对应的 Markdown 文件作为后续 chunk 切分输入，`jsonUrl` 只保留为原始回放和调试产物。
 
 也就是说，输入里必须带这两个字段，不然工作流跑到这一步就没有可用值。
 

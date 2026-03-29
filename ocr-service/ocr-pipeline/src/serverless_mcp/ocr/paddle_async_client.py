@@ -49,6 +49,7 @@ class PaddleOCRJobStatus:
     job_id: str
     state: str
     json_url: str | None = None
+    markdown_url: str | None = None
     error_message: str | None = None
     extracted_pages: int | None = None
     total_pages: int | None = None
@@ -196,12 +197,14 @@ class PaddleOCRAsyncClient:
         progress = data.get("extractProgress") or {}
         result_url = data.get("resultUrl") or {}
         json_url = result_url.get("jsonUrl") if isinstance(result_url, dict) else None
+        markdown_url = result_url.get("markdownUrl") if isinstance(result_url, dict) else None
         error_message = data.get("errorMsg")
         emit_trace(
             "paddleocr.get_job_status.done",
             job_id=job_id,
             state=state,
             json_url=bool(json_url),
+            markdown_url=bool(markdown_url),
             extracted_pages=_int_or_none(progress.get("extractedPages")),
             total_pages=_int_or_none(progress.get("totalPages")),
             elapsed_ms=round((monotonic() - start) * 1000, 2),
@@ -210,6 +213,7 @@ class PaddleOCRAsyncClient:
             job_id=job_id,
             state=state,
             json_url=json_url if isinstance(json_url, str) else None,
+            markdown_url=markdown_url if isinstance(markdown_url, str) else None,
             error_message=error_message if isinstance(error_message, str) else None,
             extracted_pages=_int_or_none(progress.get("extractedPages")),
             total_pages=_int_or_none(progress.get("totalPages")),
@@ -262,6 +266,45 @@ class PaddleOCRAsyncClient:
             elapsed_ms=round((monotonic() - start) * 1000, 2),
         )
         return rows
+
+    def download_markdown(self, markdown_url: str) -> str:
+        """
+        EN: Download the Markdown result from PaddleOCR resultUrl.
+        CN: 从 PaddleOCR resultUrl 下载 Markdown 结果。
+
+        Args:
+            markdown_url:
+                EN: Markdown result URL from job status response.
+                CN: 来自作业状态响应的 Markdown 结果 URL。
+
+        Returns:
+            EN: Markdown document text.
+            CN: Markdown 文档文本。
+
+        Raises:
+            EN: PaddleOCRClientError if download fails.
+            CN: 下载失败时抛出 PaddleOCRClientError。
+        """
+        start = monotonic()
+        self._validate_download_url(markdown_url)
+        parsed = urlparse(markdown_url)
+        emit_trace(
+            "paddleocr.download_markdown.start",
+            url_host=parsed.hostname,
+            url_path=parsed.path,
+        )
+        try:
+            response = self._session.get(markdown_url, timeout=self._timeout_seconds)
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            raise PaddleOCRClientError(f"PaddleOCR download failed: {exc}") from exc
+        emit_trace(
+            "paddleocr.download_markdown.done",
+            url_host=urlparse(markdown_url).hostname,
+            markdown_char_count=len(response.text),
+            elapsed_ms=round((monotonic() - start) * 1000, 2),
+        )
+        return response.text
 
     def download_binary(self, url: str) -> tuple[bytes, str | None]:
         """

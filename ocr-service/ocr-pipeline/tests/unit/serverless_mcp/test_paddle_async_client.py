@@ -26,6 +26,11 @@ class _FakeResponse:
     def raise_for_status(self) -> None:
         return None
 
+    def json(self):
+        import json
+
+        return json.loads(self.text or "{}")
+
 
 class _FakeSession:
     # EN: Stub HTTP session returning canned responses.
@@ -37,6 +42,8 @@ class _FakeSession:
         self.get_calls.append((url, timeout))
         if url.endswith(".jsonl"):
             return _FakeResponse(text='{"ok": true}\n')
+        if url.endswith(".md"):
+            return _FakeResponse(text="# Hello\n\nworld")
         return _FakeResponse(content=b"binary", headers={"Content-Type": "image/png"})
 
 
@@ -98,6 +105,23 @@ def test_paddle_async_client_accepts_https_allowlisted_download_host() -> None:
     assert rows == [{"ok": True}]
 
 
+def test_paddle_async_client_downloads_markdown_result() -> None:
+    """
+    EN: Paddle async client downloads Markdown results from resultUrl.
+    CN: 同上。
+    """
+    client = PaddleOCRAsyncClient(
+        token="token",
+        base_url="https://paddleocr.aistudio-app.com/api/v2/ocr/jobs",
+        allowed_hosts=("results.example.com",),
+        session=_FakeSession(),
+    )
+
+    markdown = client.download_markdown("https://results.example.com/result.md")
+
+    assert markdown == "# Hello\n\nworld"
+
+
 def test_paddle_async_client_accepts_wildcard_allowlisted_download_host() -> None:
     """
     EN: Paddle async client accepts wildcard allowlisted download host.
@@ -147,6 +171,8 @@ def test_paddle_async_client_defaults_to_base_host_only() -> None:
     rows = client.download_json_lines("https://paddleocr.aistudio-app.com/result.jsonl")
 
     assert rows == [{"ok": True}]
+    markdown = client.download_markdown("https://paddleocr.aistudio-app.com/result.md")
+    assert markdown == "# Hello\n\nworld"
     with pytest.raises(PaddleOCRClientError, match="allow-listed"):
         client.download_json_lines("https://results.example.com/result.jsonl")
 
@@ -221,3 +247,29 @@ def test_paddle_async_client_normalizes_download_timeouts() -> None:
 
     with pytest.raises(PaddleOCRClientError, match="PaddleOCR download failed"):
         client.download_binary("https://results.example.com/image.png")
+
+
+def test_paddle_async_client_parses_markdown_url_from_job_status() -> None:
+    """
+    EN: Paddle async client parses markdownUrl from job status response.
+    CN: 同上。
+    """
+    class _StatusSession(_FakeSession):
+        def get(self, url, headers=None, timeout=None):
+            if url.endswith("/job-123"):
+                return _FakeResponse(
+                    text='{"data": {"state": "done", "resultUrl": {"jsonUrl": "https://results.example.com/result.jsonl", "markdownUrl": "https://results.example.com/result.md"}}}'
+                )
+            return super().get(url, headers=headers, timeout=timeout)
+
+    client = PaddleOCRAsyncClient(
+        token="token",
+        base_url="https://paddleocr.aistudio-app.com/api/v2/ocr/jobs",
+        allowed_hosts=("results.example.com",),
+        session=_StatusSession(),
+    )
+
+    status = client.get_job_status("job-123")
+
+    assert status.json_url == "https://results.example.com/result.jsonl"
+    assert status.markdown_url == "https://results.example.com/result.md"

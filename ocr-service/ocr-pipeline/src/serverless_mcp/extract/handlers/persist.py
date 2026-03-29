@@ -21,6 +21,10 @@ def _run_persist_ocr_result(event: dict, _context: object | None) -> dict:
     if not isinstance(json_url, str) or not json_url.strip():
         raise ValueError("json_url is required for persist_ocr_result")
     normalized_json_url = json_url.strip()
+    markdown_url = event.get("markdown_url")
+    if not isinstance(markdown_url, str) or not markdown_url.strip():
+        raise ValueError("markdown_url is required for persist_ocr_result")
+    normalized_markdown_url = markdown_url.strip()
     job = validate_job(event.get("job"), required_for="persist_ocr_result")
     processing_state = validate_processing_state(event.get("processing_state"), required_for="persist_ocr_result")
     emit_trace(
@@ -31,9 +35,15 @@ def _run_persist_ocr_result(event: dict, _context: object | None) -> dict:
         processing_state_pk=processing_state.pk,
         json_url_host=urlparse(normalized_json_url).hostname,
         json_url_path=urlparse(normalized_json_url).path,
+        markdown_url_host=urlparse(normalized_markdown_url).hostname,
+        markdown_url_path=urlparse(normalized_markdown_url).path,
     )
-    return workflow.persist_ocr_result(job=job, processing_state=processing_state, json_url=normalized_json_url)
+    return workflow.persist_ocr_result(
+        job=job,
+        processing_state=processing_state,
+        json_url=normalized_json_url,
+        markdown_url=normalized_markdown_url,
+    )
 
 
 lambda_handler = build_action_handler("persist_ocr_result", _run_persist_ocr_result)
-
