@@ -65,7 +65,7 @@ jobs:
       - name: Sync contract test tools
         run: |
           set -euo pipefail
-          uv sync --locked --project services
+          uv sync --locked --project ocr-service
 
       # EN: Split the contract surface by domain so each matrix lane stays easy to rerun and diagnose.
       # CN: 按领域拆分契约面，让每条矩阵分支都更容易重跑和定位。
@@ -75,63 +75,63 @@ jobs:
           set -euo pipefail
           case "${{ matrix.suite }}" in
             policy)
-              uv run --project services python -m pytest -q \
-                tools/ci/tests/deployment_helpers/test_cdk_workflows.py \
-                services/ocr-pipeline/tests/unit/runtime/test_embedding_profile_runtime_guards.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_aws_resolution.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_policy.py \
+              uv run --project ocr-service python -m pytest -q \
+                ocr-service/tools/ci/tests/deployment_helpers/test_cdk_workflows.py \
+                ocr-service/ocr-pipeline/tests/unit/runtime/test_embedding_profile_runtime_guards.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_aws_resolution.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_policy.py \
                 --maxfail=1
               ;;
             storage)
-              uv run --project services python -m pytest -q \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_config.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_delivery.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_dynamo_batch.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_event_parser.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_manifest_paths.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_manifest_repository.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_manifest_schema.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_object_state_repository.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_vector_repository.py \
+              uv run --project ocr-service python -m pytest -q \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_config.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_delivery.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_dynamo_batch.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_event_parser.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_manifest_paths.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_manifest_repository.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_manifest_schema.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_object_state_repository.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_vector_repository.py \
                 --maxfail=1
               ;;
             providers)
-              uv run --project services python -m pytest -q \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_embedding_schema.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_gemini_client.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_openai_client.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_paddle_async_client.py \
+              uv run --project ocr-service python -m pytest -q \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embedding_schema.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_gemini_client.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_openai_client.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_paddle_async_client.py \
                 --maxfail=1
               ;;
             orchestration)
-              uv run --project services python -m pytest -q \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_backfill.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_embed_handler.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_embed_parser.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_embed_worker.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_embedding_runtime.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_extract_handler.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_extract_service.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_ingest.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_ingest_handler.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_job_status_handler.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_entrypoints.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_pipeline.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_query_api.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_query_service.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_remote_mcp_handler.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_remote_mcp_smoke.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_state_machine_definition.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_step_functions_workflow.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_worker.py \
+              uv run --project ocr-service python -m pytest -q \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_backfill.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embed_handler.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embed_parser.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embed_worker.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embedding_runtime.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_extract_handler.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_extract_service.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_ingest.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_ingest_handler.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_job_status_handler.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_entrypoints.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_pipeline.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_query_api.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_query_service.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_remote_mcp_handler.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_remote_mcp_smoke.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_state_machine_definition.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_step_functions_workflow.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_worker.py \
                 --maxfail=1
               ;;
             packaging)
-              uv run --project services python -m pytest -q \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_artifact_scripts.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_markdown_extractor.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_package_lambda.py \
-                services/ocr-pipeline/tests/unit/serverless_mcp/test_paddle_manifest_builder.py \
+              uv run --project ocr-service python -m pytest -q \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_artifact_scripts.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_markdown_extractor.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_package_lambda.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_paddle_manifest_builder.py \
                 --maxfail=1
               ;;
             *)
@@ -148,7 +148,7 @@ jobs:
           SUITE_OUTCOME: ${{ steps.suite.outcome }}
         run: |
           set -euo pipefail
-          uv run --project services python <<'PY'
+          uv run --project ocr-service python <<'PY'
           from __future__ import annotations
 
           import json
@@ -160,54 +160,54 @@ jobs:
           suite_outcome = os.environ.get("SUITE_OUTCOME", "success")
           tests_by_suite = {
               "policy": [
-                  "tools/ci/tests/deployment_helpers/test_cdk_workflows.py",
-                  "services/ocr-pipeline/tests/unit/runtime/test_embedding_profile_runtime_guards.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_aws_resolution.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_policy.py",
+                  "ocr-service/tools/ci/tests/deployment_helpers/test_cdk_workflows.py",
+                  "ocr-service/ocr-pipeline/tests/unit/runtime/test_embedding_profile_runtime_guards.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_aws_resolution.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_policy.py",
               ],
               "storage": [
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_config.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_delivery.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_dynamo_batch.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_event_parser.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_manifest_paths.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_manifest_repository.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_manifest_schema.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_object_state_repository.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_vector_repository.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_config.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_delivery.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_dynamo_batch.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_event_parser.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_manifest_paths.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_manifest_repository.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_manifest_schema.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_object_state_repository.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_vector_repository.py",
               ],
               "providers": [
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_embedding_schema.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_gemini_client.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_openai_client.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_paddle_async_client.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embedding_schema.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_gemini_client.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_openai_client.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_paddle_async_client.py",
               ],
               "orchestration": [
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_backfill.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_embed_handler.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_embed_parser.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_embed_worker.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_embedding_runtime.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_extract_handler.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_extract_service.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_ingest.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_ingest_handler.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_job_status_handler.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_entrypoints.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_pipeline.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_query_api.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_query_service.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_remote_mcp_handler.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_remote_mcp_smoke.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_state_machine_definition.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_step_functions_workflow.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_worker.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_backfill.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embed_handler.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embed_parser.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embed_worker.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embedding_runtime.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_extract_handler.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_extract_service.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_ingest.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_ingest_handler.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_job_status_handler.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_entrypoints.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_pipeline.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_query_api.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_query_service.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_remote_mcp_handler.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_remote_mcp_smoke.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_state_machine_definition.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_step_functions_workflow.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_worker.py",
               ],
               "packaging": [
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_artifact_scripts.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_markdown_extractor.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_package_lambda.py",
-                  "services/ocr-pipeline/tests/unit/serverless_mcp/test_paddle_manifest_builder.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_artifact_scripts.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_markdown_extractor.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_package_lambda.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_paddle_manifest_builder.py",
               ],
           }
 

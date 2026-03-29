@@ -14,8 +14,8 @@
 "area:services":
   - changed-files:
       - any-glob-to-any-file:
-          - "services/ocr-pipeline/**"
-          - "services/**"
+          - "ocr-service/ocr-pipeline/**"
+          - "ocr-service/**"
 
 "area:scripts":
   - changed-files:
@@ -26,8 +26,8 @@
   - changed-files:
       - any-glob-to-any-file:
           - "tests/**"
-          - "services/ocr-pipeline/tests/**"
-          - "tools/ci/tests/**"
+          - "ocr-service/ocr-pipeline/tests/**"
+          - "ocr-service/tools/ci/tests/**"
           - "examples/workflows/tests/**"
 
 "area:workflow-reference":
@@ -43,5 +43,5 @@
           - "infra/cdk/package.json"
           - "infra/cdk/package-lock.json"
           - "pytest.ini"
-          - "services/pyproject.toml"
-          - "services/pytest.ini"
+          - "ocr-service/pyproject.toml"
+          - "ocr-service/pytest.ini"

@@ -6,8 +6,8 @@ English | [简体中文](i18n/README.zh-CN.md)
 
 This repository is a multi-surface workspace, not a single-purpose app shell.
 
-- The Python workspace is rooted at `services/pyproject.toml` and `services/uv.lock`.
-- The core backend service lives under `services/ocr-pipeline/`.
+- The Python workspace is rooted at `ocr-service/pyproject.toml` and `ocr-service/uv.lock`.
+- The core backend service lives under `ocr-service/ocr-pipeline/`.
 - Infrastructure and deployment code live under `infra/cdk/`.
 - Reference-only workflow samples live under `examples/workflows/workflow_reference_only/`.
 - The documentation hub lives under `docs/`.
@@ -18,8 +18,8 @@ This repository is a multi-surface workspace, not a single-purpose app shell.
 | --- | --- |
 | Primary entry point | `Ingest Lambda` |
 | Repository identity | `serverless-kb-mcp` |
-| Python workspace root | `services/` |
-| Service source root | `services/ocr-pipeline/` |
+| Python workspace root | `ocr-service/` |
+| Service source root | `ocr-service/ocr-pipeline/` |
 | Docs hub | `docs/README.md` |
 | Validation model | GitHub Actions PR workflows and checks |
 
@@ -46,27 +46,27 @@ This layout keeps the public surface area small while preserving clear operation
 
 ## Service Boundary
 
-The service package is now physically rooted at `services/ocr-pipeline/src/serverless_mcp/`.
+The service package is now physically rooted at `ocr-service/ocr-pipeline/src/serverless_mcp/`.
 
-- `services/pyproject.toml` points `serverless-mcp-service` at the `services/ocr-pipeline/` source tree.
-- `services/ocr-pipeline/README.md` documents the package-level boundary and the current module layout.
-- `services/ocr-pipeline/src/serverless_mcp/__init__.py` is a normal package initializer, not a compatibility shim.
+- `ocr-service/pyproject.toml` points `serverless-mcp-service` at the `ocr-service/ocr-pipeline/` source tree.
+- `ocr-service/ocr-pipeline/README.md` documents the package-level boundary and the current module layout.
+- `ocr-service/ocr-pipeline/src/serverless_mcp/__init__.py` is a normal package initializer, not a compatibility shim.
 
 ## Documentation
 
 | Document | Purpose |
 | --- | --- |
 | [Documentation hub](docs/README.md) | Main index for deployment, runtime, and boundary documentation |
-| [Service implementation](services/ocr-pipeline/README.md) | Package-level implementation notes |
+| [Service implementation](ocr-service/ocr-pipeline/README.md) | Package-level implementation notes |
 | [Open-source boundaries](docs/open-source-boundaries.md) | Repository boundaries and external usage constraints |
 | [Deployment strategy](docs/open-source-ci-strategy.md) | Open-source CI and delivery model |
 | [Simplified Chinese landing page](i18n/README.zh-CN.md) | Simplified Chinese landing page and local navigation |
 
 ## Python Toolchain
 
-- Use `uv sync --locked --project services` to prepare the Python environment.
-- Use `uv run --project services pytest -q`, `uv run --project services ruff check .`, and `uv run --project services python ...` for the default local validation loop.
-- Treat `services/pyproject.toml` and `services/uv.lock` as the single source of truth for Python dependencies.
+- Use `uv sync --locked --project ocr-service` to prepare the Python environment.
+- Use `uv run --project ocr-service pytest -q`, `uv run --project ocr-service ruff check .`, and `uv run --project ocr-service python ...` for the default local validation loop.
+- Treat `ocr-service/pyproject.toml` and `ocr-service/uv.lock` as the single source of truth for Python dependencies.
 - Keep day-to-day development on the uv path; do not reintroduce ad hoc `pip` or `venv` bootstrap steps.
 
 ## Localized Editions

@@ -8,4 +8,4 @@
 
 - [AGENTS.md](AGENTS.md) - 完整的项目规则与技能导航 / Complete project rules and skill navigation
 - [docs/README.md](docs/README.md) - 文档中心 / Documentation hub
-- [services/ocr-pipeline/README.md](services/ocr-pipeline/README.md) - 服务实现说明 / Service implementation notes
+- [ocr-service/ocr-pipeline/README.md](ocr-service/ocr-pipeline/README.md) - 服务实现说明 / Service implementation notes

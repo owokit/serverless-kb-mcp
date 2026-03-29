@@ -37,15 +37,15 @@ jobs:
       - name: Sync docs tools
         run: |
           set -euo pipefail
-          uv sync --locked --project services
+          uv sync --locked --project ocr-service
 
       # EN: Compare the live workflow graph against the strategy doc and AGENTS guidance.
       # CN: 将当前 workflow 图谱与策略文档和 AGENTS 约束进行比对。
       - name: Validate workflow and documentation consistency
         run: |
           set -euo pipefail
-          uv run --project services python tools/ci/validate_workflows.py > docs-ci-workflow-report.json
-          uv run --project services python <<'PY'
+          uv run --project ocr-service python ocr-service/tools/ci/validate_workflows.py > docs-ci-workflow-report.json
+          uv run --project ocr-service python <<'PY'
           from __future__ import annotations
 
           import json
@@ -109,4 +109,4 @@ jobs:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
         run: |
           set -euo pipefail
-          uv run --project services python tools/ci/comment_pr_failure.py --workflow-name "$GITHUB_WORKFLOW"
+          uv run --project ocr-service python ocr-service/tools/ci/comment_pr_failure.py --workflow-name "$GITHUB_WORKFLOW"

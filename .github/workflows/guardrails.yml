@@ -123,11 +123,11 @@ jobs:
             Path(os.environ["REPORT_PATH"]).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
             print(json.dumps(report, ensure_ascii=False, indent=2))
             raise SystemExit(1 if findings else 0)
-        run: uv run --project services python -c "$PYTHON_SCRIPT"
+        run: uv run --project ocr-service python -c "$PYTHON_SCRIPT"
 
       - name: Run Chinese mojibake guardrail
         if: matrix.check == 'chinese_mojibake'
-        run: uv run --project services python tools/ci/chinese_text_hygiene.py --report-path "${{ matrix.report }}" --check-name chinese_mojibake
+        run: uv run --project ocr-service python ocr-service/tools/ci/chinese_text_hygiene.py --report-path "${{ matrix.report }}" --check-name chinese_mojibake
 
       # EN: Persist per-lane reports so the PR comment can point straight at the failing guardrail.
       # CN: 按检查分别保存报告，让 PR 评论可以直接定位到失败的护栏。
