@@ -159,7 +159,7 @@ export function createPipelineCompute(params: PipelineComputeParams): PipelineCo
         'logs:DescribeResourcePolicies',
         'logs:DescribeLogGroups',
       ],
-      resources: ['*'],
+      resources: [stateMachineLogGroup.logGroupArn],
     }),
   );
   roles.stateMachineRole.addToPrincipalPolicy(

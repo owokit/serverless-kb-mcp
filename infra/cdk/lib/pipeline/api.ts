@@ -31,6 +31,8 @@ export function createPipelineApi(params: PipelineApiParams): PipelineApiResourc
     endpointTypes: [apigateway.EndpointType.REGIONAL],
     deployOptions: {
       stageName: pipelineConfig.defaults.api_gateway_stage_name,
+      throttlingRateLimit: 100,
+      throttlingBurstLimit: 50,
     },
   });
   const remoteMcpIntegration = new apigateway.LambdaIntegration(remoteMcpLambda, {
