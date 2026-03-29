@@ -2,7 +2,7 @@
 
 Enterprise serverless document ingestion and semantic retrieval on AWS.
 
-English | [简体中文](README/README.zh-CN.md)
+English | [简体中文](i18n/README.zh-CN.md)
 
 This repository is a multi-surface workspace, not a single-purpose app shell.
 
@@ -60,7 +60,7 @@ The service package is now physically rooted at `services/ocr-pipeline/src/serve
 | [Service implementation](services/ocr-pipeline/README.md) | Package-level implementation notes |
 | [Open-source boundaries](docs/open-source-boundaries.md) | Repository boundaries and external usage constraints |
 | [Deployment strategy](docs/open-source-ci-strategy.md) | Open-source CI and delivery model |
-| [Simplified Chinese landing page](README/README.zh-CN.md) | Simplified Chinese landing page and local navigation |
+| [Simplified Chinese landing page](i18n/README.zh-CN.md) | Simplified Chinese landing page and local navigation |
 
 ## Python Toolchain
 
@@ -74,7 +74,7 @@ The service package is now physically rooted at `services/ocr-pipeline/src/serve
 | Locale | Entry |
 | --- | --- |
 | English | `README.md` |
-| Simplified Chinese | `README/README.zh-CN.md` |
+| Simplified Chinese | `i18n/README.zh-CN.md` |
 
 ## Validation
 

@@ -30,18 +30,18 @@
 
 ## 本地化版本
 
-仓库把本地化入口页放在 `README/` 下，根目录 `README.md` 保持英文主入口。
+仓库把本地化入口页放在 `i18n/` 下，根目录 `README.md` 保持英文主入口。
 
 | 语言 | 入口 |
 | --- | --- |
 | English | `../README.md` |
-| 简体中文 | `../README/README.zh-CN.md` |
+| 简体中文 | `../i18n/README.zh-CN.md` |
 
 ## 约定
 
 1. 当部署流程、环境变量、IAM 边界或 workflow 假设发生变化时，必须同步更新本索引。
 2. 如果某条规则已经沉淀到 skill，先更新 skill，再回写到这里。
-3. 本地化入口页采用 `README.<locale>.md` 命名，直接放在 `README/` 下。
+3. 本地化入口页采用 `README.<locale>.md` 命名，直接放在 `i18n/` 下。
 
 ## Python 工具链
 
