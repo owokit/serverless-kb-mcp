@@ -11,17 +11,30 @@ from pathlib import Path
 def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     workflow_path = Path(__file__).resolve().parents[5] / ".github" / "workflows" / "prod-deploy.yml"
     workflow_text = workflow_path.read_text(encoding="utf-8")
+    script_path = Path(__file__).resolve().parents[5] / "scripts" / "prod-deploy.sh"
+    script_text = script_path.read_text(encoding="utf-8")
 
     assert "name: Prod Deploy" in workflow_text
-    assert "gh release download \"${{ inputs.release_tag }}\"" in workflow_text
-    assert "MCP_CDK_ASSET_DIR: ./release-assets" in workflow_text
-    assert "setup-node: true" in workflow_text
-    assert "npm ci --prefix infra/cdk" in workflow_text
-    assert "aws sts get-caller-identity" in workflow_text
-    assert "Validate release asset manifest" in workflow_text
-    assert "npm --prefix infra/cdk run deploy" in workflow_text
-    assert "Record production deployment summary" in workflow_text
-    assert workflow_text.index("Validate release tag confirmation") < workflow_text.index("Deploy production backend")
+    assert "bash serverless-kb-mcp/scripts/prod-deploy.sh --release-tag" in workflow_text
+    assert "aws-actions/configure-aws-credentials@v6" in workflow_text
+    assert "MCP_CDK_ASSET_DIR:" not in workflow_text
+    assert "Validate release asset manifest" not in workflow_text
+    assert "Deploy production backend" not in workflow_text
+    assert "Upload prod deploy report" not in workflow_text
+    assert "Set up runtime" not in workflow_text
+    assert "working-directory: serverless-kb-mcp" not in workflow_text
+    assert "release_tag confirmation does not match" not in workflow_text
+    assert "gh release download" not in workflow_text
+    assert "npm ci --prefix infra/cdk" not in workflow_text
+
+    assert "resolve_repo_root" in script_text
+    assert "MCP_CDK_ASSET_DIR" in script_text
+    assert "MCP_PIPELINE_CONFIG_PATH" in script_text
+    assert "gh release download" in script_text
+    assert "uv sync --locked --project ocr-service" in script_text
+    assert "npm ci --prefix infra/cdk" in script_text
+    assert "npm --prefix infra/cdk run deploy" in script_text
+    assert "prod-deploy-report.json" in script_text
 
 
 def test_destroy_workflow_uses_cdk_destroy_with_placeholder_assets() -> None:
@@ -38,14 +51,6 @@ def test_destroy_workflow_uses_cdk_destroy_with_placeholder_assets() -> None:
     assert "Validate destroy confirmation" in workflow_text
     assert "npm --prefix infra/cdk run destroy" in workflow_text
     assert "confirm_destroy does not match name_prefix" in workflow_text
-
-
-def test_cdk_package_scripts_use_split_stack_speedup_flags() -> None:
-    package_path = Path(__file__).resolve().parents[5] / "infra" / "cdk" / "package.json"
-    package_text = package_path.read_text(encoding="utf-8")
-
-    assert '"deploy": "cd ../.. && npm --prefix infra/cdk exec -- cdk deploy --all --method direct --concurrency 3 --require-approval never --progress events"' in package_text
-    assert '"destroy": "cd ../.. && npm --prefix infra/cdk exec -- cdk destroy --all --force --progress events"' in package_text
 
 
 def test_cdk_app_instantiates_three_top_level_stacks_and_regional_api() -> None:

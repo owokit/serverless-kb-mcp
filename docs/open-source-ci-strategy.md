@@ -141,7 +141,7 @@
 
 - 展示名：`Prod Deploy`
 - 触发：`workflow_dispatch`
-- 职责：手动生产部署
+- 职责：手动生产部署，入口由 `scripts/prod-deploy.sh` 统一收敛路径解析、release asset 获取和 CDK 部署
 
 ### `destroy.yml`
 

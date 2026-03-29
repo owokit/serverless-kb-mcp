@@ -92,6 +92,21 @@ def test_package_release_only_publishes_for_main_branch_workflow_runs() -> None:
     assert "github.event.workflow_run.head_branch == 'main'" in text
 
 
+def test_prod_deploy_is_reduced_to_a_single_script_entrypoint() -> None:
+    workflow_path = REPO_ROOT / ".github" / "workflows" / "prod-deploy.yml"
+    text = workflow_path.read_text(encoding="utf-8")
+
+    assert "name: Prod Deploy" in text
+    assert "bash serverless-kb-mcp/scripts/prod-deploy.sh --release-tag" in text
+    assert "aws-actions/configure-aws-credentials@v6" in text
+    assert "MCP_CDK_ASSET_DIR:" not in text
+    assert "Validate release asset manifest" not in text
+    assert "Deploy production backend" not in text
+    assert "Record production deployment summary" not in text
+    assert "Upload prod deploy report" not in text
+    assert "Set up runtime" not in text
+
+
 def test_failure_comment_relay_is_workflow_run_based() -> None:
     validate_workflows = _load_module()
     assert validate_workflows.EXPECTED_NAMES["ci-failure-comment-relay.yml"] == "CI Failure Comment Relay"

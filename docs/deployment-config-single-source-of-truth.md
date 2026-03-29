@@ -6,6 +6,7 @@
 - `infra/cdk/lib/foundation-stack.ts`
 - `infra/cdk/lib/compute-stack.ts`
 - `infra/cdk/lib/api-stack.ts`
+- `scripts/prod-deploy.sh`
 - `ocr-service/ocr-pipeline/src/serverless_mcp/runtime/config.py`
 - `tools/packaging/serverless_mcp/build_lambda_artifacts.py`
 - `tools/packaging/serverless_mcp/build_layer_artifacts.py`
@@ -24,6 +25,7 @@
 ## 现在的消费方式
 
 - CDK 直接读取 `infra/pipeline-config.json` 来合成基础设施
+- `scripts/prod-deploy.sh` 读取同一份配置来确定 `REPO_NAME`、`ASSET_DIR` 和 `CONFIG_PATH`
 - 运行时通过 `SERVERLESS_MCP_PIPELINE_CONFIG_PATH` 读取同一份配置，默认示例指向 `infra/pipeline-config.json`
 - 打包脚本使用同一份配置来生成 Lambda 和 Layer 产物
 

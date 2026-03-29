@@ -10,7 +10,8 @@
 npx cdk deploy --all --method direct --concurrency 3 --require-approval never --progress events
 ```
 
-部署前会先下载 release assets，并将 `MCP_CDK_ASSET_DIR` 指向 `release-assets/`，这样 CDK 栈可以直接消费发布产物。
+部署前的路径解析、release asset 获取、`npm ci`、`uv sync` 和 CDK 环境变量设置都收敛在 `scripts/prod-deploy.sh`，workflow 只负责 checkout、AWS 凭证和调用入口脚本。
+脚本会把 `MCP_CDK_ASSET_DIR` 指向仓库根目录下的 `release-assets/`，这样 CDK 栈可以直接消费发布产物。
 当前部署命令优先使用 `--method direct`，因为它比 change set 路径更直接；`--asset-parallelism` 与 `--method direct` 不兼容，所以这里不再同时开启。
 
 ## 销毁入口
@@ -38,6 +39,7 @@ npx cdk destroy --all --force --progress events
 ## 常见障碍
 
 - 如果 `cdk synth` 找不到产物，先确认 `MCP_CDK_ASSET_DIR` 是否指向正确目录
+- 如果 `Prod Deploy` 没有命中 release 产物，先确认 `scripts/prod-deploy.sh` 是否还能正确解析仓库根目录和 `infra/pipeline-config.json`
 - 如果 `cdk destroy` 失败但不涉及业务资源，先确认是否启用了占位资产模式
 - 如果输入的 `name_prefix` 和配置不一致，工作流会直接失败，避免误删
 - 如果需要调试部署性能，优先观察三个顶层 stack 的顺序和资源 teardown，而不是继续把重点放在 TypeScript 里做 Promise 并行

@@ -1,4 +1,5 @@
 # EN: Perform the explicit, protected production rollout via manual dispatch only.
+# CN: 仅通过手动触发执行显式且受保护的生产发布。
 name: Prod Deploy
 
 on:
@@ -38,9 +39,6 @@ jobs:
   prod-deploy:
     environment: production
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: serverless-kb-mcp
 
     env:
       AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
@@ -52,7 +50,6 @@ jobs:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       OPENAI_EMBEDDING_MODEL: ${{ secrets.OPENAI_EMBEDDING_MODEL }}
       PADDLE_OCR_API_TOKEN: ${{ secrets.PADDLE_OCR_API_TOKEN }}
-      MCP_CDK_ASSET_DIR: ./release-assets
 
     steps:
       - name: Check out repository
@@ -60,74 +57,6 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
-
-      - name: Set up runtime
-        uses: owokit/serverless-kb-mcp/.github/actions/setup-runtime@main
-        with:
-          setup-node: true
-          setup-python: true
-          node-cache-dependency-path: serverless-kb-mcp/infra/cdk/package-lock.json
-
-      - name: Validate release tag confirmation
-        run: |
-          set -euo pipefail
-          if [ "${{ inputs.release_tag }}" != "${{ inputs.confirm_release_tag }}" ]; then
-            echo "::error::release_tag confirmation does not match"
-            exit 1
-          fi
-
-      - name: Resolve packaged release assets
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          if gh release view "${{ inputs.release_tag }}" >/dev/null 2>&1; then
-            gh release download "${{ inputs.release_tag }}" --dir ./release-assets --pattern '*.zip' --pattern 'package-release-report.json'
-            mkdir -p ./release-assets/layers
-            mv ./release-assets/*_layer.zip ./release-assets/layers/ 2>/dev/null || true
-            exit 0
-          fi
-
-          if [ "${{ inputs.release_tag }}" != "main" ]; then
-            echo "::error::Release '${{ inputs.release_tag }}' does not exist. Publish the release first or pass an existing release tag."
-            exit 1
-          fi
-
-          echo "::notice::Release 'main' does not exist yet. Building release assets from the checked-out source."
-          mkdir -p ./release-assets/layers
-          uv sync --locked --project ocr-service
-          REPO_NAME="$(python3 -c "import json, pathlib; print(json.loads(pathlib.Path('infra/pipeline-config.json').read_text(encoding='utf-8'))['repo_name'])")"
-          FUNCTIONS="$(uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/list_lambda_artifacts.py --format plain | xargs)"
-          LAYERS="$(uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/list_layer_artifacts.py --format plain | xargs)"
-          export REPO_NAME
-          export FUNCTIONS
-          export LAYERS
-          uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/build_lambda_artifacts.py \
-            --repo-name "$REPO_NAME" \
-            --output-dir "./release-assets" \
-            --functions "$FUNCTIONS"
-          uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/build_layer_artifacts.py \
-            --repo-name "$REPO_NAME" \
-            --output-dir "./release-assets/layers" \
-            --layers "$LAYERS"
-          node - <<'NODE'
-          const fs = require('node:fs');
-          const report = {
-            workflow: 'Package Release',
-            release_tag: 'main',
-            source_branch: 'main',
-            source_sha: process.env.GITHUB_SHA,
-            status: 'prepared',
-          };
-          fs.writeFileSync('release-assets/package-release-report.json', JSON.stringify(report, null, 2));
-          console.log(JSON.stringify(report, null, 2));
-          NODE
-
-      - name: Install CDK toolchain
-        run: |
-          set -euo pipefail
-          npm ci --prefix infra/cdk
 
       - name: Configure AWS credentials via OIDC
         if: ${{ env.AWS_ROLE_TO_ASSUME != '' }}
@@ -152,52 +81,9 @@ jobs:
           echo "::error::Configure either AWS_ROLE_TO_ASSUME for GitHub OIDC, or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY for static AWS credentials."
           exit 1
 
-      - name: Resolve CDK environment
-        run: |
-          set -euo pipefail
-          echo "CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_ENV"
-          echo "CDK_DEFAULT_REGION=$AWS_REGION" >> "$GITHUB_ENV"
-
-      - name: Validate release asset manifest
-        run: |
-          set -euo pipefail
-          test -f ./release-assets/package-release-report.json
-          node - <<'NODE'
-          const fs = require('node:fs');
-          const report = JSON.parse(fs.readFileSync('release-assets/package-release-report.json', 'utf8'));
-          if (report.release_tag !== process.env.RELEASE_TAG) {
-            throw new Error('Release manifest does not match the requested tag');
-          }
-          console.log(JSON.stringify(report, null, 2));
-          NODE
+      - name: Run production deploy entrypoint
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.release_tag }}
-
-      - name: Deploy production backend
-        run: |
-          set -euo pipefail
-          npm --prefix infra/cdk run deploy
-
-      - name: Record production deployment summary
-        run: |
-          set -euo pipefail
-          node - <<'NODE'
-          const fs = require('node:fs');
-          const report = {
-            workflow: 'Prod Deploy',
-            release_tag: process.env.RELEASE_TAG,
-            status: 'deployed',
-          };
-          fs.writeFileSync('prod-deploy-report.json', JSON.stringify(report, null, 2));
-          console.log(JSON.stringify(report, null, 2));
-          NODE
-        env:
-          RELEASE_TAG: ${{ inputs.release_tag }}
-
-      - name: Upload prod deploy report
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: prod-deploy-report
-          path: serverless-kb-mcp/prod-deploy-report.json
-          if-no-files-found: warn
+          CONFIRM_RELEASE_TAG: ${{ inputs.confirm_release_tag }}
+        run: bash serverless-kb-mcp/scripts/prod-deploy.sh --release-tag "$RELEASE_TAG" --confirm-release-tag "$CONFIRM_RELEASE_TAG"
