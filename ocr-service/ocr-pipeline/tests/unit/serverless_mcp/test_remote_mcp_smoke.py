@@ -251,6 +251,7 @@ def test_discovery_get_returns_query_gateway_document() -> None:
     assert payload["protocolVersion"] == LATEST_PROTOCOL_VERSION
     assert payload["endpoint"] == "/mcp"
     assert payload["serverInfo"]["name"] == "mcp-doc-pipeline"
+    assert "resources" not in payload["capabilities"]
     assert [tool["name"] for tool in payload["tools"]] == [
         "search_documents",
         "get_document_excerpt",

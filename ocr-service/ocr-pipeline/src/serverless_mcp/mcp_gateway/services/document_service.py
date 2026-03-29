@@ -110,12 +110,14 @@ def list_document_versions(
         if not isinstance(version_id, str) or not version_id.strip():
             continue
         status_payload = context.status_service.build_status(
-            {
-                "bucket": bucket,
-                "key": key,
-                "version_id": version_id,
-                "tenant_id": resolved_tenant_id,
-            }
+            build_job_status_request(
+                {
+                    "bucket": bucket,
+                    "key": key,
+                    "version_id": version_id,
+                    "tenant_id": resolved_tenant_id,
+                }
+            )
         )
         versions.append(
             {
@@ -202,4 +204,3 @@ def _serialize_datetime(value: object) -> str | None:
     if isinstance(value, str):
         return value
     return None
-

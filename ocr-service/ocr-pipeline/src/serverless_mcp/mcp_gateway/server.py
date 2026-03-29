@@ -45,7 +45,6 @@ def build_discovery_document() -> dict[str, Any]:
         "serverInfo": {"name": SERVER_NAME, "version": SERVER_VERSION},
         "capabilities": {
             "tools": {"list": True, "call": True},
-            "resources": {"list": False, "read": False},
         },
         "transport": "streamable-http",
         "endpoint": "/mcp",
@@ -83,4 +82,3 @@ def _build_session_store() -> object:
     if session_table:
         return session_table
     return NoOpSessionStore()
-
