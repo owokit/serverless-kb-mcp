@@ -42,21 +42,6 @@
 - `serverless_mcp/embed/application.py`、`serverless_mcp/query/application.py`、`serverless_mcp/status/application.py` 是正式应用层；`serverless_mcp/extract/service.py`、`serverless_mcp/embed/worker.py`、`serverless_mcp/query/service.py`、`serverless_mcp/status/service.py`、`serverless_mcp/embed/parser.py`、`serverless_mcp/events/parser.py` 这类旧别名壳已经删除，不应再引入。
 - `mcp/server/*` 这组旧命名空间已经退场，不应再从 `mcp.server.*` 导入。
 
-## 已删除的旧壳
-
-- `app/__init__.py`
-- `app/bootstrap.py`
-- `entrypoints/lambda_entrypoints.py`
-- `serverless_mcp/extract/service.py`
-- `query_api.py`
-- 根级 `lambda_entrypoints.py`
-- 根级 `storage/*.py` 转发文件，包括 `dynamo_batch.py`
-- `serverless_mcp/embed/parser.py`
-- `serverless_mcp/events/parser.py`
-- `serverless_mcp/runtime/pipeline.py`
-- `serverless_mcp/runtime/step_functions_workflow.py`
-- `serverless_mcp/runtime/worker.py`
-
 ## 代码约束
 
 - 新代码优先直接依赖 `domain`、`storage/*` 子包和 `runtime/*` builder。
