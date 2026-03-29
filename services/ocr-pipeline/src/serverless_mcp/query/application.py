@@ -175,20 +175,29 @@ class QueryService:
         projection_cache: dict[tuple[str, str, str], EmbeddingProjectionStateRecord | None] = {}
         manifest_failures: set[str] = set()
         results: list[QueryResultItem] = []
+
+        # First pass: filter by security scope and collect object_pks needing state
+        candidates_to_process: list[tuple[dict, RankedCandidate]] = []
+        needed_object_pks: set[str] = set()
         for candidate in sorted(ranked_candidates.values(), key=lambda item: item.rrf_score, reverse=True)[:top_k]:
             metadata = sanitize_result_metadata(candidate.match.metadata)
             source = candidate.source
             candidate_security_scope = metadata_security_scope(candidate.match.metadata)
             if not security_scope_allows_access(candidate_security_scope, security_scope):
                 continue
-            vector_is_latest = metadata_is_truthy(candidate.match.metadata, "is_latest")
             if source.object_pk not in state_cache:
-                state_cache[source.object_pk] = retry_read(
-                    lambda: self._load_execution_state(object_pk=source.object_pk),
-                    label="object_state",
-                    resource_id=source.object_pk,
-                )
-            object_state = state_cache[source.object_pk]
+                needed_object_pks.add(source.object_pk)
+            candidates_to_process.append((metadata, candidate))
+
+        # Batch load all needed states
+        if needed_object_pks:
+            self._load_execution_states_batch(object_pks=list(needed_object_pks), state_cache=state_cache)
+
+        # Second pass: process candidates with cached states
+        for metadata, candidate in candidates_to_process:
+            source = candidate.source
+            vector_is_latest = metadata_is_truthy(candidate.match.metadata, "is_latest")
+            object_state = state_cache.get(source.object_pk)
             if object_state is None:
                 if not vector_is_latest:
                     continue
@@ -297,27 +306,22 @@ class QueryService:
                 self._query_embedding_cache.move_to_end(cache_key)
                 return list(cached_vector)
 
-        query_vector = client.embed_text(
-            EmbeddingRequest(
-                chunk_id="query",
-                chunk_type="section_text_chunk",
-                content_kind="text",
-                text=query,
-                output_dimensionality=profile.dimension,
-                task_type="RETRIEVAL_QUERY",
+            query_vector = client.embed_text(
+                EmbeddingRequest(
+                    chunk_id="query",
+                    chunk_type="section_text_chunk",
+                    content_kind="text",
+                    text=query,
+                    output_dimensionality=profile.dimension,
+                    task_type="RETRIEVAL_QUERY",
+                )
             )
-        )
-        cached_vector = list(query_vector)
-        with self._query_embedding_cache_lock:
-            existing_vector = self._query_embedding_cache.get(cache_key)
-            if existing_vector is not None:
-                self._query_embedding_cache.move_to_end(cache_key)
-                return list(existing_vector)
+            cached_vector = list(query_vector)
             self._query_embedding_cache[cache_key] = cached_vector
             self._query_embedding_cache.move_to_end(cache_key)
             while len(self._query_embedding_cache) > self._query_embedding_cache_size:
                 self._query_embedding_cache.popitem(last=False)
-        return list(cached_vector)
+            return cached_vector
 
     def _accumulate_rrf(
         self,
@@ -374,3 +378,21 @@ class QueryService:
         if self._execution_state_repo is not None:
             return self._execution_state_repo.get_state(object_pk=object_pk)
         return self._object_state_repo.get_state(object_pk=object_pk)
+
+    def _load_execution_states_batch(
+        self,
+        *,
+        object_pks: list[str],
+        state_cache: dict[str, ObjectStateRecord | None],
+    ) -> None:
+        """
+        EN: Batch load execution states for multiple object PKs and populate the state cache.
+        CN: 批量加载多个 object PK 的 execution-state 并填充 state cache。
+        """
+        if not object_pks:
+            return
+        if self._execution_state_repo is not None:
+            batch_results = self._execution_state_repo.get_states_batch(object_pks=object_pks)
+        else:
+            batch_results = self._object_state_repo.get_states_batch(object_pks=object_pks)
+        state_cache.update(batch_results)

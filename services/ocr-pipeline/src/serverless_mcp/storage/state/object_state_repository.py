@@ -354,6 +354,44 @@ class ObjectStateRepository:
             return None
         return _deserialize_object_state(item)
 
+    def get_states_batch(self, *, object_pks: list[str]) -> dict[str, ObjectStateRecord | None]:
+        """
+        EN: Load object state records for multiple objects in a single batch query.
+        CN: 在单次批量查询中加载多个对象的 object_state 记录。
+
+        Returns a dict mapping object_pk to ObjectStateRecord (or None if not found).
+        """
+        if not object_pks:
+            return {}
+        results: dict[str, ObjectStateRecord | None] = {pk: None for pk in object_pks}
+        keys = [self._build_state_key(pk) for pk in object_pks]
+        response = self._ddb.batch_get_item(
+            RequestItems={
+                self._table_name: {
+                    "Keys": keys,
+                    "ConsistentRead": True,
+                }
+            }
+        )
+        for item in response.get("Responses", {}).get(self._table_name, []):
+            record = _deserialize_object_state(item)
+            results[record.pk] = record
+        unprocessed = response.get("UnprocessedKeys", {}).get(self._table_name, {}).get("Keys", [])
+        while unprocessed:
+            response = self._ddb.batch_get_item(
+                RequestItems={
+                    self._table_name: {
+                        "Keys": unprocessed,
+                        "ConsistentRead": True,
+                    }
+                }
+            )
+            for item in response.get("Responses", {}).get(self._table_name, []):
+                record = _deserialize_object_state(item)
+                results[record.pk] = record
+            unprocessed = response.get("UnprocessedKeys", {}).get(self._table_name, {}).get("Keys", [])
+        return results
+
     def get_lookup_record(self, *, bucket: str, key: str) -> ObjectStateLookupRecord | None:
         """
         EN: Load the explicit lookup item for one bucket/key pair.
