@@ -108,8 +108,10 @@ def test_pptx_extraction_uses_slide_segments() -> None:
     textbox = slide1.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
     textbox.text = "Title"
     slide2 = presentation.slides.add_slide(presentation.slide_layouts[1])
-    slide2.shapes.title.text = "Second"
-    slide2.placeholders[1].text = "Bullet one\nBullet two"
+    slide2_title = slide2.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+    slide2_title.text = "Second"
+    slide2_body = slide2.shapes.add_textbox(Inches(1), Inches(2), Inches(4), Inches(2))
+    slide2_body.text = "Bullet one\nBullet two"
     presentation.save(buffer)
 
     extractor = DocumentExtractor()

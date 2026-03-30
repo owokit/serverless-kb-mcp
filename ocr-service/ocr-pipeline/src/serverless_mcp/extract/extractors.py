@@ -9,17 +9,13 @@ from io import BytesIO
 import re
 from typing import Protocol
 
-from docx import Document as load_docx_document
-from docx.oxml.table import CT_Tbl
-from docx.oxml.text.paragraph import CT_P
-from docx.table import Table
-from docx.text.paragraph import Paragraph
 from pypdf import PdfReader
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from serverless_mcp.domain.format_specs import get_format_spec
 from serverless_mcp.domain.models import ChunkManifest, ExtractedAsset, ExtractedChunk, S3ObjectRef
+from serverless_mcp.extract.docx_to_markdown import convert_docx_to_markdown
 from serverless_mcp.extract.markdown_chunker import split_markdown_for_embedding
 from serverless_mcp.extract.policy import (
     DEFAULT_POLICY,
@@ -184,7 +180,7 @@ class DocumentExtractor:
             CN: 同上。
         """
         spec = get_format_spec(doc_type="docx", source_format="python-docx")
-        markdown_text = _convert_docx_to_markdown(body)
+        markdown_text = convert_docx_to_markdown(body)
         chunks = _build_markdown_chunks(
             spec=spec,
             doc_type="docx",
@@ -446,36 +442,6 @@ class DocumentExtractor:
             },
         )
 
-
-def _convert_docx_to_markdown(body: bytes) -> str:
-    """
-    EN: Convert DOCX body bytes to a Markdown string using python-docx structural iteration.
-    CN: 同上。
-
-    Args:
-        body:
-            EN: Raw DOCX document bytes.
-            CN: 同上。
-
-    Returns:
-        EN: Normalized Markdown text preserving heading levels and table formatting.
-        CN: 同上。
-    """
-    document = load_docx_document(BytesIO(body))
-    lines: list[str] = []
-    # EN: Iterate document body blocks in document order (paragraphs and tables).
-    # CN: 同上。
-    for block in _iter_docx_blocks(document):
-        if isinstance(block, Paragraph):
-            rendered = _paragraph_to_markdown(block)
-            if rendered:
-                lines.append(rendered)
-            continue
-        if isinstance(block, Table):
-            lines.extend(_table_to_markdown(block))
-    return normalize_text("\n".join(lines))
-
-
 def _build_markdown_chunks(
     *,
     spec,
@@ -517,120 +483,6 @@ def _build_markdown_chunks(
             )
         )
     return chunks
-
-
-def _iter_docx_blocks(document) -> list[Paragraph | Table]:
-    """
-    EN: Iterate over top-level body elements preserving document order of paragraphs and tables.
-    CN: 同上。
-
-    Args:
-        document:
-            EN: Loaded python-docx Document object.
-            CN: 已加载的 python-docx Document 对象。
-
-    Returns:
-        EN: Ordered list of Paragraph and Table blocks.
-        CN: 按顺序排列的 Paragraph 和 Table 块列表。
-    """
-    blocks: list[Paragraph | Table] = []
-    # EN: Classify each XML child element by its underlying type (CT_P for paragraphs, CT_Tbl for tables).
-    # CN: 同上。
-    for child in document.element.body.iterchildren():
-        if isinstance(child, CT_P):
-            blocks.append(Paragraph(child, document))
-        elif isinstance(child, CT_Tbl):
-            blocks.append(Table(child, document))
-    return blocks
-
-
-def _paragraph_to_markdown(paragraph: Paragraph) -> str:
-    """
-    EN: Convert a single DOCX paragraph to Markdown, mapping heading styles and list styles.
-    CN: 同上。
-
-    Args:
-        paragraph:
-            EN: A python-docx Paragraph instance.
-            CN: 一个 python-docx Paragraph 实例。
-
-    Returns:
-        EN: Markdown-formatted text line, or empty string if the paragraph has no content.
-        CN: 同上。
-    """
-    text = normalize_text(paragraph.text)
-    if not text:
-        return ""
-
-    style_name = (paragraph.style.name if paragraph.style is not None else "").strip()
-    heading_level = _heading_level_from_style_name(style_name)
-    # EN: Render heading prefix (# / ## / etc.) when the paragraph style is a recognized heading.
-    # CN: 同上。
-    if heading_level:
-        return f"{'#' * heading_level} {text}"
-
-    if style_name.lower().startswith("list"):
-        return f"- {text}"
-
-    return text
-
-
-def _heading_level_from_style_name(style_name: str) -> int:
-    """
-    EN: Map a Word style name to a Markdown heading level (1-6), returning 0 for non-heading styles.
-    CN: 同上。
-
-    Args:
-        style_name:
-            EN: Style name from a Word paragraph (e.g., "Heading 1", "Title").
-            CN: 同上。
-
-    Returns:
-        EN: Heading level integer from 1 to 6, or 0 if not a heading style.
-        CN: 1 到 6 的标题级别整数；若不是标题样式则返回 0。
-    """
-    if style_name.lower() == "title":
-        return 1
-
-    match = re.match(r"Heading\s+(\d+)$", style_name, flags=re.IGNORECASE)
-    if not match:
-        return 0
-
-    return max(1, min(6, int(match.group(1))))
-
-
-def _table_to_markdown(table: Table) -> list[str]:
-    """
-    EN: Convert a DOCX table to Markdown pipe-delimited lines with a header separator row.
-    CN: 同上。
-
-    Args:
-        table:
-            EN: A python-docx Table instance.
-            CN: 一个 python-docx Table 实例。
-
-    Returns:
-        EN: List of Markdown table lines including header, separator, and data rows.
-        CN: 同上。
-    """
-    rows: list[list[str]] = []
-    # EN: Normalize cell text and skip entirely empty rows.
-    # CN: 同上。
-    for row in table.rows:
-        cells = [normalize_text(cell.text) for cell in row.cells]
-        if any(cells):
-            rows.append(cells)
-
-    if not rows:
-        return []
-
-    width = max(len(row) for row in rows)
-    normalized_rows = [row + [""] * (width - len(row)) for row in rows]
-    lines = ["| " + " | ".join(normalized_rows[0]) + " |"]
-    lines.append("| " + " | ".join("---" for _ in range(width)) + " |")
-    for row in normalized_rows[1:]:
-        lines.append("| " + " | ".join(row) + " |")
-    return lines
 
 
 def _convert_pptx_to_markdown(presentation) -> str:

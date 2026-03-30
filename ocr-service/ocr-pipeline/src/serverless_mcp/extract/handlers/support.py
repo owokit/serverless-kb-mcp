@@ -9,6 +9,14 @@ from types import SimpleNamespace
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from serverless_mcp.embed.dispatcher import EmbeddingJobDispatcher
+from serverless_mcp.extract.application import ExtractionService
+from serverless_mcp.extract.pipeline import ExtractionResultPersister
+from serverless_mcp.extract.s3_source import S3DocumentSource
+from serverless_mcp.extract.worker import ExtractWorker
+from serverless_mcp.ocr.paddle_async_client import PaddleOCRAsyncClient
+from serverless_mcp.ocr.paddle_manifest_builder import PaddleOCRManifestBuilder
+from serverless_mcp.runtime.bootstrap import build_execution_state_repo, build_manifest_repo, build_object_state_repo
 from serverless_mcp.runtime.aws_clients import build_aws_client
 from serverless_mcp.runtime.config import Settings
 from serverless_mcp.domain.models import ExtractJobMessage, ObjectStateRecord, S3ObjectRef
@@ -106,147 +114,6 @@ class _ObjectStatePayload(BaseModel):
         return ObjectStateRecord(**payload)
 
 
-def _build_source_repo(s3_client):
-    """
-    EN: Lazily construct the S3 document source used by submit and legacy workflow paths.
-    CN: 懒加载构建供 submit 和旧工作流路径使用的 S3 文档源。
-    """
-    from serverless_mcp.extract.s3_source import S3DocumentSource
-
-    return S3DocumentSource(s3_client=s3_client)
-
-
-def _build_extraction_service(source_repo):
-    """
-    EN: Lazily construct the extraction service only when sync or legacy paths need it.
-    CN: 仅在 sync 或旧路径需要时懒加载构建 extraction service。
-    """
-    from serverless_mcp.extract.application import ExtractionService
-
-    return ExtractionService(source_repo=source_repo)
-
-
-def _build_object_state_repo(table_name: str, dynamodb_client):
-    """
-    EN: Lazily construct the object state repository for the workflow state boundary.
-    CN: 为工作流状态边界懒加载构建 object state repository。
-    """
-    from serverless_mcp.runtime.bootstrap import build_object_state_repo
-    from serverless_mcp.runtime.config import Settings
-
-    settings = Settings(object_state_table=table_name)
-    clients = SimpleNamespace(dynamodb=dynamodb_client)
-    return build_object_state_repo(settings=settings, clients=clients)
-
-
-def _build_execution_state_repo(table_name: str, dynamodb_client):
-    """
-    EN: Lazily construct the execution state repository for Step Functions bookkeeping.
-    CN: 为 Step Functions 记账懒加载构建 execution state repository。
-    """
-    from serverless_mcp.runtime.bootstrap import build_execution_state_repo
-    from serverless_mcp.runtime.config import Settings
-
-    settings = Settings(object_state_table="unused", execution_state_table=table_name)
-    clients = SimpleNamespace(dynamodb=dynamodb_client)
-    return build_execution_state_repo(settings=settings, clients=clients)
-
-
-def _build_manifest_repo(*, manifest_bucket: str, manifest_prefix: str, s3_client, dynamodb_client, manifest_index_table: str):
-    """
-    EN: Lazily construct the manifest repository for OCR persistence.
-    CN: 为 OCR 持久化懒加载构建 manifest repository。
-    """
-    from serverless_mcp.runtime.bootstrap import build_manifest_repo
-    from serverless_mcp.runtime.config import Settings
-
-    settings = Settings(
-        object_state_table="unused",
-        manifest_bucket=manifest_bucket,
-        manifest_prefix=manifest_prefix,
-        manifest_index_table=manifest_index_table,
-    )
-    clients = SimpleNamespace(s3=s3_client, dynamodb=dynamodb_client)
-    return build_manifest_repo(settings=settings, clients=clients)
-
-
-def _build_embed_dispatcher(queue_url: str, sqs_client):
-    """
-    EN: Lazily construct the embedding dispatcher used after manifest persistence.
-    CN: 在 manifest 持久化后懒加载构建 embedding dispatcher。
-    """
-    from serverless_mcp.embed.dispatcher import EmbeddingJobDispatcher
-
-    return EmbeddingJobDispatcher(queue_url=queue_url, sqs_client=sqs_client)
-
-
-def _build_result_persister(
-    *,
-    extraction_service,
-    object_state_repo,
-    manifest_repo,
-    embed_dispatcher,
-    embedding_profiles,
-    execution_state_repo,
-):
-    """
-    EN: Lazily construct the result persister only for actions that need OCR result persistence.
-    CN: 仅在需要 OCR 结果持久化时懒加载构建 result persister。
-    """
-    from serverless_mcp.extract.pipeline import ExtractionResultPersister
-
-    return ExtractionResultPersister(
-        extraction_service=extraction_service,
-        object_state_repo=object_state_repo,
-        manifest_repo=manifest_repo,
-        embed_dispatcher=embed_dispatcher,
-        embedding_profiles=embedding_profiles,
-        execution_state_repo=execution_state_repo,
-    )
-
-
-def _build_extract_worker(*, extraction_service, object_state_repo, result_persister, execution_state_repo):
-    """
-    EN: Lazily construct the extract worker used by the synchronous extract path.
-    CN: 为同步 extract 路径懒加载构建 extract worker。
-    """
-    from serverless_mcp.extract.worker import ExtractWorker
-
-    return ExtractWorker(
-        extraction_service=extraction_service,
-        object_state_repo=object_state_repo,
-        result_persister=result_persister,
-        execution_state_repo=execution_state_repo,
-    )
-
-
-def _build_ocr_client(*, token: str, base_url: str, model: str, timeout_seconds: int, status_timeout_seconds: int, allowed_hosts: tuple[str, ...]):
-    """
-    EN: Lazily construct the PaddleOCR async client used by submit, poll, and persist paths.
-    CN: 为 submit、poll 和 persist 路径懒加载构建 PaddleOCR 异步客户端。
-    """
-    from serverless_mcp.ocr.paddle_async_client import PaddleOCRAsyncClient
-
-    return PaddleOCRAsyncClient(
-        token=token,
-        base_url=base_url,
-        model=model,
-        timeout_seconds=timeout_seconds,
-        status_timeout_seconds=status_timeout_seconds,
-        allowed_hosts=allowed_hosts,
-    )
-
-
-def _build_manifest_builder():
-    """
-    EN: Lazily construct the OCR manifest builder used during persistence.
-    CN: 为持久化流程懒加载构建 OCR manifest builder。
-    """
-    from serverless_mcp.ocr.paddle_manifest_builder import PaddleOCRManifestBuilder
-
-    return PaddleOCRManifestBuilder()
-
-
 class _AwsClientRegistry:
     """
     EN: Cache boto3 clients at module scope so Lambda warm starts reuse TCP connection pools.
@@ -278,49 +145,51 @@ class _WorkflowComponents:
 
     @cached_property
     def source_repo(self):
-        return _build_source_repo(self._clients.s3)
+        return S3DocumentSource(s3_client=self._clients.s3)
 
     @cached_property
     def extraction_service(self):
-        return _build_extraction_service(self.source_repo)
+        return ExtractionService(source_repo=self.source_repo)
 
     @cached_property
     def object_state_repo(self):
-        return _build_object_state_repo(
-            table_name=self._settings.object_state_table,
-            dynamodb_client=self._clients.dynamodb,
+        return build_object_state_repo(
+            settings=Settings(object_state_table=self._settings.object_state_table),
+            clients=SimpleNamespace(dynamodb=self._clients.dynamodb),
         )
 
     @cached_property
     def execution_state_repo(self):
         if not self._settings.execution_state_table:
             raise ValueError("EXECUTION_STATE_TABLE is required for extract workflow")
-        return _build_execution_state_repo(
-            table_name=self._settings.execution_state_table,
-            dynamodb_client=self._clients.dynamodb,
+        return build_execution_state_repo(
+            settings=Settings(object_state_table=self._settings.object_state_table, execution_state_table=self._settings.execution_state_table),
+            clients=SimpleNamespace(dynamodb=self._clients.dynamodb),
         )
 
     @cached_property
     def manifest_repo(self):
         if not self._settings.manifest_bucket or not self._settings.manifest_index_table:
             raise ValueError("MANIFEST_BUCKET and MANIFEST_INDEX_TABLE are required for extract workflow")
-        return _build_manifest_repo(
-            manifest_bucket=self._settings.manifest_bucket,
-            manifest_prefix=self._settings.manifest_prefix,
-            s3_client=self._clients.s3,
-            dynamodb_client=self._clients.dynamodb,
-            manifest_index_table=self._settings.manifest_index_table,
+        return build_manifest_repo(
+            settings=Settings(
+                object_state_table=self._settings.object_state_table,
+                manifest_bucket=self._settings.manifest_bucket,
+                manifest_prefix=self._settings.manifest_prefix,
+                manifest_index_table=self._settings.manifest_index_table,
+            ),
+            clients=SimpleNamespace(s3=self._clients.s3, dynamodb=self._clients.dynamodb),
         )
 
     @cached_property
     def embed_dispatcher(self):
         if not self._settings.embed_queue_url:
             raise ValueError("EMBED_QUEUE_URL is required for extract workflow")
-        return _build_embed_dispatcher(queue_url=self._settings.embed_queue_url, sqs_client=self._clients.sqs)
+        return EmbeddingJobDispatcher(queue_url=self._settings.embed_queue_url, sqs_client=self._clients.sqs)
 
     @cached_property
     def result_persister(self):
-        return _build_result_persister(
+        return ExtractionResultPersister(
             extraction_service=self.extraction_service,
             object_state_repo=self.object_state_repo,
             manifest_repo=self.manifest_repo,
@@ -331,7 +200,7 @@ class _WorkflowComponents:
 
     @cached_property
     def extract_worker(self):
-        return _build_extract_worker(
+        return ExtractWorker(
             extraction_service=self.extraction_service,
             object_state_repo=self.object_state_repo,
             result_persister=self.result_persister,
@@ -342,7 +211,7 @@ class _WorkflowComponents:
     def ocr_client(self):
         if not self._settings.paddle_api_token:
             raise ValueError("PADDLE_OCR_API_TOKEN is required for extract workflow")
-        return _build_ocr_client(
+        return PaddleOCRAsyncClient(
             token=self._settings.paddle_api_token,
             base_url=self._settings.paddle_api_base_url,
             model=self._settings.paddle_ocr_model,
@@ -353,57 +222,44 @@ class _WorkflowComponents:
 
     @cached_property
     def manifest_builder(self):
-        return _build_manifest_builder()
+        return PaddleOCRManifestBuilder()
 
     def workflow_for(self, action: str | None):
         """
-        EN: Build an action-scoped workflow so each Lambda step pays only for the dependencies it uses.
-        CN: 构建动作级工作流，让每个 Lambda 只为自己使用的依赖付费。
+        EN: Build the dedicated action object for one Step Functions step.
+        CN: 为单个 Step Functions 步骤构建专用 action 对象。
         """
-        from serverless_mcp.extract.workflow import StepFunctionsExtractWorkflow
-
-        common_kwargs = {
-            "poll_interval_seconds": self._settings.paddle_poll_interval_seconds,
-            "max_poll_attempts": self._settings.paddle_max_poll_attempts,
-        }
+        from serverless_mcp.extract.actions import (
+            MarkFailedAction,
+            PersistOcrResultAction,
+            PollOcrJobAction,
+            PrepareJobAction,
+            SyncExtractAction,
+            SubmitOcrJobAction,
+        )
         match action:
             case None:
-                return StepFunctionsExtractWorkflow(
-                    extract_worker=self.extract_worker,
-                    result_persister=self.result_persister,
-                    object_state_repo=self.object_state_repo,
+                raise ValueError("action is required for extract workflow")
+            case "prepare_job":
+                return PrepareJobAction(
                     execution_state_repo=self.execution_state_repo,
-                    source_repo=self.source_repo,
-                    ocr_client=self.ocr_client,
-                    manifest_builder=self.manifest_builder,
-                    **common_kwargs,
+                    poll_interval_seconds=self._settings.paddle_poll_interval_seconds,
+                    max_poll_attempts=self._settings.paddle_max_poll_attempts,
                 )
-            case "prepare_job" | "sync_extract" | "mark_failed":
-                return StepFunctionsExtractWorkflow(
-                    extract_worker=self.extract_worker if action == "sync_extract" else None,
-                    object_state_repo=self.object_state_repo,
-                    execution_state_repo=self.execution_state_repo,
-                    **common_kwargs,
-                )
+            case "sync_extract":
+                return SyncExtractAction(extract_worker=self.extract_worker)
             case "submit_ocr_job":
-                return StepFunctionsExtractWorkflow(
-                    source_repo=self.source_repo,
-                    ocr_client=self.ocr_client,
-                    **common_kwargs,
-                )
+                return SubmitOcrJobAction(source_repo=self.source_repo, ocr_client=self.ocr_client)
             case "poll_ocr_job":
-                return StepFunctionsExtractWorkflow(
-                    ocr_client=self.ocr_client,
-                    **common_kwargs,
-                )
+                return PollOcrJobAction(ocr_client=self.ocr_client)
             case "persist_ocr_result":
-                return StepFunctionsExtractWorkflow(
+                return PersistOcrResultAction(
                     result_persister=self.result_persister,
-                    execution_state_repo=self.execution_state_repo,
                     ocr_client=self.ocr_client,
                     manifest_builder=self.manifest_builder,
-                    **common_kwargs,
                 )
+            case "mark_failed":
+                return MarkFailedAction(execution_state_repo=self.execution_state_repo)
             case _:
                 raise ValueError(f"Unsupported extract workflow action: {action}")
 

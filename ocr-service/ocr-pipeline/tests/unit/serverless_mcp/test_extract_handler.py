@@ -40,9 +40,9 @@ class _FakeWorkflow:
         self.prepare_job_call = job
         return {"action": "prepare_job", "trace_id": job.trace_id}
 
-    def poll_ocr_job(self, *, job_id: str):
+    def poll_ocr_job(self, *, job_id: str, poll_attempt: int = 0, max_poll_attempts: int | None = None):
         self.poll_job_id = job_id
-        return {"action": "poll_ocr_job", "job_id": job_id}
+        return {"action": "poll_ocr_job", "job_id": job_id, "poll_attempt": poll_attempt, "max_poll_attempts": max_poll_attempts}
 
     def persist_ocr_result(self, *, job, processing_state, json_url, markdown_url):
         self.persist_call = (job, processing_state, json_url, markdown_url)
@@ -231,22 +231,19 @@ def test_workflow_components_load_only_action_specific_dependencies(monkeypatch:
         def __init__(self, **kwargs) -> None:
             calls.append("ocr_client")
 
-    monkeypatch.setattr("serverless_mcp.extract.handlers.support._build_ocr_client", lambda **kwargs: calls.append("ocr_client"))
-    monkeypatch.setattr("serverless_mcp.extract.handlers.support._build_source_repo", lambda *args, **kwargs: calls.append("source_repo"))
-    monkeypatch.setattr("serverless_mcp.extract.handlers.support._build_extraction_service", lambda *args, **kwargs: calls.append("extraction_service"))
-    monkeypatch.setattr("serverless_mcp.extract.handlers.support._build_object_state_repo", lambda *args, **kwargs: calls.append("object_state_repo"))
-    monkeypatch.setattr("serverless_mcp.extract.handlers.support._build_manifest_repo", lambda *args, **kwargs: calls.append("manifest_repo"))
-    monkeypatch.setattr("serverless_mcp.extract.handlers.support._build_embed_dispatcher", lambda *args, **kwargs: calls.append("embed_dispatcher"))
-    monkeypatch.setattr("serverless_mcp.extract.handlers.support._build_result_persister", lambda *args, **kwargs: calls.append("result_persister"))
-    monkeypatch.setattr("serverless_mcp.extract.handlers.support._build_extract_worker", lambda *args, **kwargs: calls.append("extract_worker"))
-    monkeypatch.setattr("serverless_mcp.extract.handlers.support._build_manifest_builder", lambda: calls.append("manifest_builder"))
+    class _FakeSourceRepo:
+        def __init__(self, **kwargs) -> None:
+            calls.append("source_repo")
 
-    components = _WorkflowComponents(settings=_FakeSettings(), clients=_ClientRegistry())
+    monkeypatch.setattr("serverless_mcp.extract.handlers.support.PaddleOCRAsyncClient", _FakeOcrClient)
+    monkeypatch.setattr("serverless_mcp.extract.handlers.support.S3DocumentSource", _FakeSourceRepo)
 
-    workflow = components.workflow_for("poll_ocr_job")
+    components = _WorkflowComponents(settings=_FakeSettings(embed_queue_url="https://queue.example.com"), clients=_ClientRegistry())
 
-    assert workflow is not None
-    assert calls == ["ocr_client"]
+    components.workflow_for("poll_ocr_job")
+    components.workflow_for("submit_ocr_job")
+
+    assert calls == ["ocr_client", "source_repo"]
 
 
 def test_workflow_components_reuse_cached_ocr_client(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -260,7 +257,7 @@ def test_workflow_components_reuse_cached_ocr_client(monkeypatch: pytest.MonkeyP
         def __init__(self, **kwargs) -> None:
             calls.append("ocr_client")
 
-    monkeypatch.setattr("serverless_mcp.extract.handlers.support._build_ocr_client", lambda **kwargs: calls.append("ocr_client"))
+    monkeypatch.setattr("serverless_mcp.extract.handlers.support.PaddleOCRAsyncClient", _FakeOcrClient)
 
     components = _WorkflowComponents(
         settings=_FakeSettings(embed_queue_url="https://queue.example.com"),
@@ -268,7 +265,7 @@ def test_workflow_components_reuse_cached_ocr_client(monkeypatch: pytest.MonkeyP
     )
 
     components.workflow_for("poll_ocr_job")
-    components.workflow_for("submit_ocr_job")
+    components.workflow_for("poll_ocr_job")
 
     assert calls == ["ocr_client"]
 
@@ -285,8 +282,10 @@ def test_mark_failed_lambda_handler_uses_structured_error_payload(monkeypatch: p
     result = extract_mark_failed_module.lambda_handler(
         {
             "job": _job_payload(),
-            "error": "PaddleOCRJobFailed",
-            "cause": "timeout",
+            "failure": {
+                "error": "PaddleOCRJobFailed",
+                "cause": "timeout",
+            },
         },
         None,
     )
@@ -320,8 +319,10 @@ def test_mark_failed_lambda_handler_records_domain_metric_and_handler_failure_se
         extract_mark_failed_module.lambda_handler(
             {
                 "job": _job_payload(),
-                "error": "PaddleOCRJobFailed",
-                "cause": "timeout",
+                "failure": {
+                    "error": "PaddleOCRJobFailed",
+                    "cause": "timeout",
+                },
             },
             None,
         )
@@ -360,8 +361,10 @@ def test_extract_handler_records_domain_metric_and_handler_failure_separately(
             {
                 "action": "mark_failed",
                 "job": _job_payload(),
-                "error": "PaddleOCRJobFailed",
-                "cause": "timeout",
+                "failure": {
+                    "error": "PaddleOCRJobFailed",
+                    "cause": "timeout",
+                },
             },
             None,
         )

@@ -113,7 +113,8 @@
       "Resource": "${POLL_LAMBDA_ARN}",
       "Parameters": {
         "job_id.$": "$.ocr_submission.job_id",
-        "poll_attempt.$": "$.poll_attempt"
+        "poll_attempt.$": "$.poll_attempt",
+        "max_poll_attempts.$": "$.max_poll_attempts"
       },
       "ResultPath": "$.ocr_status",
       "Next": "RouteOcrStatus",
@@ -160,8 +161,8 @@
       "Parameters": {
         "job.$": "$.job",
         "failure": {
-          "Error": "PaddleOCRJobFailed",
-          "Cause.$": "$.ocr_status.error_message"
+          "error": "PaddleOCRJobFailed",
+          "cause.$": "$.ocr_status.error_message"
         }
       },
       "Next": "MarkFailed"
@@ -186,8 +187,9 @@
         "poll_interval_seconds.$": "$.poll_interval_seconds",
         "max_poll_attempts.$": "$.max_poll_attempts",
         "poll_attempt.$": "$.ocr_status.poll_attempt",
+        "ocr_status.$": "$.ocr_status",
         "ocr_submission.$": "$.ocr_submission",
-        "ocr_status.$": "$.ocr_status"
+        "failure.$": "$.failure"
       },
       "Next": "WaitForOcr"
     },
@@ -196,8 +198,8 @@
       "Parameters": {
         "job.$": "$.job",
         "failure": {
-          "Error": "PaddleOCRPollBudgetExceeded",
-          "Cause.$": "States.Format('PaddleOCR job {} did not finish within {} polls', $.ocr_submission.job_id, $.max_poll_attempts)"
+          "error": "PaddleOCRPollBudgetExceeded",
+          "cause.$": "States.Format('PaddleOCR job {} did not finish within {} polls', $.ocr_submission.job_id, $.max_poll_attempts)"
         }
       },
       "Next": "MarkFailed"
@@ -208,7 +210,10 @@
       "Parameters": {
         "job.$": "$.job",
         "processing_state.$": "$.processing_state",
-        "json_url.$": "$.ocr_status.json_url"
+        "json_url.$": "$.ocr_status.json_url",
+        "markdown_url.$": "$.ocr_status.markdown_url",
+        "poll_attempt.$": "$.ocr_status.poll_attempt",
+        "max_poll_attempts.$": "$.ocr_status.max_poll_attempts"
       },
       "End": true,
       "Retry": [
@@ -238,8 +243,7 @@
       "Resource": "${MARK_FAILED_LAMBDA_ARN}",
       "Parameters": {
         "job.$": "$.job",
-        "error.$": "$.failure.Error",
-        "cause.$": "$.failure.Cause"
+        "failure.$": "$.failure"
       },
       "End": true
     }

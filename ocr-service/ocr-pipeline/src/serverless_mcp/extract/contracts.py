@@ -45,9 +45,15 @@ _EXTRACT_STATE_CONTRACTS: tuple[_StateContract, ...] = (
     _StateContract("SyncExtract", "Task", ("job", "processing_state"), end=True),
     _StateContract("SubmitOcrJob", "Task", ("job",), result_path="$.ocr_submission", next_state="WaitForOcr"),
     _StateContract("WaitForOcr", "Wait", seconds_path="$.poll_interval_seconds", next_state="PollOcrJob"),
-    _StateContract("PollOcrJob", "Task", ("job_id", "poll_attempt"), result_path="$.ocr_status", next_state="RouteOcrStatus"),
+    _StateContract(
+        "PollOcrJob",
+        "Task",
+        ("job_id", "poll_attempt", "max_poll_attempts"),
+        result_path="$.ocr_status",
+        next_state="RouteOcrStatus",
+    ),
     _StateContract("RouteOcrStatus", "Choice", default="CheckPollBudget"),
-    _StateContract("BuildOcrJobFailure", "Pass", ("job",), next_state="MarkFailed", nested_parameters={"failure": ("Error", "Cause.$")}),
+    _StateContract("BuildOcrJobFailure", "Pass", ("job",), next_state="MarkFailed", nested_parameters={"failure": ("error", "cause.$")} ),
     _StateContract("CheckPollBudget", "Choice", default="PromotePollAttempt"),
     _StateContract(
         "PromotePollAttempt",
@@ -61,17 +67,18 @@ _EXTRACT_STATE_CONTRACTS: tuple[_StateContract, ...] = (
             "poll_attempt",
             "ocr_submission",
             "ocr_status",
+            "failure",
         ),
         next_state="WaitForOcr",
     ),
-    _StateContract("BuildPollBudgetFailure", "Pass", ("job",), next_state="MarkFailed", nested_parameters={"failure": ("Error", "Cause.$")}),
+    _StateContract("BuildPollBudgetFailure", "Pass", ("job",), next_state="MarkFailed", nested_parameters={"failure": ("error", "cause.$")} ),
     _StateContract(
         "PersistOcrResult",
         "Task",
-        ("job", "processing_state", "json_url"),
+        ("job", "processing_state", "json_url", "markdown_url", "poll_attempt", "max_poll_attempts"),
         end=True,
     ),
-    _StateContract("MarkFailed", "Task", ("job", "error", "cause"), end=True),
+    _StateContract("MarkFailed", "Task", ("job", "failure"), end=True),
 )
 
 

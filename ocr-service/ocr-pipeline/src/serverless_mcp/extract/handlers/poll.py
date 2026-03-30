@@ -19,8 +19,15 @@ def _run_poll_ocr_job(event: dict, _context: object | None) -> dict:
     if not job_id:
         raise ValueError("job_id is required for poll_ocr_job")
     poll_attempt = int(event.get("poll_attempt") or 0)
-    emit_trace("handler.dispatch", action="poll_ocr_job", job_id=job_id, poll_attempt=poll_attempt)
-    return workflow.poll_ocr_job(job_id=job_id, poll_attempt=poll_attempt)
+    max_poll_attempts = int(event.get("max_poll_attempts") or 0) or None
+    emit_trace(
+        "handler.dispatch",
+        action="poll_ocr_job",
+        job_id=job_id,
+        poll_attempt=poll_attempt,
+        max_poll_attempts=max_poll_attempts,
+    )
+    return workflow.poll_ocr_job(job_id=job_id, poll_attempt=poll_attempt, max_poll_attempts=max_poll_attempts)
 
 
 lambda_handler = build_action_handler("poll_ocr_job", _run_poll_ocr_job)

@@ -17,9 +17,12 @@ def _run_mark_failed(event: dict, _context: object | None) -> dict:
     """
     workflow = _get_components().workflow_for("mark_failed")
     job = validate_job(event.get("job"), required_for="mark_failed")
+    failure_payload = event.get("failure")
+    if not isinstance(failure_payload, dict):
+        raise ValueError("failure is required for mark_failed")
     failure = build_extract_failure_details(
-        str(event.get("error") or "").strip(),
-        str(event.get("cause") or "").strip() or None,
+        str(failure_payload.get("error") or "").strip(),
+        str(failure_payload.get("cause") or "").strip() or None,
     )
     emit_trace(
         "handler.dispatch",
