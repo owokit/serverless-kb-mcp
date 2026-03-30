@@ -167,9 +167,7 @@ def _list_prefix(paragraph: Paragraph, style_name: str) -> str | None:
     if num_pr is not None:
         level = getattr(getattr(num_pr, "ilvl", None), "val", None)
         num_id = getattr(getattr(num_pr, "numId", None), "val", None)
-        if num_id is not None:
-            return "1."
-        if level is not None:
+        if num_id is not None or level is not None:
             return "-"
     return None
 

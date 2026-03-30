@@ -67,7 +67,6 @@ _EXTRACT_STATE_CONTRACTS: tuple[_StateContract, ...] = (
             "poll_attempt",
             "ocr_submission",
             "ocr_status",
-            "failure",
         ),
         next_state="WaitForOcr",
     ),

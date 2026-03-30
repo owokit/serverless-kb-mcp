@@ -188,8 +188,7 @@
         "max_poll_attempts.$": "$.max_poll_attempts",
         "poll_attempt.$": "$.ocr_status.poll_attempt",
         "ocr_status.$": "$.ocr_status",
-        "ocr_submission.$": "$.ocr_submission",
-        "failure.$": "$.failure"
+        "ocr_submission.$": "$.ocr_submission"
       },
       "Next": "WaitForOcr"
     },
