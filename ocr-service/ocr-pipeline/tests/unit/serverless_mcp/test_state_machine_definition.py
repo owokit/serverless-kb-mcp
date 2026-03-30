@@ -37,6 +37,9 @@ def test_load_extract_state_machine_definition_renders_lambda_arn() -> None:
     assert parsed["States"]["WaitForOcr"]["Type"] == "Wait"
     assert "action" not in parsed["States"]["PersistOcrResult"]["Parameters"]
     assert parsed["States"]["PollOcrJob"]["Parameters"]["poll_attempt.$"] == "$.poll_attempt"
+    assert parsed["States"]["PollOcrJob"]["Parameters"]["max_poll_attempts.$"] == "$.max_poll_attempts"
+    assert parsed["States"]["PersistOcrResult"]["Parameters"]["markdown_url.$"] == "$.ocr_status.markdown_url"
+    assert parsed["States"]["MarkFailed"]["Parameters"]["failure.$"] == "$.failure"
     assert parsed["States"]["CheckPollBudget"]["Choices"][0]["Next"] == "BuildPollBudgetFailure"
     assert parsed["States"]["MarkFailed"]["Resource"] == "arn:aws:lambda:ap-southeast-1:123:function:extract-failed"
     assert "action" not in parsed["States"]["MarkFailed"]["Parameters"]

@@ -11,6 +11,7 @@ from pptx.util import Inches
 
 from serverless_mcp.extract import extractors as extractor_module
 from serverless_mcp.extract.extractors import DocumentExtractor
+from serverless_mcp.extract.docx_to_markdown import _list_prefix
 from serverless_mcp.extract.policy import DEFAULT_POLICY
 from serverless_mcp.domain.models import S3ObjectRef
 
@@ -97,6 +98,27 @@ def test_docx_extraction_uses_section_headings_and_tables() -> None:
     assert "right" in "\n".join(chunk.text for chunk in manifest.chunks)
 
 
+def test_docx_numbering_metadata_defaults_to_unordered_prefix() -> None:
+    """
+    EN: Numbering metadata should default to an unordered list prefix when only numPr is present.
+    CN: 仅有 numPr 时，编号元数据应默认使用无序列表前缀。
+    """
+    class _Value:
+        def __init__(self, val) -> None:
+            self.val = val
+
+    class _NumPr:
+        def __init__(self) -> None:
+            self.numId = _Value(1)
+            self.ilvl = _Value(0)
+
+    class _Paragraph:
+        def __init__(self) -> None:
+            self._p = type("_P", (), {"pPr": type("_PPr", (), {"numPr": _NumPr()})()})()
+
+    assert _list_prefix(_Paragraph(), "") == "-"
+
+
 def test_pptx_extraction_uses_slide_segments() -> None:
     """
     EN: Pptx extraction uses slide segments.
@@ -108,8 +130,10 @@ def test_pptx_extraction_uses_slide_segments() -> None:
     textbox = slide1.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
     textbox.text = "Title"
     slide2 = presentation.slides.add_slide(presentation.slide_layouts[1])
-    slide2.shapes.title.text = "Second"
-    slide2.placeholders[1].text = "Bullet one\nBullet two"
+    slide2_title = slide2.shapes.add_textbox(Inches(1), Inches(1), Inches(4), Inches(1))
+    slide2_title.text = "Second"
+    slide2_body = slide2.shapes.add_textbox(Inches(1), Inches(2), Inches(4), Inches(2))
+    slide2_body.text = "Bullet one\nBullet two"
     presentation.save(buffer)
 
     extractor = DocumentExtractor()

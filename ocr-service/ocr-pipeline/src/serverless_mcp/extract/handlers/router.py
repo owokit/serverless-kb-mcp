@@ -87,13 +87,19 @@ def lambda_handler(event: dict, _context) -> dict:
                 result = workflow.submit_ocr_job(job=job)
             case {"action": "poll_ocr_job", "job_id": str(job_id)} if job_id:
                 poll_attempt = int(event.get("poll_attempt") or 0)
+                max_poll_attempts = int(event.get("max_poll_attempts") or 0) or None
                 emit_trace(
                     "handler.dispatch",
                     action=action,
                     job_id=job_id,
                     poll_attempt=poll_attempt,
+                    max_poll_attempts=max_poll_attempts,
                 )
-                result = workflow.poll_ocr_job(job_id=job_id, poll_attempt=poll_attempt)
+                result = workflow.poll_ocr_job(
+                    job_id=job_id,
+                    poll_attempt=poll_attempt,
+                    max_poll_attempts=max_poll_attempts,
+                )
             case {
                 "action": "persist_ocr_result",
                 "job": job_payload,
@@ -134,11 +140,13 @@ def lambda_handler(event: dict, _context) -> dict:
                     json_url=normalized_json_url,
                     markdown_url=normalized_markdown_url,
                 )
-            case {"action": "mark_failed", "job": job_payload}:
+            case {"action": "mark_failed", "job": job_payload, "failure": failure_payload}:
                 job = validate_job(job_payload, required_for="mark_failed")
+                if not isinstance(failure_payload, dict):
+                    raise ValueError("failure is required for mark_failed")
                 failure = build_extract_failure_details(
-                    str(event.get("error") or "extract workflow failed"),
-                    str(event.get("cause") or "").strip() or None,
+                    str(failure_payload.get("error") or "").strip(),
+                    str(failure_payload.get("cause") or "").strip() or None,
                 )
                 emit_trace(
                     "handler.dispatch",
