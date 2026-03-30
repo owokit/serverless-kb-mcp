@@ -16,10 +16,8 @@ from serverless_mcp.core.parsers import parse_event
 from serverless_mcp.domain.models import EmbeddingProfile, ObjectStateRecord, S3ObjectRef
 from serverless_mcp.runtime.aws_resolution import resolve_step_functions_state_machine_arn
 from serverless_mcp.runtime.bootstrap import (
-    build_manifest_repo,
-    build_object_state_repo,
-    build_projection_state_repo,
     build_runtime_context,
+    build_runtime_repositories,
 )
 from serverless_mcp.runtime.config import Settings
 from serverless_mcp.runtime.embedding_profiles import get_write_profiles
@@ -305,16 +303,16 @@ def build_ingest_workflow_starter(
     state_machine_arn = resolve_step_functions_state_machine_arn(
         state_machine_ref=active_settings.step_functions_state_machine_arn,
     )
-    object_state_repo = build_object_state_repo(settings=active_settings, clients=clients)
-    execution_state_repo = ExecutionStateRepository(
-        table_name=active_settings.execution_state_table,
-        dynamodb_client=clients.dynamodb,
-    )
+    repositories = build_runtime_repositories(settings=active_settings, clients=clients)
+    object_state_repo = repositories.object_state_repo
+    execution_state_repo = repositories.execution_state_repo
+    if execution_state_repo is None:
+        raise ValueError("EXECUTION_STATE_TABLE is required for ingest worker")
     delete_lifecycle_manager = None
     write_profiles = get_write_profiles(active_settings)
     if active_settings.manifest_bucket and active_settings.manifest_index_table and write_profiles:
-        projection_state_repo = build_projection_state_repo(settings=active_settings, clients=clients)
-        manifest_repo = build_manifest_repo(settings=active_settings, clients=clients)
+        projection_state_repo = repositories.projection_state_repo
+        manifest_repo = repositories.manifest_repo
         if manifest_repo is None:
             raise ValueError("MANIFEST_BUCKET and MANIFEST_INDEX_TABLE are required for ingest worker cleanup")
         delete_lifecycle_manager = DeleteMarkerGovernance(

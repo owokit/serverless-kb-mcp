@@ -3,7 +3,9 @@ EN: Tests for ExtractionResultPersister covering manifest persistence, embed job
 CN: 鍚屼笂銆?
 """
 
-from serverless_mcp.extract.pipeline import ExtractionResultPersister
+from serverless_mcp.embed.dispatcher import build_jobs_for_profiles
+from serverless_mcp.extract.result_persister import ExtractionResultPersister
+from serverless_mcp.extract.state_commit import ExtractionStateCommitter
 from serverless_mcp.domain.models import (
     ChunkManifest,
     EmbeddingProfile,
@@ -107,6 +109,36 @@ class _FakeDispatcher:
             raise RuntimeError("dispatch failed")
         self.jobs.extend(jobs)
 
+    def dispatch_for_profiles(
+        self,
+        *,
+        source,
+        trace_id: str,
+        manifest_s3_uri: str,
+        requests,
+        profiles,
+        previous_version_id,
+        previous_manifest_s3_uri,
+    ) -> int:
+        jobs = build_jobs_for_profiles(
+            source=source,
+            trace_id=trace_id,
+            manifest_s3_uri=manifest_s3_uri,
+            requests=requests,
+            profiles=profiles,
+            previous_version_id=previous_version_id,
+            previous_manifest_s3_uri=previous_manifest_s3_uri,
+        )
+        self.dispatch_many(jobs)
+        return len(jobs)
+
+
+def _make_state_committer(object_state_repo, execution_state_repo=None) -> ExtractionStateCommitter:
+    return ExtractionStateCommitter(
+        object_state_repo=object_state_repo,
+        execution_state_repo=execution_state_repo,
+    )
+
 
 def test_persister_persists_manifest_and_dispatches_embed_job() -> None:
     """
@@ -117,7 +149,7 @@ def test_persister_persists_manifest_and_dispatches_embed_job() -> None:
     dispatcher = _FakeDispatcher()
     persister = ExtractionResultPersister(
         extraction_service=_FakeExtractionService(),
-        object_state_repo=_FakeObjectStateRepo(),
+        state_committer=_make_state_committer(_FakeObjectStateRepo()),
         manifest_repo=_FakeManifestRepo(),
         embed_dispatcher=dispatcher,
         embedding_profiles=(
@@ -182,7 +214,7 @@ def test_persister_skips_stale_state_before_manifest_persistence() -> None:
     dispatcher = _FakeDispatcher()
     persister = ExtractionResultPersister(
         extraction_service=_FakeExtractionService(),
-        object_state_repo=_FakeObjectStateRepo(current_state=current_state),
+        state_committer=_make_state_committer(_FakeObjectStateRepo(current_state=current_state)),
         manifest_repo=manifest_repo,
         embed_dispatcher=dispatcher,
         embedding_profiles=(
@@ -246,7 +278,7 @@ def test_persister_skips_when_mark_extract_done_detects_duplicate_or_stale_event
     dispatcher = _FakeDispatcher()
     persister = ExtractionResultPersister(
         extraction_service=_FakeExtractionService(),
-        object_state_repo=object_state_repo,
+        state_committer=_make_state_committer(object_state_repo),
         manifest_repo=_FakeManifestRepo(),
         embed_dispatcher=dispatcher,
         embedding_profiles=(
@@ -301,7 +333,7 @@ def test_persister_rolls_back_manifest_when_embedding_request_build_fails() -> N
     manifest_repo = _FakeManifestRepo()
     persister = ExtractionResultPersister(
         extraction_service=_FailingExtractionService(),
-        object_state_repo=_FakeObjectStateRepo(
+        state_committer=_make_state_committer(_FakeObjectStateRepo(
             current_state=ObjectStateRecord(
                 pk=source.object_pk,
                 latest_version_id=source.version_id,
@@ -309,7 +341,7 @@ def test_persister_rolls_back_manifest_when_embedding_request_build_fails() -> N
                 extract_status="EXTRACTING",
                 embed_status="PENDING",
             )
-        ),
+        )),
         manifest_repo=manifest_repo,
         embed_dispatcher=_FakeDispatcher(),
         embedding_profiles=(
@@ -361,7 +393,7 @@ def test_persister_passes_previous_version_id_to_manifest_repo() -> None:
     manifest_repo = _FakeManifestRepo()
     persister = ExtractionResultPersister(
         extraction_service=_FakeExtractionService(),
-        object_state_repo=_FakeObjectStateRepo(),
+        state_committer=_make_state_committer(_FakeObjectStateRepo()),
         manifest_repo=manifest_repo,
         embed_dispatcher=_FakeDispatcher(),
         embedding_profiles=(
@@ -414,7 +446,7 @@ def test_persister_fans_out_jobs_by_profile() -> None:
     dispatcher = _FakeDispatcher()
     persister = ExtractionResultPersister(
         extraction_service=_FakeExtractionService(),
-        object_state_repo=_FakeObjectStateRepo(),
+        state_committer=_make_state_committer(_FakeObjectStateRepo()),
         manifest_repo=_FakeManifestRepo(),
         embed_dispatcher=dispatcher,
         embedding_profiles=(
@@ -472,7 +504,7 @@ def test_persister_does_not_mark_extract_done_when_dispatch_fails() -> None:
     dispatcher = _FakeDispatcher(fail=True)
     persister = ExtractionResultPersister(
         extraction_service=_FakeExtractionService(),
-        object_state_repo=object_state_repo,
+        state_committer=_make_state_committer(object_state_repo),
         manifest_repo=_FakeManifestRepo(),
         embed_dispatcher=dispatcher,
         embedding_profiles=(

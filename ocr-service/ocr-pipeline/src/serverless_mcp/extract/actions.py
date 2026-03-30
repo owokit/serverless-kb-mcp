@@ -9,8 +9,8 @@ from time import monotonic
 from urllib.parse import urlparse
 
 from serverless_mcp.domain.models import ExtractJobMessage, ObjectStateRecord
+from .result_persister import ExtractionResultPersister
 from serverless_mcp.extract.contracts import ExtractFailureDetails
-from serverless_mcp.extract.pipeline import ExtractionResultPersister
 from serverless_mcp.extract.s3_source import S3DocumentSource
 from serverless_mcp.ocr.paddle_async_client import PaddleOCRAsyncClient
 from serverless_mcp.ocr.paddle_manifest_builder import PaddleOCRManifestBuilder

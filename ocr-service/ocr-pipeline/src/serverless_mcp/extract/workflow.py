@@ -13,7 +13,7 @@ from serverless_mcp.extract.contracts import ExtractFailureDetails
 from serverless_mcp.ocr.paddle_async_client import PaddleOCRAsyncClient
 from serverless_mcp.ocr.paddle_manifest_builder import PaddleOCRManifestBuilder
 from serverless_mcp.runtime.observability import emit_metric, emit_trace
-from .pipeline import ExtractionResultPersister
+from .result_persister import ExtractionResultPersister
 from serverless_mcp.domain.models import ExtractJobMessage, ObjectStateRecord
 from serverless_mcp.storage.state.execution_state_repository import ExecutionStateRepository
 from serverless_mcp.storage.state.object_state_repository import ObjectStateRepository

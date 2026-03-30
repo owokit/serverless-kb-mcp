@@ -5,19 +5,18 @@ CN: extract handler 共享的负载校验与懒加载工作流装配。
 from __future__ import annotations
 
 from functools import cached_property, lru_cache
-from types import SimpleNamespace
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from serverless_mcp.embed.dispatcher import EmbeddingJobDispatcher
 from serverless_mcp.extract.application import ExtractionService
-from serverless_mcp.extract.pipeline import ExtractionResultPersister
+from serverless_mcp.extract.result_persister import ExtractionResultPersister
+from serverless_mcp.extract.state_commit import ExtractionStateCommitter
 from serverless_mcp.extract.s3_source import S3DocumentSource
 from serverless_mcp.extract.worker import ExtractWorker
 from serverless_mcp.ocr.paddle_async_client import PaddleOCRAsyncClient
 from serverless_mcp.ocr.paddle_manifest_builder import PaddleOCRManifestBuilder
-from serverless_mcp.runtime.bootstrap import build_execution_state_repo, build_manifest_repo, build_object_state_repo
-from serverless_mcp.runtime.aws_clients import build_aws_client
+from serverless_mcp.runtime.bootstrap import RuntimeContext, build_runtime_context, build_runtime_repositories
+from serverless_mcp.runtime.aws_clients import AwsClientBundle
 from serverless_mcp.runtime.config import Settings
 from serverless_mcp.domain.models import ExtractJobMessage, ObjectStateRecord, S3ObjectRef
 
@@ -114,34 +113,20 @@ class _ObjectStatePayload(BaseModel):
         return ObjectStateRecord(**payload)
 
 
-class _AwsClientRegistry:
-    """
-    EN: Cache boto3 clients at module scope so Lambda warm starts reuse TCP connection pools.
-    CN: 在模块级缓存 boto3 客户端，让 Lambda warm start 复用 TCP 连接池。
-    """
-
-    @cached_property
-    def s3(self):
-        return build_aws_client("s3")
-
-    @cached_property
-    def dynamodb(self):
-        return build_aws_client("dynamodb")
-
-    @cached_property
-    def sqs(self):
-        return build_aws_client("sqs")
-
-
 class _WorkflowComponents:
     """
     EN: Lazily assemble only the repositories and clients required by each Step Functions action.
     CN: 仅为每个 Step Functions 动作懒加载装配所需的仓库和客户端。
     """
 
-    def __init__(self, settings: Settings, clients: _AwsClientRegistry) -> None:
-        self._settings = settings
-        self._clients = clients
+    def __init__(self, settings: Settings, clients: AwsClientBundle | None = None) -> None:
+        runtime_context: RuntimeContext = build_runtime_context(settings=settings, clients=clients)
+        self._settings = runtime_context.settings
+        self._clients = runtime_context.clients
+
+    @cached_property
+    def runtime_repositories(self):
+        return build_runtime_repositories(settings=self._settings, clients=self._clients)
 
     @cached_property
     def source_repo(self):
@@ -153,50 +138,46 @@ class _WorkflowComponents:
 
     @cached_property
     def object_state_repo(self):
-        return build_object_state_repo(
-            settings=Settings(object_state_table=self._settings.object_state_table),
-            clients=SimpleNamespace(dynamodb=self._clients.dynamodb),
-        )
+        return self.runtime_repositories.object_state_repo
 
     @cached_property
     def execution_state_repo(self):
-        if not self._settings.execution_state_table:
+        repositories = self.runtime_repositories
+        if repositories.execution_state_repo is None:
             raise ValueError("EXECUTION_STATE_TABLE is required for extract workflow")
-        return build_execution_state_repo(
-            settings=Settings(object_state_table=self._settings.object_state_table, execution_state_table=self._settings.execution_state_table),
-            clients=SimpleNamespace(dynamodb=self._clients.dynamodb),
-        )
+        return repositories.execution_state_repo
 
     @cached_property
     def manifest_repo(self):
-        if not self._settings.manifest_bucket or not self._settings.manifest_index_table:
+        repositories = self.runtime_repositories
+        if repositories.manifest_repo is None:
             raise ValueError("MANIFEST_BUCKET and MANIFEST_INDEX_TABLE are required for extract workflow")
-        return build_manifest_repo(
-            settings=Settings(
-                object_state_table=self._settings.object_state_table,
-                manifest_bucket=self._settings.manifest_bucket,
-                manifest_prefix=self._settings.manifest_prefix,
-                manifest_index_table=self._settings.manifest_index_table,
-            ),
-            clients=SimpleNamespace(s3=self._clients.s3, dynamodb=self._clients.dynamodb),
+        return repositories.manifest_repo
+
+    @cached_property
+    def state_committer(self):
+        return ExtractionStateCommitter(
+            object_state_repo=self.object_state_repo,
+            execution_state_repo=self.execution_state_repo,
+        )
+
+    @cached_property
+    def result_persister(self):
+        return ExtractionResultPersister(
+            extraction_service=self.extraction_service,
+            state_committer=self.state_committer,
+            manifest_repo=self.manifest_repo,
+            embed_dispatcher=self.embed_dispatcher,
+            embedding_profiles=self._settings.embedding_profiles,
         )
 
     @cached_property
     def embed_dispatcher(self):
         if not self._settings.embed_queue_url:
             raise ValueError("EMBED_QUEUE_URL is required for extract workflow")
-        return EmbeddingJobDispatcher(queue_url=self._settings.embed_queue_url, sqs_client=self._clients.sqs)
+        from serverless_mcp.embed.dispatcher import EmbeddingJobDispatcher
 
-    @cached_property
-    def result_persister(self):
-        return ExtractionResultPersister(
-            extraction_service=self.extraction_service,
-            object_state_repo=self.object_state_repo,
-            manifest_repo=self.manifest_repo,
-            embed_dispatcher=self.embed_dispatcher,
-            embedding_profiles=self._settings.embedding_profiles,
-            execution_state_repo=self.execution_state_repo,
-        )
+        return EmbeddingJobDispatcher(queue_url=self._settings.embed_queue_url, sqs_client=self._clients.sqs)
 
     @cached_property
     def extract_worker(self):
@@ -264,9 +245,6 @@ class _WorkflowComponents:
                 raise ValueError(f"Unsupported extract workflow action: {action}")
 
 
-_AWS_CLIENTS = _AwsClientRegistry()
-
-
 @lru_cache(maxsize=1)
 def _get_settings() -> Settings:
     """
@@ -282,7 +260,7 @@ def _get_components() -> _WorkflowComponents:
     EN: Cache workflow components so repositories and clients survive Lambda warm starts.
     CN: 缓存工作流组件，让仓库和客户端跨 Lambda warm start 复用。
     """
-    return _WorkflowComponents(settings=_get_settings(), clients=_AWS_CLIENTS)
+    return _WorkflowComponents(settings=_get_settings())
 
 
 def validate_job(payload: object, *, required_for: str) -> ExtractJobMessage:

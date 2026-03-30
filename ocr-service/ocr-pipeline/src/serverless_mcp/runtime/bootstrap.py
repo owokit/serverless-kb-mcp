@@ -48,6 +48,19 @@ def build_runtime_context(*, settings: Settings | None = None, clients: AwsClien
     return RuntimeContext(settings=active_settings, clients=active_clients)
 
 
+def build_runtime_repositories(*, settings: Settings, clients: AwsClientBundle) -> RuntimeRepositories:
+    """
+    EN: Build the shared repository bundle from one canonical runtime input set.
+    CN: 基于一组统一的运行时输入构建共享 repository 组合。
+    """
+    return RuntimeRepositories(
+        object_state_repo=build_object_state_repo(settings=settings, clients=clients),
+        execution_state_repo=build_execution_state_repo(settings=settings, clients=clients),
+        manifest_repo=build_manifest_repo(settings=settings, clients=clients),
+        projection_state_repo=build_projection_state_repo(settings=settings, clients=clients),
+    )
+
+
 def build_object_state_repo(*, settings: Settings, clients: AwsClientBundle) -> ObjectStateRepository:
     """
     EN: Build the canonical object_state repository once from shared runtime inputs.
@@ -103,6 +116,7 @@ __all__ = [
     "RuntimeContext",
     "RuntimeRepositories",
     "build_runtime_context",
+    "build_runtime_repositories",
     "build_object_state_repo",
     "build_execution_state_repo",
     "build_manifest_repo",
