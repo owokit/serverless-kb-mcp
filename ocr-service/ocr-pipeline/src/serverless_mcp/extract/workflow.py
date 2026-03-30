@@ -247,40 +247,51 @@ class StepFunctionsExtractWorkflow:
         *,
         job: ExtractJobMessage,
         processing_state: ObjectStateRecord,
-        json_url: str,
+        json_url: str | None = None,
         markdown_url: str,
     ) -> dict:
         """
         EN: Download OCR output, build the manifest, and persist extraction results.
         CN: 下载 OCR 输出、构建 manifest，并持久化提取结果。
         """
-        if not json_url:
-            raise ValueError("json_url is required when persisting OCR output")
-        if not markdown_url:
+        if not isinstance(markdown_url, str) or not markdown_url.strip():
             raise ValueError("markdown_url is required when persisting OCR output")
+        if json_url is not None and not json_url.strip():
+            raise ValueError("json_url must be blank-free when provided")
+        normalized_json_url = json_url.strip() if json_url is not None else None
+        normalized_markdown_url = markdown_url.strip()
         start = monotonic()
+        trace_payload = {
+            "document_uri": job.source.document_uri,
+            "trace_id": job.trace_id,
+            "markdown_url_host": urlparse(normalized_markdown_url).hostname,
+            "markdown_url_path": urlparse(normalized_markdown_url).path,
+            "previous_version_id": processing_state.previous_version_id,
+            "json_url_present": normalized_json_url is not None,
+        }
+        if normalized_json_url is not None:
+            trace_payload.update(
+                json_url_host=urlparse(normalized_json_url).hostname,
+                json_url_path=urlparse(normalized_json_url).path,
+            )
         emit_trace(
             "persist_ocr_result.start",
-            document_uri=job.source.document_uri,
-            trace_id=job.trace_id,
-            json_url_host=urlparse(json_url).hostname,
-            json_url_path=urlparse(json_url).path,
-            markdown_url_host=urlparse(markdown_url).hostname,
-            markdown_url_path=urlparse(markdown_url).path,
-            previous_version_id=processing_state.previous_version_id,
+            **trace_payload,
         )
         ocr_client = self._require_ocr_client()
-        download_start = monotonic()
-        json_lines = ocr_client.download_json_lines(json_url)
-        emit_trace(
-            "persist_ocr_result.download_done",
-            document_uri=job.source.document_uri,
-            trace_id=job.trace_id,
-            json_line_count=len(json_lines),
-            elapsed_ms=round((monotonic() - download_start) * 1000, 2),
-        )
+        json_lines = None
+        if normalized_json_url is not None:
+            download_start = monotonic()
+            json_lines = ocr_client.download_json_lines(normalized_json_url)
+            emit_trace(
+                "persist_ocr_result.download_done",
+                document_uri=job.source.document_uri,
+                trace_id=job.trace_id,
+                json_line_count=len(json_lines),
+                elapsed_ms=round((monotonic() - download_start) * 1000, 2),
+            )
         markdown_download_start = monotonic()
-        markdown_text = ocr_client.download_markdown(markdown_url)
+        markdown_text = ocr_client.download_markdown(normalized_markdown_url)
         emit_trace(
             "persist_ocr_result.markdown_download_done",
             document_uri=job.source.document_uri,

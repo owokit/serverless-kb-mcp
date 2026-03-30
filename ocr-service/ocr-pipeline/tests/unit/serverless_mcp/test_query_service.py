@@ -247,6 +247,56 @@ class _FakeProjectionStateRepo:
         return _Record()
 
 
+class _BatchProjectionStateRepo:
+    # EN: Projection state repo that records batch lookups.
+    # CN: 记录 batch 查询的 projection state repo 替身。
+    def __init__(self) -> None:
+        self.batch_keys: list[tuple[str, str, str]] = []
+
+    def get_states_batch(self, *, keys):
+        self.batch_keys.extend(keys)
+        return {
+            key: _FakeProjectionStateRepo().get_state(
+                object_pk=key[0],
+                version_id=key[1],
+                profile_id=key[2],
+            )
+            for key in keys
+        }
+
+
+def test_query_service_uses_batch_projection_state_reads() -> None:
+    """
+    EN: Query service should batch load projection states when the repository supports it.
+    CN: QueryService 在仓库支持时应批量加载 projection state。
+    """
+    batch_repo = _BatchProjectionStateRepo()
+    service = QueryService(
+        embedding_clients={
+            "gemini-default": _FakeGeminiClient(),
+            "openai-text-small": _FakeOpenAIClient(),
+        },
+        query_profiles=_build_profiles(),
+        vector_repo=_FakeVectorRepo(),
+        manifest_repo=_FakeManifestRepo(),
+        object_state_repo=_FakeObjectStateRepo(),
+        projection_state_repo=batch_repo,
+    )
+
+    result = service.search(
+        query="hello",
+        tenant_id="tenant-a",
+        top_k=5,
+        neighbor_expand=1,
+    )
+
+    assert len(result.results) == 1
+    assert set(batch_repo.batch_keys) == {
+        ("tenant-a#bucket-a#docs%2Fguide.md", "v2", "gemini-default"),
+        ("tenant-a#bucket-a#docs%2Fguide.md", "v1", "gemini-default"),
+    }
+
+
 def _build_profiles():
     return (
         EmbeddingProfile(

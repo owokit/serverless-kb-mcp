@@ -9,13 +9,15 @@ from serverless_mcp.embed.asset_source import EmbedAssetSource
 from serverless_mcp.embed.backfill import EmbeddingBackfillService
 from serverless_mcp.embed.dispatcher import EmbeddingJobDispatcher
 from serverless_mcp.embed.vector_repository import S3VectorRepository
-from serverless_mcp.runtime.bootstrap import build_runtime_context
+from serverless_mcp.runtime.bootstrap import (
+    build_execution_state_repo,
+    build_manifest_repo,
+    build_object_state_repo,
+    build_projection_state_repo,
+    build_runtime_context,
+)
 from serverless_mcp.runtime.config import Settings
 from serverless_mcp.runtime.embedding_profiles import build_embedding_clients, get_write_profiles
-from serverless_mcp.storage.projection.repository import EmbeddingProjectionStateRepository
-from serverless_mcp.storage.state.execution_state_repository import ExecutionStateRepository
-from serverless_mcp.storage.manifest.repository import ManifestRepository
-from serverless_mcp.storage.state.object_state_repository import ObjectStateRepository
 
 
 def build_embed_worker(settings: Settings | None = None) -> EmbedWorker:
@@ -35,33 +37,20 @@ def build_embed_worker(settings: Settings | None = None) -> EmbedWorker:
     if not active_settings.execution_state_table:
         raise ValueError("EXECUTION_STATE_TABLE is required for embed worker")
     clients = runtime_context.clients
-    projection_state_repo = None
-    if active_settings.embedding_projection_state_table:
-        projection_state_repo = EmbeddingProjectionStateRepository(
-            table_name=active_settings.embedding_projection_state_table,
-            dynamodb_client=clients.dynamodb,
-        )
-    execution_state_repo = ExecutionStateRepository(
-        table_name=active_settings.execution_state_table,
-        dynamodb_client=clients.dynamodb,
-    )
+    projection_state_repo = build_projection_state_repo(settings=active_settings, clients=clients)
+    execution_state_repo = build_execution_state_repo(settings=active_settings, clients=clients)
+    manifest_repo = build_manifest_repo(settings=active_settings, clients=clients)
+    object_state_repo = build_object_state_repo(settings=active_settings, clients=clients)
+    if manifest_repo is None:
+        raise ValueError("MANIFEST_BUCKET and MANIFEST_INDEX_TABLE are required for embed worker")
 
     return EmbedWorker(
         embedding_clients=build_embedding_clients(active_settings, profiles=write_profiles),
         embedding_profiles={profile.profile_id: profile for profile in write_profiles},
         asset_source=EmbedAssetSource(s3_client=clients.s3),
         vector_repo=S3VectorRepository(s3vectors_client=clients.s3vectors),
-        manifest_repo=ManifestRepository(
-            manifest_bucket=active_settings.manifest_bucket,
-            manifest_prefix=active_settings.manifest_prefix,
-            s3_client=clients.s3,
-            dynamodb_client=clients.dynamodb,
-            manifest_index_table=active_settings.manifest_index_table,
-        ),
-        object_state_repo=ObjectStateRepository(
-            table_name=active_settings.object_state_table,
-            dynamodb_client=clients.dynamodb,
-        ),
+        manifest_repo=manifest_repo,
+        object_state_repo=object_state_repo,
         execution_state_repo=execution_state_repo,
         projection_state_repo=projection_state_repo,
     )
@@ -84,31 +73,18 @@ def build_backfill_service(settings: Settings | None = None) -> EmbeddingBackfil
         raise ValueError("EXECUTION_STATE_TABLE is required for embedding backfill")
     clients = runtime_context.clients
     profiles = get_write_profiles(active_settings)
-    projection_state_repo = None
-    if active_settings.embedding_projection_state_table:
-        projection_state_repo = EmbeddingProjectionStateRepository(
-            table_name=active_settings.embedding_projection_state_table,
-            dynamodb_client=clients.dynamodb,
-        )
-    execution_state_repo = ExecutionStateRepository(
-        table_name=active_settings.execution_state_table,
-        dynamodb_client=clients.dynamodb,
-    )
+    projection_state_repo = build_projection_state_repo(settings=active_settings, clients=clients)
+    execution_state_repo = build_execution_state_repo(settings=active_settings, clients=clients)
+    manifest_repo = build_manifest_repo(settings=active_settings, clients=clients)
+    object_state_repo = build_object_state_repo(settings=active_settings, clients=clients)
+    if manifest_repo is None:
+        raise ValueError("MANIFEST_BUCKET and MANIFEST_INDEX_TABLE are required for embedding backfill")
 
     return EmbeddingBackfillService(
         extraction_service=ExtractionService(),
-        object_state_repo=ObjectStateRepository(
-            table_name=active_settings.object_state_table,
-            dynamodb_client=clients.dynamodb,
-        ),
+        object_state_repo=object_state_repo,
         execution_state_repo=execution_state_repo,
-        manifest_repo=ManifestRepository(
-            manifest_bucket=active_settings.manifest_bucket,
-            manifest_prefix=active_settings.manifest_prefix,
-            s3_client=clients.s3,
-            dynamodb_client=clients.dynamodb,
-            manifest_index_table=active_settings.manifest_index_table,
-        ),
+        manifest_repo=manifest_repo,
         embed_dispatcher=EmbeddingJobDispatcher(
             queue_url=active_settings.embed_queue_url,
             sqs_client=clients.sqs,

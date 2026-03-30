@@ -122,3 +122,25 @@ def test_paddle_manifest_builder_recursively_splits_oversized_layout_markdown(mo
     assert manifest.chunks[0].text.startswith("# Intro")
     assert any("```python" in chunk.text for chunk in manifest.chunks)
     assert any(chunk.text.startswith("## Next") for chunk in manifest.chunks)
+
+
+def test_paddle_manifest_builder_accepts_markdown_only_input() -> None:
+    """
+    EN: Paddle manifest builder should persist markdown-only OCR results without JSONL.
+    CN: Paddle manifest builder 应支持仅有 Markdown 的 OCR 结果而不依赖 JSONL。
+    """
+    builder = PaddleOCRManifestBuilder()
+    source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/scan.pdf", version_id="v1")
+
+    manifest = builder.build_manifest_from_markdown(
+        source=source,
+        markdown_text="# Intro\n\nhello world",
+        binary_loader=lambda url: (f"binary:{url}".encode("utf-8"), "image/png"),
+        json_lines=None,
+    )
+
+    assert manifest.metadata["raw_json_asset_count"] == 0
+    assert manifest.metadata["layout_markdown_asset_count"] == 1
+    assert manifest.metadata["markdown_asset_count"] == 2
+    assert manifest.metadata["document_markdown_asset_count"] == 1
+    assert manifest.chunks[0].text.startswith("# Intro")

@@ -207,7 +207,7 @@ def parse_markdown_blocks(markdown_text: str, *, token_counter: Callable[[str], 
                         header_path=tuple(header_stack),
                         start_line=start_line + 1,
                         end_line=end_line,
-                        is_atomic=True,
+                        is_atomic=False,
                         metadata={
                             "token_type": token.type,
                             "line_span": (start_line + 1, end_line),
@@ -344,7 +344,14 @@ def split_markdown_for_embedding(
             )
             continue
 
-        section_parts = chunker(section_text)
+        section_parts = _split_section_blocks(
+            section,
+            token_counter=token_counter,
+            soft_token_target=soft_token_target,
+            hard_token_limit=hard_token_limit,
+            chunker=chunker,
+            tokenizer=tokenizer,
+        )
         if not section_parts:
             section_parts = [section_text]
 
@@ -384,6 +391,84 @@ def split_markdown_for_embedding(
                 )
 
     return _ensure_hard_limit(chunks, hard_token_limit=hard_token_limit, token_counter=token_counter, tokenizer=tokenizer)
+
+
+def _split_section_blocks(
+    section: MarkdownSection,
+    *,
+    token_counter: Callable[[str], int],
+    soft_token_target: int,
+    hard_token_limit: int,
+    chunker: Callable[[str], list[str]],
+    tokenizer: Any | None,
+) -> list[str]:
+    """
+    EN: Split an oversized section by packing Markdown blocks instead of slicing the whole section text.
+    CN: 将超大的 section 按 Markdown block 打包切分，而不是直接切整段 section 文本。
+    """
+    packed_chunks: list[str] = []
+    current_parts: list[str] = []
+
+    def flush_current() -> None:
+        """
+        EN: Emit the current packed chunk if there is one.
+        CN: 如果存在当前打包 chunk，则输出它。
+        """
+        if current_parts:
+            packed_chunks.append(normalize_markdown_text("\n\n".join(current_parts)))
+            current_parts.clear()
+
+    def append_unit(unit_text: str) -> None:
+        """
+        EN: Append one pre-split unit while keeping the packed chunk under the hard limit.
+        CN: 追加一个预切分单元，并保持当前打包 chunk 不超过硬限制。
+        """
+        normalized_unit = normalize_markdown_text(unit_text)
+        if not normalized_unit:
+            return
+        candidate_parts = [*current_parts, normalized_unit]
+        candidate_text = normalize_markdown_text("\n\n".join(candidate_parts))
+        if current_parts and token_counter(candidate_text) > hard_token_limit:
+            flush_current()
+            current_parts.append(normalized_unit)
+            return
+        current_parts.append(normalized_unit)
+
+    for block in section.blocks:
+        block_text = normalize_markdown_text(block.text)
+        if not block_text:
+            continue
+
+        block_tokens = token_counter(block_text)
+        if block.block_type == "paragraph" and block_tokens > soft_token_target:
+            paragraph_parts = chunker(block_text)
+            if not paragraph_parts or (
+                len(paragraph_parts) == 1 and normalize_markdown_text(paragraph_parts[0]) == block_text
+            ):
+                paragraph_parts = _force_split_markdown_text(
+                    block_text,
+                    hard_token_limit=hard_token_limit,
+                    token_counter=token_counter,
+                    tokenizer=tokenizer,
+                )
+            for paragraph_part in paragraph_parts:
+                append_unit(paragraph_part)
+            continue
+
+        if block.is_atomic and block_tokens > hard_token_limit:
+            for forced_part in _force_split_markdown_text(
+                block_text,
+                hard_token_limit=hard_token_limit,
+                token_counter=token_counter,
+                tokenizer=tokenizer,
+            ):
+                append_unit(forced_part)
+            continue
+
+        append_unit(block_text)
+
+    flush_current()
+    return packed_chunks
 
 
 def _build_semchunk_chunker(

@@ -18,21 +18,37 @@ def _run_persist_ocr_result(event: dict, _context: object | None) -> dict:
     """
     workflow = _get_components().workflow_for("persist_ocr_result")
     json_url = event.get("json_url")
-    if not isinstance(json_url, str) or not json_url.strip():
-        raise ValueError("json_url is required for persist_ocr_result")
-    normalized_json_url = json_url.strip()
+    normalized_json_url = json_url.strip() if isinstance(json_url, str) and json_url.strip() else None
+    markdown_url = event.get("markdown_url")
+    if not isinstance(markdown_url, str) or not markdown_url.strip():
+        raise ValueError("markdown_url is required for persist_ocr_result")
+    normalized_markdown_url = markdown_url.strip()
     job = validate_job(event.get("job"), required_for="persist_ocr_result")
     processing_state = validate_processing_state(event.get("processing_state"), required_for="persist_ocr_result")
+    trace_payload = {
+        "action": "persist_ocr_result",
+        "document_uri": job.source.document_uri,
+        "trace_id": job.trace_id,
+        "processing_state_pk": processing_state.pk,
+        "json_url_present": normalized_json_url is not None,
+        "markdown_url_host": urlparse(normalized_markdown_url).hostname,
+        "markdown_url_path": urlparse(normalized_markdown_url).path,
+    }
+    if normalized_json_url is not None:
+        trace_payload.update(
+            json_url_host=urlparse(normalized_json_url).hostname,
+            json_url_path=urlparse(normalized_json_url).path,
+        )
     emit_trace(
         "handler.dispatch",
-        action="persist_ocr_result",
-        document_uri=job.source.document_uri,
-        trace_id=job.trace_id,
-        processing_state_pk=processing_state.pk,
-        json_url_host=urlparse(normalized_json_url).hostname,
-        json_url_path=urlparse(normalized_json_url).path,
+        **trace_payload,
     )
-    return workflow.persist_ocr_result(job=job, processing_state=processing_state, json_url=normalized_json_url)
+    return workflow.persist_ocr_result(
+        job=job,
+        processing_state=processing_state,
+        json_url=normalized_json_url,
+        markdown_url=normalized_markdown_url,
+    )
 
 
 lambda_handler = build_action_handler("persist_ocr_result", _run_persist_ocr_result)

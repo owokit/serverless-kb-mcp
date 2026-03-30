@@ -136,32 +136,33 @@ def test_lambda_handler_raises_clear_error_for_invalid_job_payload(monkeypatch: 
         )
 
 
-def test_lambda_handler_rejects_empty_json_url_for_persist_ocr_result(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lambda_handler_allows_missing_json_url_for_persist_ocr_result(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    EN: Verify that persist_ocr_result rejects a blank json_url value.
-    CN: 楠岃瘉 persist_ocr_result 鎷掔粷绌虹櫧鐨?json_url 鍊笺€?
+    EN: Verify that persist_ocr_result accepts markdown-first payloads without json_url.
+    CN: 验证 persist_ocr_result 可以接收不带 json_url 的 markdown-first 负载。
     """
     workflow = _FakeWorkflow()
     components = _FakeComponents(workflow)
     monkeypatch.setattr("serverless_mcp.extract.handlers.router._get_components", lambda: components)
 
-    with pytest.raises(ValueError, match="json_url is required for persist_ocr_result"):
-        lambda_handler(
-            {
-                "action": "persist_ocr_result",
-                "job": _job_payload(),
-                "processing_state": {
-                    "pk": "tenant-a#bucket-a#docs/guide.md",
-                    "latest_version_id": "v1",
-                    "latest_sequencer": "0001",
-                    "extract_status": "EXTRACTED",
-                    "embed_status": "PENDING",
-                },
-                "json_url": "   ",
-                "markdown_url": "https://example.com/result.md",
+    result = lambda_handler(
+        {
+            "action": "persist_ocr_result",
+            "job": _job_payload(),
+            "processing_state": {
+                "pk": "tenant-a#bucket-a#docs/guide.md",
+                "latest_version_id": "v1",
+                "latest_sequencer": "0001",
+                "extract_status": "EXTRACTED",
+                "embed_status": "PENDING",
             },
-            None,
-        )
+            "markdown_url": "https://example.com/result.md",
+        },
+        None,
+    )
+
+    assert result == {"action": "persist_ocr_result", "json_url": None, "markdown_url": "https://example.com/result.md"}
+    assert workflow.persist_call[2:] == (None, "https://example.com/result.md")
 
 
 def test_lambda_handler_rejects_empty_markdown_url_for_persist_ocr_result(monkeypatch: pytest.MonkeyPatch) -> None:

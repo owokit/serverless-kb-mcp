@@ -109,21 +109,20 @@ jobs:
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embed_handler.py \
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embed_parser.py \
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embed_worker.py \
-                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embedding_runtime.py \
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_extract_handler.py \
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_extract_service.py \
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_ingest.py \
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_ingest_handler.py \
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_job_status_handler.py \
-                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_entrypoints.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embed_runtime_imports.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_wrapper_registry.py \
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_pipeline.py \
-                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_query_api.py \
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_query_service.py \
-                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_remote_mcp_handler.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_query_response_serialization.py \
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_remote_mcp_smoke.py \
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_state_machine_definition.py \
-                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_step_functions_workflow.py \
-                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_worker.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_extract_workflow.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_extract_worker.py \
                 --maxfail=1
               ;;
             packaging)
@@ -132,6 +131,8 @@ jobs:
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_markdown_extractor.py \
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_package_lambda.py \
                 ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_paddle_manifest_builder.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_package_boundaries.py \
+                ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_wrapper_registry.py \
                 --maxfail=1
               ;;
             *)
@@ -187,27 +188,28 @@ jobs:
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embed_handler.py",
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embed_parser.py",
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embed_worker.py",
-                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embedding_runtime.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_embed_runtime_imports.py",
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_extract_handler.py",
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_extract_service.py",
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_ingest.py",
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_ingest_handler.py",
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_job_status_handler.py",
-                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_entrypoints.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_wrapper_registry.py",
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_pipeline.py",
-                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_query_api.py",
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_query_service.py",
-                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_remote_mcp_handler.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_query_response_serialization.py",
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_remote_mcp_smoke.py",
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_state_machine_definition.py",
-                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_step_functions_workflow.py",
-                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_worker.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_extract_workflow.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_extract_worker.py",
               ],
               "packaging": [
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_artifact_scripts.py",
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_markdown_extractor.py",
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_package_lambda.py",
                   "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_paddle_manifest_builder.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_package_boundaries.py",
+                  "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_lambda_wrapper_registry.py",
               ],
           }
 

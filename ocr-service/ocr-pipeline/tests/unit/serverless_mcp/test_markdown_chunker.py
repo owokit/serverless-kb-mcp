@@ -138,3 +138,31 @@ def test_split_markdown_for_embedding_uses_exact_fallback_when_semchunk_is_noop(
     assert all(chunk.token_estimate <= 90 for chunk in chunks)
     assert chunks[0].text.startswith("# Intro")
 
+
+def test_split_markdown_for_embedding_keeps_atomic_blocks_intact_when_packing_sections() -> None:
+    """
+    EN: Atomic blocks stay whole even when the section must be split into multiple chunks.
+    CN: 即使 section 需要拆成多个 chunk，原子 block 也应保持完整。
+    """
+    markdown_text = (
+        "# Intro\n\n"
+        + ("alpha beta gamma delta epsilon zeta eta theta iota kappa " * 8)
+        + "\n\n"
+        "```python\n"
+        "print('hello')\n"
+        "print('world')\n"
+        "```\n\n"
+        + ("lambda mu nu xi omicron pi rho sigma tau upsilon " * 8)
+    )
+
+    chunks = split_markdown_for_embedding(
+        markdown_text,
+        soft_token_target=60,
+        hard_token_limit=120,
+        token_counter=_count_chars,
+        tokenizer=_CharTokenizer(),
+    )
+
+    assert len(chunks) > 1
+    assert all(chunk.token_estimate <= 120 for chunk in chunks)
+    assert any("```python\nprint('hello')\nprint('world')\n```" in chunk.text for chunk in chunks)
