@@ -181,6 +181,15 @@ class QueryService:
         if unique_object_pks:
             batch_states = self._load_execution_states_batch(object_pks=unique_object_pks)
             state_cache.update(batch_states)
+        if self._projection_state_repo is not None and sorted_candidates:
+            projection_cache.update(
+                self._load_projection_states_batch(
+                    keys=[
+                        (candidate.source.object_pk, candidate.source.version_id, candidate.match.profile_id)
+                        for candidate in sorted_candidates
+                    ]
+                )
+            )
 
         for candidate in sorted_candidates:
             metadata = sanitize_result_metadata(candidate.match.metadata)
@@ -365,6 +374,32 @@ class QueryService:
             version_id=source.version_id,
             profile_id=profile_id,
         )
+
+    def _load_projection_states_batch(
+        self,
+        *,
+        keys: list[tuple[str, str, str]],
+    ) -> dict[tuple[str, str, str], EmbeddingProjectionStateRecord | None]:
+        """
+        EN: Batch load projection states when the repository supports it, otherwise fall back per key.
+        CN: 当仓库支持时批量读取 projection state，否则按 key 回退。
+        """
+        if self._projection_state_repo is None or not keys:
+            return {}
+        batch_loader = getattr(self._projection_state_repo, "get_states_batch", None)
+        if callable(batch_loader):
+            try:
+                return batch_loader(keys=keys)
+            except TypeError:
+                pass
+        return {
+            key: self._projection_state_repo.get_state(
+                object_pk=key[0],
+                version_id=key[1],
+                profile_id=key[2],
+            )
+            for key in keys
+        }
 
     def _load_execution_state(self, *, object_pk: str) -> ObjectStateRecord | None:
         """

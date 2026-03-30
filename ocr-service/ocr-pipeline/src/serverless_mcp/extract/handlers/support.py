@@ -5,6 +5,7 @@ CN: extract handler 共享的负载校验与懒加载工作流装配。
 from __future__ import annotations
 
 from functools import cached_property, lru_cache
+from types import SimpleNamespace
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -130,9 +131,12 @@ def _build_object_state_repo(table_name: str, dynamodb_client):
     EN: Lazily construct the object state repository for the workflow state boundary.
     CN: 为工作流状态边界懒加载构建 object state repository。
     """
-    from serverless_mcp.storage.state.object_state_repository import ObjectStateRepository
+    from serverless_mcp.runtime.bootstrap import build_object_state_repo
+    from serverless_mcp.runtime.config import Settings
 
-    return ObjectStateRepository(table_name=table_name, dynamodb_client=dynamodb_client)
+    settings = Settings(object_state_table=table_name)
+    clients = SimpleNamespace(dynamodb=dynamodb_client)
+    return build_object_state_repo(settings=settings, clients=clients)
 
 
 def _build_execution_state_repo(table_name: str, dynamodb_client):
@@ -140,9 +144,12 @@ def _build_execution_state_repo(table_name: str, dynamodb_client):
     EN: Lazily construct the execution state repository for Step Functions bookkeeping.
     CN: 为 Step Functions 记账懒加载构建 execution state repository。
     """
-    from serverless_mcp.storage.state.execution_state_repository import ExecutionStateRepository
+    from serverless_mcp.runtime.bootstrap import build_execution_state_repo
+    from serverless_mcp.runtime.config import Settings
 
-    return ExecutionStateRepository(table_name=table_name, dynamodb_client=dynamodb_client)
+    settings = Settings(object_state_table="unused", execution_state_table=table_name)
+    clients = SimpleNamespace(dynamodb=dynamodb_client)
+    return build_execution_state_repo(settings=settings, clients=clients)
 
 
 def _build_manifest_repo(*, manifest_bucket: str, manifest_prefix: str, s3_client, dynamodb_client, manifest_index_table: str):
@@ -150,15 +157,17 @@ def _build_manifest_repo(*, manifest_bucket: str, manifest_prefix: str, s3_clien
     EN: Lazily construct the manifest repository for OCR persistence.
     CN: 为 OCR 持久化懒加载构建 manifest repository。
     """
-    from serverless_mcp.storage.manifest.repository import ManifestRepository
+    from serverless_mcp.runtime.bootstrap import build_manifest_repo
+    from serverless_mcp.runtime.config import Settings
 
-    return ManifestRepository(
+    settings = Settings(
+        object_state_table="unused",
         manifest_bucket=manifest_bucket,
         manifest_prefix=manifest_prefix,
-        s3_client=s3_client,
-        dynamodb_client=dynamodb_client,
         manifest_index_table=manifest_index_table,
     )
+    clients = SimpleNamespace(s3=s3_client, dynamodb=dynamodb_client)
+    return build_manifest_repo(settings=settings, clients=clients)
 
 
 def _build_embed_dispatcher(queue_url: str, sqs_client):

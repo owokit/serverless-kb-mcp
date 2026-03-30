@@ -20,12 +20,13 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from serverless_mcp.domain.format_specs import get_format_spec
 from serverless_mcp.domain.models import ChunkManifest, ExtractedAsset, ExtractedChunk, S3ObjectRef
+from serverless_mcp.extract.markdown_chunker import split_markdown_for_embedding
 from serverless_mcp.extract.policy import (
     DEFAULT_POLICY,
     estimate_tokens,
     expand_oversized_chunks,
     normalize_text,
-    section_hint_from_markdown,
+    _get_token_encoder,
 )
 
 
@@ -150,27 +151,13 @@ class DocumentExtractor:
         """
         spec = get_format_spec(doc_type="md", source_format="markdown")
         text = body.decode("utf-8")
-        sections = section_hint_from_markdown(text)
-        chunks: list[ExtractedChunk] = []
-
-        if not sections:
-            # EN: Fallback to a single normalized chunk when no headings are detected.
-            # CN: 同上。
-            normalized = normalize_text(text)
-            sections = [((), normalized)] if normalized else []
-
-        for index, (path, section_text) in enumerate(sections, start=1):
-            chunks.append(
-                ExtractedChunk(
-                    chunk_id=f"chunk#{index:06d}",
-                    chunk_type="section_text_chunk",
-                    text=section_text,
-                    doc_type="md",
-                    token_estimate=estimate_tokens(section_text),
-                    section_path=path,
-                    metadata=spec.chunk_metadata(),
-                )
-            )
+        chunks = _build_markdown_chunks(
+            spec=spec,
+            doc_type="md",
+            markdown_text=text,
+            safe_text_tokens=ctx.safe_text_tokens,
+            source_metadata={},
+        )
 
         return ChunkManifest(
             source=ctx.source,
@@ -198,27 +185,13 @@ class DocumentExtractor:
         """
         spec = get_format_spec(doc_type="docx", source_format="python-docx")
         markdown_text = _convert_docx_to_markdown(body)
-        sections = section_hint_from_markdown(markdown_text)
-        chunks: list[ExtractedChunk] = []
-
-        if not sections:
-            # EN: Fallback to a single normalized chunk when no headings are detected.
-            # CN: 同上。
-            normalized = normalize_text(markdown_text)
-            sections = [((), normalized)] if normalized else []
-
-        for index, (path, section_text) in enumerate(sections, start=1):
-            chunks.append(
-                ExtractedChunk(
-                    chunk_id=f"chunk#{index:06d}",
-                    chunk_type="section_text_chunk",
-                    text=section_text,
-                    doc_type="docx",
-                    token_estimate=estimate_tokens(section_text),
-                    section_path=path,
-                    metadata=spec.chunk_metadata(),
-                )
-            )
+        chunks = _build_markdown_chunks(
+            spec=spec,
+            doc_type="docx",
+            markdown_text=markdown_text,
+            safe_text_tokens=ctx.safe_text_tokens,
+            source_metadata={"converter": "python-docx"},
+        )
 
         return ChunkManifest(
             source=ctx.source,
@@ -289,18 +262,46 @@ class DocumentExtractor:
                 if notes_text:
                     slide_text = normalize_text("\n".join(part for part in [slide_text, notes_text] if part))
 
-            chunks.append(
-                ExtractedChunk(
-                    chunk_id=f"chunk#{slide_no:06d}",
-                    chunk_type="slide_text_chunk",
-                    text=slide_text,
-                    doc_type="pptx",
-                    token_estimate=estimate_tokens(slide_text),
-                    slide_no=slide_no,
-                    section_path=(f"slide-{slide_no}",),
-                    metadata=spec.chunk_metadata(image_count=image_count, has_notes=bool(slide.has_notes_slide and slide.notes_slide)),
-                )
+            slide_chunks = split_markdown_for_embedding(
+                slide_text,
+                soft_token_target=ctx.safe_text_tokens,
+                hard_token_limit=ctx.safe_text_tokens,
+                token_counter=estimate_tokens,
+                tokenizer=_get_token_encoder(),
             )
+            if slide_chunks:
+                for slide_chunk_index, slide_chunk in enumerate(slide_chunks, start=1):
+                    chunks.append(
+                        ExtractedChunk(
+                            chunk_id=f"chunk#{slide_no:06d}-{slide_chunk_index:02d}"
+                            if len(slide_chunks) > 1
+                            else f"chunk#{slide_no:06d}",
+                            chunk_type="slide_text_chunk",
+                            text=slide_chunk.text,
+                            doc_type="pptx",
+                            token_estimate=slide_chunk.token_estimate,
+                            slide_no=slide_no,
+                            section_path=(f"slide-{slide_no}",),
+                            metadata=spec.chunk_metadata(
+                                image_count=image_count,
+                                has_notes=bool(slide.has_notes_slide and slide.notes_slide),
+                            )
+                            | {k: v for k, v in slide_chunk.metadata.items() if k != "source_format"},
+                        )
+                    )
+            elif normalize_text(slide_text):
+                chunks.append(
+                    ExtractedChunk(
+                        chunk_id=f"chunk#{slide_no:06d}",
+                        chunk_type="slide_text_chunk",
+                        text=normalize_text(slide_text),
+                        doc_type="pptx",
+                        token_estimate=estimate_tokens(slide_text),
+                        slide_no=slide_no,
+                        section_path=(f"slide-{slide_no}",),
+                        metadata=spec.chunk_metadata(image_count=image_count, has_notes=bool(slide.has_notes_slide and slide.notes_slide)),
+                    )
+                )
 
         return ChunkManifest(
             source=ctx.source,
@@ -473,6 +474,49 @@ def _convert_docx_to_markdown(body: bytes) -> str:
         if isinstance(block, Table):
             lines.extend(_table_to_markdown(block))
     return normalize_text("\n".join(lines))
+
+
+def _build_markdown_chunks(
+    *,
+    spec,
+    doc_type: str,
+    markdown_text: str,
+    safe_text_tokens: int,
+    source_metadata: dict[str, object],
+) -> list[ExtractedChunk]:
+    """
+    EN: Convert Markdown text into extraction chunks using Markdown-aware splitting.
+    CN: 使用 Markdown-aware splitting 将 Markdown 文本转换为 extraction chunks。
+    """
+    normalized_markdown = normalize_text(markdown_text)
+    if not normalized_markdown:
+        return []
+
+    markdown_chunks = split_markdown_for_embedding(
+        normalized_markdown,
+        soft_token_target=max(1, min(safe_text_tokens, round(safe_text_tokens * 0.82))),
+        hard_token_limit=max(1, safe_text_tokens),
+        token_counter=estimate_tokens,
+        tokenizer=_get_token_encoder(),
+    )
+    if not markdown_chunks:
+        return []
+
+    chunks: list[ExtractedChunk] = []
+    for index, markdown_chunk in enumerate(markdown_chunks, start=1):
+        chunks.append(
+            ExtractedChunk(
+                chunk_id=f"chunk#{index:06d}",
+                chunk_type="section_text_chunk",
+                text=markdown_chunk.text,
+                doc_type=doc_type,
+                token_estimate=markdown_chunk.token_estimate,
+                section_path=markdown_chunk.header_path,
+                metadata=spec.chunk_metadata(**source_metadata)
+                | {k: v for k, v in markdown_chunk.metadata.items() if k != "source_format"},
+            )
+        )
+    return chunks
 
 
 def _iter_docx_blocks(document) -> list[Paragraph | Table]:

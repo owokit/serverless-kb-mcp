@@ -10,6 +10,7 @@ migrations do not interfere with each other.
 """
 from __future__ import annotations
 
+import time
 from urllib.parse import quote
 
 from serverless_mcp.domain.models import EmbeddingOutcome, EmbeddingProfile, EmbeddingProjectionStateRecord, S3ObjectRef, utc_now_iso
@@ -105,6 +106,56 @@ class EmbeddingProjectionStateRepository:
         if not item:
             return None
         return _deserialize_projection_state(item)
+
+    def get_states_batch(
+        self,
+        *,
+        keys: list[tuple[str, str, str]],
+    ) -> dict[tuple[str, str, str], EmbeddingProjectionStateRecord | None]:
+        """
+        EN: Load multiple projection states in batches keyed by object/version/profile triplets.
+        CN: 按 object/version/profile 三元组批量加载多个 projection state。
+        """
+        if not keys:
+            return {}
+
+        records: dict[tuple[str, str, str], EmbeddingProjectionStateRecord | None] = {
+            key: None for key in keys
+        }
+        pending = list(keys)
+        for attempt in range(8):
+            request_items = {
+                self._table_name: {
+                    "Keys": [
+                        {
+                            "pk": {"S": _build_projection_pk(object_pk=object_pk, version_id=version_id)},
+                            "sk": {"S": profile_id},
+                        }
+                        for object_pk, version_id, profile_id in pending
+                    ],
+                    "ConsistentRead": True,
+                }
+            }
+            response = self._ddb.batch_get_item(RequestItems=request_items)
+            for item in response.get("Responses", {}).get(self._table_name, []):
+                record = _deserialize_projection_state(item)
+                records[(record.object_pk, record.version_id, record.profile_id)] = record
+
+            unprocessed_items = response.get("UnprocessedKeys", {}).get(self._table_name, {}).get("Keys") or []
+            if not unprocessed_items:
+                return records
+
+            pending = [
+                _parse_projection_key(item["pk"]["S"], item["sk"]["S"])
+                for item in unprocessed_items
+            ]
+            if attempt < 7:
+                time.sleep(min(0.05 * (2**attempt), 1.0))
+
+        raise RuntimeError(
+            "DynamoDB batch_get_item did not drain after projection state retries; "
+            f"table={self._table_name}"
+        )
 
     def list_version_records(self, *, object_pk: str, version_id: str) -> list[EmbeddingProjectionStateRecord]:
         """
@@ -394,6 +445,23 @@ def _chunked(items: list[EmbeddingProjectionStateRecord], size: int) -> list[lis
     # EN: Split a list into fixed-size batches for DynamoDB batch_write_item calls.
     # CN: 灏嗗垪琛ㄦ媶鍒嗕负鍥哄畾澶у皬鐨勬壒娆★紝鐢ㄤ簬 DynamoDB batch_write_item 璋冪敤銆?
     return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def _build_projection_pk(*, object_pk: str, version_id: str) -> str:
+    """
+    EN: Build the composite partition key used by projection state records.
+    CN: 构造 projection state record 使用的复合 partition key。
+    """
+    return f"{object_pk}#{quote(version_id, safe='')}"
+
+
+def _parse_projection_key(pk: str, sk: str) -> tuple[str, str, str]:
+    """
+    EN: Decode a projection-state composite key back into object/version/profile parts.
+    CN: 将 projection-state 复合 key 解码回 object/version/profile 三部分。
+    """
+    object_pk, version_id = pk.rsplit("#", 1)
+    return object_pk, version_id, sk
 
 
 def _deserialize_projection_state(item: dict[str, dict[str, str | bool]]) -> EmbeddingProjectionStateRecord:

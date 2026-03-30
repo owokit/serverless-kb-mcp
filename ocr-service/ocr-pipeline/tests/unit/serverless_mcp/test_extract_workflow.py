@@ -142,6 +142,8 @@ class _FakeOCRClient:
     # CN: 同上。
     def __init__(self):
         self.polls = 0
+        self.download_json_calls: list[str] = []
+        self.download_markdown_calls: list[str] = []
 
     def submit_job(self, *, payload, key):
         return _Submission(job_id="job-1")
@@ -158,9 +160,11 @@ class _FakeOCRClient:
         )
 
     def download_json_lines(self, json_url):
+        self.download_json_calls.append(json_url)
         return [{"result": {"layoutParsingResults": [{"markdown": {"text": "hello"}, "outputImages": {}}]}}]
 
     def download_markdown(self, markdown_url):
+        self.download_markdown_calls.append(markdown_url)
         return "# Hello\n\nhello"
 
     def download_binary(self, url):
@@ -170,7 +174,11 @@ class _FakeOCRClient:
 class _FakeManifestBuilder:
     # EN: Stand-in for PaddleOCRManifestBuilder returning a fixed manifest.
     # CN: 杩斿洖鍥哄畾 manifest 鐨?PaddleOCRManifestBuilder 鏇胯韩銆?
+    def __init__(self):
+        self.json_lines_calls: list[list[dict] | None] = []
+
     def build_manifest_from_markdown(self, *, source, markdown_text, binary_loader, json_lines=None):
+        self.json_lines_calls.append(json_lines)
         return ChunkManifest(
             source=source,
             doc_type="pdf",
@@ -231,12 +239,17 @@ def test_step_functions_workflow_polls_until_ocr_completes() -> None:
     result = workflow.persist_ocr_result(
         job=ExtractJobMessage(source=source, trace_id="trace-1"),
         processing_state=ObjectStateRecord(**prepared["processing_state"]),
-        json_url=status["json_url"] or "",
+        json_url=status["json_url"],
         markdown_url=status["markdown_url"] or "",
     )
 
     assert result["chunk_count"] == 1
     assert persister.previous_versions == [("v0", "s3://manifest-bucket/manifests/v0.json")]
+    assert workflow._ocr_client.download_json_calls == ["https://example.com/result.jsonl"]
+    assert workflow._ocr_client.download_markdown_calls == ["https://example.com/result.md"]
+    assert workflow._manifest_builder.json_lines_calls == [
+        [{"result": {"layoutParsingResults": [{"markdown": {"text": "hello"}, "outputImages": {}}]}}]
+    ]
 
 
 def test_step_functions_workflow_reuses_ingest_processing_state() -> None:
@@ -277,6 +290,43 @@ def test_step_functions_workflow_reuses_ingest_processing_state() -> None:
     assert state_repo.activate_ingest_state_calls == [(source.document_uri, "v0")]
     assert extract_worker.processing_states[0].previous_version_id == "v0"
     assert extract_worker.processing_states[0].previous_manifest_s3_uri == "s3://manifest-bucket/manifests/v0.json"
+
+
+def test_step_functions_workflow_supports_markdown_only_persist() -> None:
+    """
+    EN: Markdown-only OCR results should persist without requiring JSONL.
+    CN: 仅有 Markdown 的 OCR 结果应可直接持久化，而无需 JSONL。
+    """
+    ocr_client = _FakeOCRClient()
+    manifest_builder = _FakeManifestBuilder()
+    workflow = StepFunctionsExtractWorkflow(
+        extract_worker=_FakeExtractWorker(),
+        result_persister=_FakePersister(),
+        object_state_repo=_FakeObjectStateRepo(),
+        source_repo=_FakeSourceRepo(),
+        ocr_client=ocr_client,
+        manifest_builder=manifest_builder,
+    )
+    source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/scan.pdf", version_id="v1")
+    processing_state = ObjectStateRecord(
+        pk=source.object_pk,
+        latest_version_id=source.version_id,
+        latest_sequencer=source.sequencer,
+        extract_status="EXTRACTING",
+        embed_status="PENDING",
+    )
+
+    result = workflow.persist_ocr_result(
+        job=ExtractJobMessage(source=source, trace_id="trace-1"),
+        processing_state=processing_state,
+        json_url=None,
+        markdown_url="https://example.com/result.md",
+    )
+
+    assert result["chunk_count"] == 1
+    assert ocr_client.download_json_calls == []
+    assert ocr_client.download_markdown_calls == ["https://example.com/result.md"]
+    assert manifest_builder.json_lines_calls == [None]
 
 
 def test_step_functions_workflow_marks_failed_state() -> None:

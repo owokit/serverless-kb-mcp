@@ -98,12 +98,10 @@ def lambda_handler(event: dict, _context) -> dict:
                 "action": "persist_ocr_result",
                 "job": job_payload,
                 "processing_state": processing_state_payload,
-                "json_url": json_url,
-                "markdown_url": markdown_url,
             }:
-                if not isinstance(json_url, str) or not json_url.strip():
-                    raise ValueError("json_url is required for persist_ocr_result")
-                normalized_json_url = json_url.strip()
+                json_url = event.get("json_url")
+                normalized_json_url = json_url.strip() if isinstance(json_url, str) and json_url.strip() else None
+                markdown_url = event.get("markdown_url")
                 if not isinstance(markdown_url, str) or not markdown_url.strip():
                     raise ValueError("markdown_url is required for persist_ocr_result")
                 normalized_markdown_url = markdown_url.strip()
@@ -112,16 +110,23 @@ def lambda_handler(event: dict, _context) -> dict:
                     processing_state_payload,
                     required_for="persist_ocr_result",
                 )
+                trace_payload = {
+                    "action": action,
+                    "document_uri": job.source.document_uri,
+                    "trace_id": job.trace_id,
+                    "processing_state_pk": processing_state.pk,
+                    "json_url_present": normalized_json_url is not None,
+                    "markdown_url_host": urlparse(normalized_markdown_url).hostname,
+                    "markdown_url_path": urlparse(normalized_markdown_url).path,
+                }
+                if normalized_json_url is not None:
+                    trace_payload.update(
+                        json_url_host=urlparse(normalized_json_url).hostname,
+                        json_url_path=urlparse(normalized_json_url).path,
+                    )
                 emit_trace(
                     "handler.dispatch",
-                    action=action,
-                    document_uri=job.source.document_uri,
-                    trace_id=job.trace_id,
-                    processing_state_pk=processing_state.pk,
-                    json_url_host=urlparse(normalized_json_url).hostname,
-                    json_url_path=urlparse(normalized_json_url).path,
-                    markdown_url_host=urlparse(normalized_markdown_url).hostname,
-                    markdown_url_path=urlparse(normalized_markdown_url).path,
+                    **trace_payload,
                 )
                 result = workflow.persist_ocr_result(
                     job=job,

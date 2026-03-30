@@ -90,6 +90,8 @@ def test_docx_extraction_uses_section_headings_and_tables() -> None:
     assert manifest.metadata["source_format"] == "python-docx"
     assert [chunk.section_path for chunk in manifest.chunks] == [("Intro",), ("Intro", "Details")]
     assert manifest.chunks[0].text.startswith("# Intro")
+    assert all(chunk.metadata["source_format"] == "python-docx" for chunk in manifest.chunks)
+    assert all(chunk.metadata["chunking_strategy"] == "v2_markdown_semchunk" for chunk in manifest.chunks)
     assert "hello world" in manifest.chunks[0].text
     assert "left" in "\n".join(chunk.text for chunk in manifest.chunks)
     assert "right" in "\n".join(chunk.text for chunk in manifest.chunks)
@@ -126,6 +128,8 @@ def test_pptx_extraction_uses_slide_segments() -> None:
     assert manifest.metadata["source_format"] == "python-pptx"
     assert [chunk.section_path for chunk in manifest.chunks] == [("slide-1",), ("slide-2",)]
     assert manifest.chunks[0].text == "Title"
+    assert all(chunk.metadata["source_format"] == "python-pptx" for chunk in manifest.chunks)
+    assert all(chunk.metadata["chunking_strategy"] == "v2_markdown_semchunk" for chunk in manifest.chunks)
     assert "Second" in manifest.chunks[1].text
 
 
