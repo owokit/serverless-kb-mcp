@@ -23,12 +23,18 @@ For `git pull`, the closest reliable automation is `post-merge`.
 If you pull with rebase, `post-merge` will not run, so use the sync script
 manually or avoid `--rebase` for this workflow.
 
-## One-time setup on Windows
+## One-time setup
 
-Run:
+Run the platform-appropriate installer once:
 
 ```powershell
+# Windows
 .\scripts\install-git-hooks.ps1
+```
+
+```bash
+# macOS / Linux
+./scripts/install-git-hooks.sh
 ```
 
 This sets:
@@ -36,6 +42,11 @@ This sets:
 ```text
 core.hooksPath=.githooks
 ```
+
+## Supported platforms
+
+- Windows: `scripts/install-git-hooks.ps1`
+- macOS / Linux: `scripts/install-git-hooks.sh`
 
 ## Manual sync
 
