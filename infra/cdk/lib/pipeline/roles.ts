@@ -78,7 +78,7 @@ function attachLambdaDataPlanePolicy(
         resources: [params.bindings.manifestIndexTableArn],
       }),
       new iam.PolicyStatement({
-        actions: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:DescribeTable'],
+        actions: ['dynamodb:GetItem', 'dynamodb:BatchGetItem', 'dynamodb:Query', 'dynamodb:DescribeTable'],
         resources: [params.bindings.embeddingProjectionStateTableArn],
       }),
       new iam.PolicyStatement({
@@ -105,7 +105,7 @@ function attachLambdaDataPlanePolicy(
         resources: [params.bindings.manifestIndexTableArn],
       }),
       new iam.PolicyStatement({
-        actions: ['dynamodb:GetItem', 'dynamodb:Query', 'dynamodb:DescribeTable'],
+        actions: ['dynamodb:GetItem', 'dynamodb:BatchGetItem', 'dynamodb:Query', 'dynamodb:DescribeTable'],
         resources: [params.bindings.embeddingProjectionStateTableArn],
       }),
       new iam.PolicyStatement({

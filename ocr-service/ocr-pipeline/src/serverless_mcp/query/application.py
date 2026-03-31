@@ -4,6 +4,7 @@ CN: 同上。
 """
 from __future__ import annotations
 
+import logging
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, wait
 from threading import Lock
@@ -42,6 +43,7 @@ from serverless_mcp.query.retry import retry_read
 
 _PROFILE_QUERY_FAILURE_TYPES = (ClientError, KeyError, OSError, RuntimeError, TypeError, ValueError)
 _MANIFEST_LOAD_FAILURE_TYPES = (ClientError, KeyError, OSError, RuntimeError, TypeError, ValueError)
+logger = logging.getLogger(__name__)
 
 
 class _EmbeddingClient(Protocol):
@@ -105,8 +107,17 @@ class QueryService:
             if profile.enable_query and profile.profile_id in self._embedding_clients
         ]
         if not enabled_profiles:
+            logger.warning("search_documents.no_enabled_profiles query_len=%s", len(query))
             return QueryResponse(query=query, results=[])
 
+        logger.warning(
+            "search_documents.start query_len=%s top_k=%s neighbor_expand=%s security_scope_count=%s enabled_profiles=%s",
+            len(query),
+            top_k,
+            neighbor_expand,
+            len(security_scope),
+            len(enabled_profiles),
+        )
         metadata_filter = build_metadata_filter(
             tenant_id=tenant_id,
             doc_type=doc_type,
@@ -179,7 +190,14 @@ class QueryService:
 
         sorted_candidates = sorted(ranked_candidates.values(), key=lambda item: item.rrf_score, reverse=True)[:top_k]
         unique_object_pks = dedupe_preserve_order([candidate.source.object_pk for candidate in sorted_candidates])
+        logger.warning(
+            "search_documents.candidates ranked=%s unique_object_pks=%s projection_keys=%s",
+            len(ranked_candidates),
+            len(unique_object_pks),
+            len(sorted_candidates),
+        )
         if unique_object_pks:
+            logger.warning("search_documents.load_execution_states_batch size=%s", len(unique_object_pks))
             batch_states = self._load_execution_states_batch(object_pks=unique_object_pks)
             state_cache.update(batch_states)
         if self._projection_state_repo is not None and sorted_candidates:
@@ -189,6 +207,7 @@ class QueryService:
                     for candidate in sorted_candidates
                 ]
             )
+            logger.warning("search_documents.load_projection_states_batch size=%s", len(projection_keys))
             projection_cache.update(
                 self._load_projection_states_batch(
                     keys=projection_keys
@@ -233,12 +252,14 @@ class QueryService:
                 if manifest_s3_uri in manifest_failures:
                     continue
                 try:
+                    logger.warning("search_documents.load_manifest start uri=%s", manifest_s3_uri)
                     manifest = retry_read(
                         lambda: self._manifest_repo.load_manifest(manifest_s3_uri),
                         label="manifest",
                         resource_id=manifest_s3_uri,
                     )
                 except _MANIFEST_LOAD_FAILURE_TYPES as exc:
+                    logger.warning("search_documents.load_manifest failed uri=%s error=%s", manifest_s3_uri, exc)
                     manifest_failures.add(manifest_s3_uri)
                     record_degraded_profile(
                         degraded_profiles,
@@ -250,6 +271,7 @@ class QueryService:
                     )
                     continue
                 manifest_cache[manifest_s3_uri] = manifest
+                logger.warning("search_documents.load_manifest success uri=%s", manifest_s3_uri)
 
             context = resolve_context(manifest, candidate.match.chunk_id, neighbor_expand)
             if context is None:
@@ -393,7 +415,11 @@ class QueryService:
         batch_loader = getattr(self._projection_state_repo, "get_states_batch", None)
         if callable(batch_loader):
             try:
+                logger.warning("search_documents.projection_state_batch_loader size=%s", len(keys))
                 return batch_loader(keys=keys)
+            except Exception as exc:
+                logger.warning("search_documents.projection_state_batch_loader_failed size=%s error=%s", len(keys), exc)
+                raise
             except TypeError:
                 pass
         return {
@@ -422,5 +448,11 @@ class QueryService:
         if not object_pks:
             return {}
         if self._execution_state_repo is not None:
-            return self._execution_state_repo.get_states_batch(object_pks=object_pks)
+            logger.warning("search_documents.execution_state_repo batch_lookup size=%s", len(object_pks))
+            try:
+                return self._execution_state_repo.get_states_batch(object_pks=object_pks)
+            except Exception as exc:
+                logger.warning("search_documents.execution_state_repo batch_lookup_failed size=%s error=%s", len(object_pks), exc)
+                raise
+        logger.warning("search_documents.object_state_repo batch_lookup size=%s", len(object_pks))
         return self._object_state_repo.get_states_batch(object_pks=object_pks)
