@@ -35,8 +35,18 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
+REPO_ROOT = _repo_root()
+SRC_PATH = REPO_ROOT / "ocr-service" / "ocr-pipeline" / "src"
+
+if str(SRC_PATH) not in sys.path:
+    sys.path.insert(0, str(SRC_PATH))
+
+
+from serverless_mcp.ocr.paddle_manifest_builder import PaddleOCRManifestBuilder  # noqa: E402
+
+
 def _candidate_env_files() -> list[Path]:
-    root = _repo_root()
+    root = REPO_ROOT
     return [
         root / ".env",
         root / "ocr-service" / "ocr-pipeline" / ".env",
@@ -140,6 +150,24 @@ def download_text(*, session: requests.Session, url: str, timeout_seconds: int =
     return response.text
 
 
+def download_json_lines(*, session: requests.Session, url: str, timeout_seconds: int = DEFAULT_DOWNLOAD_TIMEOUT_SECONDS) -> list[dict[str, Any]]:
+    json_text = download_text(session=session, url=url, timeout_seconds=timeout_seconds)
+    rows: list[dict[str, Any]] = []
+    for raw_line in json_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        parsed = json.loads(line)
+        if not isinstance(parsed, dict):
+            raise SystemExit(f"JSONL line is not an object: {line}")
+        rows.append(parsed)
+    return rows
+
+
+def synthesize_markdown(json_lines: list[dict[str, Any]]) -> str:
+    return PaddleOCRManifestBuilder().build_markdown_text_from_json_lines(json_lines)
+
+
 def main() -> int:
     load_env()
 
@@ -203,14 +231,24 @@ def main() -> int:
         print(f"missing_result_urls={','.join(missing)}", file=sys.stderr)
         return 2
 
-    json_text = download_text(session=session, url=json_url, timeout_seconds=download_timeout_seconds)
-    markdown_text = download_text(session=session, url=markdown_url, timeout_seconds=download_timeout_seconds)
+    json_lines = download_json_lines(session=session, url=json_url, timeout_seconds=download_timeout_seconds)
+    json_text = "\n".join(json.dumps(item, ensure_ascii=False) for item in json_lines)
+    if isinstance(markdown_url, str) and markdown_url.strip():
+        markdown_text = download_text(session=session, url=markdown_url, timeout_seconds=download_timeout_seconds)
+        markdown_source = "markdownUrl"
+    else:
+        markdown_text = synthesize_markdown(json_lines)
+        markdown_source = "jsonUrl"
+        if not markdown_text.strip():
+            raise SystemExit("markdownUrl is missing and jsonUrl did not produce markdown text")
+        print("markdown_url_missing=true")
 
     (output_dir / "result.jsonl").write_text(json_text, encoding="utf-8")
     (output_dir / "result.md").write_text(markdown_text, encoding="utf-8")
 
     print(f"saved_jsonl={output_dir / 'result.jsonl'}")
     print(f"saved_markdown={output_dir / 'result.md'}")
+    print(f"markdown_source={markdown_source}")
     print(f"jsonl_bytes={len(json_text.encode('utf-8'))}")
     print(f"markdown_chars={len(markdown_text)}")
     return 0
