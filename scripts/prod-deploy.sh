@@ -280,10 +280,13 @@ stack_resources = cf.describe_stack_resources(StackName=stack_name).get("StackRe
 resource_map = {resource["LogicalResourceId"]: resource for resource in stack_resources}
 layer_arns = {}
 for layer_key in ("core", "extract", "embedding"):
-    logical_id = f"{layer_key.capitalize()}Layer"
-    resource = resource_map.get(logical_id)
+    logical_prefix = f"{layer_key.capitalize()}Layer"
+    resource = next(
+        (item for item in stack_resources if (item.get("LogicalResourceId") or "").startswith(logical_prefix)),
+        None,
+    )
     if not resource or not resource.get("PhysicalResourceId"):
-        raise SystemExit(f"Missing layer resource {logical_id} for {stack_name}")
+        raise SystemExit(f"Missing layer resource {logical_prefix} for {stack_name}")
     layer_arns[layer_key] = resource["PhysicalResourceId"]
 
 created = []
