@@ -10,11 +10,8 @@ from serverless_mcp.embed.backfill import EmbeddingBackfillService
 from serverless_mcp.embed.dispatcher import EmbeddingJobDispatcher
 from serverless_mcp.embed.vector_repository import S3VectorRepository
 from serverless_mcp.runtime.bootstrap import (
-    build_execution_state_repo,
-    build_manifest_repo,
-    build_object_state_repo,
-    build_projection_state_repo,
     build_runtime_context,
+    build_runtime_repositories,
 )
 from serverless_mcp.runtime.config import Settings
 from serverless_mcp.runtime.embedding_profiles import build_embedding_clients, get_write_profiles
@@ -37,10 +34,11 @@ def build_embed_worker(settings: Settings | None = None) -> EmbedWorker:
     if not active_settings.execution_state_table:
         raise ValueError("EXECUTION_STATE_TABLE is required for embed worker")
     clients = runtime_context.clients
-    projection_state_repo = build_projection_state_repo(settings=active_settings, clients=clients)
-    execution_state_repo = build_execution_state_repo(settings=active_settings, clients=clients)
-    manifest_repo = build_manifest_repo(settings=active_settings, clients=clients)
-    object_state_repo = build_object_state_repo(settings=active_settings, clients=clients)
+    repositories = build_runtime_repositories(settings=active_settings, clients=clients)
+    projection_state_repo = repositories.projection_state_repo
+    execution_state_repo = repositories.execution_state_repo
+    manifest_repo = repositories.manifest_repo
+    object_state_repo = repositories.object_state_repo
     if manifest_repo is None:
         raise ValueError("MANIFEST_BUCKET and MANIFEST_INDEX_TABLE are required for embed worker")
 
@@ -73,10 +71,11 @@ def build_backfill_service(settings: Settings | None = None) -> EmbeddingBackfil
         raise ValueError("EXECUTION_STATE_TABLE is required for embedding backfill")
     clients = runtime_context.clients
     profiles = get_write_profiles(active_settings)
-    projection_state_repo = build_projection_state_repo(settings=active_settings, clients=clients)
-    execution_state_repo = build_execution_state_repo(settings=active_settings, clients=clients)
-    manifest_repo = build_manifest_repo(settings=active_settings, clients=clients)
-    object_state_repo = build_object_state_repo(settings=active_settings, clients=clients)
+    repositories = build_runtime_repositories(settings=active_settings, clients=clients)
+    projection_state_repo = repositories.projection_state_repo
+    execution_state_repo = repositories.execution_state_repo
+    manifest_repo = repositories.manifest_repo
+    object_state_repo = repositories.object_state_repo
     if manifest_repo is None:
         raise ValueError("MANIFEST_BUCKET and MANIFEST_INDEX_TABLE are required for embedding backfill")
 

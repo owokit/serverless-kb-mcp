@@ -98,10 +98,10 @@ def test_docx_extraction_uses_section_headings_and_tables() -> None:
     assert "right" in "\n".join(chunk.text for chunk in manifest.chunks)
 
 
-def test_docx_numbering_metadata_defaults_to_unordered_prefix() -> None:
+def test_docx_numbering_metadata_defaults_to_ordered_prefix() -> None:
     """
-    EN: Numbering metadata should default to an unordered list prefix when only numPr is present.
-    CN: 仅有 numPr 时，编号元数据应默认使用无序列表前缀。
+    EN: Numbering metadata should default to an ordered list prefix when only numPr is present.
+    CN: 仅有 numPr 时，编号元数据应默认使用有序列表前缀。
     """
     class _Value:
         def __init__(self, val) -> None:
@@ -116,7 +116,18 @@ def test_docx_numbering_metadata_defaults_to_unordered_prefix() -> None:
         def __init__(self) -> None:
             self._p = type("_P", (), {"pPr": type("_PPr", (), {"numPr": _NumPr()})()})()
 
-    assert _list_prefix(_Paragraph(), "") == "-"
+    assert _list_prefix(_Paragraph(), "") == "1."
+
+
+def test_docx_bullet_style_still_uses_unordered_prefix() -> None:
+    """
+    EN: Bullet styles should still render with an unordered list prefix.
+    CN: 项目符号样式仍应渲染为无序列表前缀。
+    """
+    class _Paragraph:
+        _p = object()
+
+    assert _list_prefix(_Paragraph(), "List Bullet") == "-"
 
 
 def test_pptx_extraction_uses_slide_segments() -> None:

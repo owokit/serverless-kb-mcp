@@ -5,7 +5,7 @@ CN: 协调提取和结果持久化的提取 worker。
 from __future__ import annotations
 
 from serverless_mcp.extract.application import ExtractionService
-from .pipeline import ExtractionResultPersister
+from serverless_mcp.extract.result_persister import ExtractionResultPersister
 from serverless_mcp.domain.models import ExtractJobMessage, ObjectStateRecord, ProcessingOutcome
 from serverless_mcp.storage.state.execution_state_repository import ExecutionStateRepository
 from serverless_mcp.storage.state.object_state_repository import ObjectStateRepository

@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 
-from serverless_mcp.domain.embedding_schema import validate_embedding_job_message
+from serverless_mcp.domain.embedding_schema import validate_embedding_job_message, validate_embedding_requests
 from serverless_mcp.domain.models import EmbeddingJobMessage, EmbeddingProfile, EmbeddingRequest
 
 
@@ -88,6 +88,37 @@ class EmbeddingJobDispatcher:
                     "Failed to dispatch one or more embedding jobs: "
                     + ", ".join(str(item.get("Message")) or str(item.get("Id")) for item in failures)
                 )
+
+    def dispatch_for_profiles(
+        self,
+        *,
+        source,
+        trace_id: str,
+        manifest_s3_uri: str,
+        requests: list[EmbeddingRequest],
+        profiles: tuple[EmbeddingProfile, ...],
+        previous_version_id: str | None,
+        previous_manifest_s3_uri: str | None,
+    ) -> int:
+        """
+        EN: Validate manifest requests, fan them out by profile, and dispatch the resulting jobs.
+        CN: 校验 manifest 请求，按 profile 扇出，并分发生成的作业。
+        """
+        validate_embedding_requests(requests)
+        embedding_jobs = build_jobs_for_profiles(
+            source=source,
+            trace_id=trace_id,
+            manifest_s3_uri=manifest_s3_uri,
+            requests=requests,
+            profiles=profiles,
+            previous_version_id=previous_version_id,
+            previous_manifest_s3_uri=previous_manifest_s3_uri,
+        )
+        if not embedding_jobs:
+            return 0
+
+        self.dispatch_many(embedding_jobs)
+        return len(embedding_jobs)
 
 
 def build_jobs_for_profiles(
