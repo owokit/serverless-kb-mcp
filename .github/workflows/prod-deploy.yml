@@ -81,14 +81,11 @@ jobs:
           echo "::error::Configure either AWS_ROLE_TO_ASSUME for GitHub OIDC, or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY for static AWS credentials."
           exit 1
 
-      - name: Run production deploy entrypoint
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ inputs.release_tag }}
-          CONFIRM_RELEASE_TAG: ${{ inputs.confirm_release_tag }}
+      - name: Resolve production deploy entrypoint
+        shell: bash
         run: |
           set -euo pipefail
-
+          echo "::group::Resolve production deploy entrypoint"
           ENTRYPOINT="scripts/prod-deploy.sh"
           if [ ! -f "$ENTRYPOINT" ] && [ -f "serverless-kb-mcp/scripts/prod-deploy.sh" ]; then
             ENTRYPOINT="serverless-kb-mcp/scripts/prod-deploy.sh"
@@ -99,4 +96,20 @@ jobs:
             exit 1
           fi
 
+          echo "::notice::Using deploy entrypoint $ENTRYPOINT"
+          {
+            echo "ENTRYPOINT=$ENTRYPOINT"
+          } >> "$GITHUB_ENV"
+          echo "::endgroup::"
+
+      - name: Run production deploy entrypoint
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          CONFIRM_RELEASE_TAG: ${{ inputs.confirm_release_tag }}
+        run: |
+          set -euo pipefail
+          echo "::group::Run production deploy entrypoint"
+          echo "::notice::Executing $ENTRYPOINT with release tag $RELEASE_TAG"
           bash "$ENTRYPOINT" --release-tag "$RELEASE_TAG" --confirm-release-tag "$CONFIRM_RELEASE_TAG"
+          echo "::endgroup::"
