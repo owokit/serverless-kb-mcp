@@ -238,6 +238,7 @@ restore_missing_lambda_functions() {
   local stack_name="$1"
 
   log "Rehydrating missing Lambda functions for $stack_name if needed"
+  ensure_uv
   uv run --project ocr-service python - "$stack_name" "$CONFIG_PATH" "$ASSET_DIR" "$REPO_NAME" <<'PY'
 from __future__ import annotations
 
