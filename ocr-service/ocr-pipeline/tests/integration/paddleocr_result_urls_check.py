@@ -136,11 +136,20 @@ def main() -> int:
     job_url = (normalize_optional(os.getenv("PADDLE_OCR_API_BASE_URL")) or DEFAULT_JOB_URL).rstrip("/")
     model = normalize_optional(os.getenv("PADDLE_OCR_MODEL")) or "PaddleOCR-VL-1.5"
     pdf_name = normalize_optional(os.getenv("PADDLE_OCR_TEST_PDF_NAME")) or DEFAULT_PDF_NAME
-    pdf_path = Path(normalize_optional(os.getenv("PADDLE_OCR_TEST_PDF_PATH")) or (_repo_root() / pdf_name))
+    pdf_path = Path(
+        normalize_optional(os.getenv("PADDLE_OCR_TEST_PDF_PATH"))
+        or (_repo_root() / "ocr-service" / "ocr-pipeline" / "tests" / "pdf" / pdf_name)
+    )
     if not pdf_path.exists():
-        alt_path = _repo_root() / "ocr-service" / "ocr-pipeline" / pdf_name
-        if alt_path.exists():
-            pdf_path = alt_path
+        alt_candidates = [
+            _repo_root() / pdf_name,
+            _repo_root() / "ocr-service" / "ocr-pipeline" / pdf_name,
+            _repo_root() / "ocr-service" / "ocr-pipeline" / "tests" / pdf_name,
+        ]
+        for alt_path in alt_candidates:
+            if alt_path.exists():
+                pdf_path = alt_path
+                break
     if not pdf_path.exists():
         raise SystemExit(f"PDF not found: {pdf_path}")
 
