@@ -573,12 +573,12 @@ main() {
   recover_failed_stack "$STACK_PREFIX-api"
 
   log "Checking release tag $release_tag"
-  if gh release view "$release_tag" >/dev/null 2>&1; then
+  if [[ "$release_tag" == "main" ]]; then
+    printf '::notice::Release %s uses checked-out source; building release assets from the current checkout.\n' "$release_tag"
+    build_release_assets_from_source
+  elif gh release view "$release_tag" >/dev/null 2>&1; then
     log "Release $release_tag exists; downloading assets"
     download_release_assets
-  elif [[ "$release_tag" == "main" ]]; then
-    printf '::notice::Release %s does not exist yet. Building release assets from the checked-out source.\n' "$release_tag"
-    build_release_assets_from_source
   else
     die "Release '$release_tag' does not exist. Publish the release first or pass an existing release tag."
   fi
