@@ -174,7 +174,7 @@ class _WorkflowComponents:
     @cached_property
     def embed_dispatcher(self):
         if not self._settings.embed_queue_url:
-            raise ValueError("EMBED_QUEUE_URL is required for extract workflow")
+            return None
         from serverless_mcp.embed.dispatcher import EmbeddingJobDispatcher
 
         return EmbeddingJobDispatcher(queue_url=self._settings.embed_queue_url, sqs_client=self._clients.sqs)

@@ -651,7 +651,13 @@ class ObjectStateRepository:
             last_error="",
         )
 
-    def mark_extract_done(self, source: S3ObjectRef, manifest_s3_uri: str) -> ObjectStateRecord:
+    def mark_extract_done(
+        self,
+        source: S3ObjectRef,
+        manifest_s3_uri: str,
+        *,
+        embed_status: str = "PENDING",
+    ) -> ObjectStateRecord:
         """
         EN: Mark extract as EXTRACTED and record the manifest S3 URI for embed dispatch.
         CN: 将 extract 标记为 EXTRACTED，并记录用于分发 embed 的 manifest S3 URI。
@@ -671,7 +677,7 @@ class ObjectStateRepository:
         return self._update_status(
             source,
             extract_status="EXTRACTED",
-            embed_status="PENDING",
+            embed_status=embed_status,
             latest_manifest_s3_uri=manifest_s3_uri,
             last_error="",
         )

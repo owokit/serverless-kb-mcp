@@ -201,7 +201,13 @@ class ExecutionStateRepository:
         self._put_record(record)
         return record
 
-    def mark_extract_done(self, source: S3ObjectRef, manifest_s3_uri: str) -> ObjectStateRecord:
+    def mark_extract_done(
+        self,
+        source: S3ObjectRef,
+        manifest_s3_uri: str,
+        *,
+        embed_status: str = "PENDING",
+    ) -> ObjectStateRecord:
         """
         EN: Mark the extract stage complete and persist the manifest URI.
         CN: 将 extract 阶段标记为完成并持久化 manifest URI。
@@ -210,7 +216,7 @@ class ExecutionStateRepository:
             source=source,
             current_state=self.get_state(object_pk=source.object_pk),
             extract_status="EXTRACTED",
-            embed_status="PENDING",
+            embed_status=embed_status,
             latest_manifest_s3_uri=manifest_s3_uri,
             last_error="",
         )

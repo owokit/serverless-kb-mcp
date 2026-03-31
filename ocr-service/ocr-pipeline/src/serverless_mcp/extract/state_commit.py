@@ -44,6 +44,7 @@ class ExtractionStateCommitter:
         source: S3ObjectRef,
         manifest_s3_uri: str,
         current_state: ObjectStateRecord | None = None,
+        embed_status: str = "PENDING",
     ) -> ObjectStateRecord:
         """
         EN: Mark extraction complete in object_state and execution_state.
@@ -58,9 +59,17 @@ class ExtractionStateCommitter:
             )
 
         try:
-            object_state = self._object_state_repo.mark_extract_done(source, manifest_s3_uri)
+            object_state = self._object_state_repo.mark_extract_done(
+                source,
+                manifest_s3_uri,
+                embed_status=embed_status,
+            )
             if self._execution_state_repo is not None:
-                self._execution_state_repo.mark_extract_done(source, manifest_s3_uri)
+                self._execution_state_repo.mark_extract_done(
+                    source,
+                    manifest_s3_uri,
+                    embed_status=embed_status,
+                )
         except DuplicateOrStaleEventError:
             latest_state = self.get_state(object_pk=source.object_pk) or state
             raise StaleExtractionStateError(

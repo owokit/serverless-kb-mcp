@@ -32,7 +32,7 @@ class ExtractionResultPersister:
         extraction_service: ExtractionService,
         state_committer: ExtractionStateCommitter,
         manifest_repo: ManifestRepository,
-        embed_dispatcher: EmbeddingJobDispatcher,
+        embed_dispatcher: EmbeddingJobDispatcher | None,
         embedding_profiles: tuple[EmbeddingProfile, ...],
     ) -> None:
         self._extraction_service = extraction_service
@@ -76,15 +76,26 @@ class ExtractionResultPersister:
             )
             # EN: Validate requests before fan-out so schema drift fails before any SQS writes.
             # CN: 在扇出前校验请求，确保 schema 漂移在任何 SQS 写入之前失败。
-            embedding_jobs_count = self._embed_dispatcher.dispatch_for_profiles(
-                source=source,
-                trace_id=trace_id,
-                manifest_s3_uri=persisted.manifest_s3_uri,
-                requests=embedding_requests,
-                profiles=self._embedding_profiles,
-                previous_version_id=previous_version_id,
-                previous_manifest_s3_uri=previous_manifest_s3_uri,
-            )
+            if self._embed_dispatcher is None:
+                embedding_jobs_count = 0
+                emit_trace(
+                    "persist_ocr_result.embedding_skipped",
+                    document_uri=source.document_uri,
+                    trace_id=trace_id,
+                    manifest_s3_uri=persisted.manifest_s3_uri,
+                    reason="embed_queue_unavailable",
+                    request_count=len(embedding_requests),
+                )
+            else:
+                embedding_jobs_count = self._embed_dispatcher.dispatch_for_profiles(
+                    source=source,
+                    trace_id=trace_id,
+                    manifest_s3_uri=persisted.manifest_s3_uri,
+                    requests=embedding_requests,
+                    profiles=self._embedding_profiles,
+                    previous_version_id=previous_version_id,
+                    previous_manifest_s3_uri=previous_manifest_s3_uri,
+                )
         except _PERSIST_PREPARATION_FAILURE_TYPES:
             self._manifest_repo.rollback_manifest(
                 persisted.manifest,
@@ -97,6 +108,7 @@ class ExtractionResultPersister:
                 source=source,
                 manifest_s3_uri=persisted.manifest_s3_uri,
                 current_state=current_state,
+                embed_status="SKIPPED" if self._embed_dispatcher is None else "PENDING",
             )
         except StaleExtractionStateError:
             latest_state = self._state_committer.get_state(object_pk=source.object_pk) or current_state

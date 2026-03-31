@@ -199,9 +199,11 @@ class _FakeSettings:
     # EN: Frozen dataclass stand-in for Settings.
     # CN: Settings 鐨勫喕缁?dataclass 鏇胯韩銆?
     object_state_table: str = "object-state"
+    execution_state_table: str = "execution-state"
     manifest_index_table: str = "manifest-index"
     manifest_bucket: str = "manifest-bucket"
     manifest_prefix: str = ""
+    embedding_projection_state_table: str | None = None
     embed_queue_url: str | None = None
     paddle_api_base_url: str = "https://example.com"
     paddle_api_token: str | None = "token"
@@ -211,6 +213,7 @@ class _FakeSettings:
     paddle_http_timeout_seconds: int = 60
     paddle_status_timeout_seconds: int = 10
     paddle_allowed_hosts: tuple[str, ...] = ()
+    embedding_profiles: tuple = ()
 
 
 class _ClientRegistry:
@@ -269,6 +272,19 @@ def test_workflow_components_reuse_cached_ocr_client(monkeypatch: pytest.MonkeyP
     components.workflow_for("poll_ocr_job")
 
     assert calls == ["ocr_client"]
+
+
+def test_workflow_components_allow_sync_extract_without_embed_queue(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    EN: Sync extract should still assemble when EMBED_QUEUE_URL is missing.
+    CN: 缺少 EMBED_QUEUE_URL 时，sync_extract 仍应可以装配。
+    """
+    components = _WorkflowComponents(settings=_FakeSettings(embed_queue_url=None), clients=_ClientRegistry())
+
+    action = components.workflow_for("sync_extract")
+
+    assert action.__class__.__name__ == "SyncExtractAction"
+    assert components.embed_dispatcher is None
 
 
 def test_mark_failed_lambda_handler_uses_structured_error_payload(monkeypatch: pytest.MonkeyPatch) -> None:

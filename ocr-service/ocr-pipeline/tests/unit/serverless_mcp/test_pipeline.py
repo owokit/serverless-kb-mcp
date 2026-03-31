@@ -83,7 +83,7 @@ class _FakeObjectStateRepo:
     def get_state(self, *, object_pk: str):
         return self.current_state
 
-    def mark_extract_done(self, source, manifest_s3_uri):
+    def mark_extract_done(self, source, manifest_s3_uri, *, embed_status="PENDING"):
         self.calls.append(("mark_extract_done", source.document_uri, manifest_s3_uri))
         if self.mark_extract_done_error is not None:
             raise self.mark_extract_done_error
@@ -92,7 +92,7 @@ class _FakeObjectStateRepo:
             latest_version_id=source.version_id,
             latest_sequencer=source.sequencer,
             extract_status="EXTRACTED",
-            embed_status="PENDING",
+            embed_status=embed_status,
             latest_manifest_s3_uri=manifest_s3_uri,
         )
 
@@ -492,6 +492,42 @@ def test_persister_fans_out_jobs_by_profile() -> None:
     )
 
     assert [job.profile_id for job in dispatcher.jobs] == ["gemini-default", "openai-text-small"]
+
+
+def test_persister_skips_embedding_when_no_dispatcher_is_configured() -> None:
+    """
+    EN: Persister should still complete when no embedding queue is configured.
+    CN: 未配置 embedding 队列时，persister 仍应完成并跳过 fan-out。
+    """
+    source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
+    persister = ExtractionResultPersister(
+        extraction_service=_FakeExtractionService(),
+        state_committer=_make_state_committer(_FakeObjectStateRepo()),
+        manifest_repo=_FakeManifestRepo(),
+        embed_dispatcher=None,
+        embedding_profiles=(),
+    )
+
+    outcome = persister.persist(
+        source=source,
+        manifest=ChunkManifest(
+            source=source,
+            doc_type="pdf",
+            chunks=[
+                ExtractedChunk(
+                    chunk_id="chunk#000001",
+                    chunk_type="page_text_chunk",
+                    text="hello",
+                    doc_type="pdf",
+                    token_estimate=2,
+                )
+            ],
+        ),
+        trace_id="trace-1",
+    )
+
+    assert outcome.embedding_request_count == 0
+    assert outcome.object_state.embed_status == "SKIPPED"
 
 
 def test_persister_does_not_mark_extract_done_when_dispatch_fails() -> None:
