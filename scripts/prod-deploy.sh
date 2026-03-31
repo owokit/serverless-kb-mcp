@@ -215,7 +215,7 @@ for event in events:
 
 recover_failed_stack() {
   local stack_name="$1"
-  local stack_status skip_resources current_skip_resources merged_skip_resources attempts current_status
+  local stack_status skip_resources current_skip_resources merged_skip_resources attempts current_status stagnant_failed_polls=0
 
   log "Checking CloudFormation stack status for $stack_name"
   stack_status="$(aws cloudformation describe-stacks --stack-name "$stack_name" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
@@ -251,6 +251,7 @@ recover_failed_stack() {
         ;;
       UPDATE_ROLLBACK_FAILED|UPDATE_ROLLBACK_IN_PROGRESS|UPDATE_IN_PROGRESS|CREATE_IN_PROGRESS|ROLLBACK_IN_PROGRESS|ROLLBACK_FAILED)
         if [[ "$current_status" == "UPDATE_ROLLBACK_FAILED" ]]; then
+          stagnant_failed_polls=$((stagnant_failed_polls + 1))
           current_skip_resources="$(collect_rollback_skip_resources "$stack_name")"
           merged_skip_resources="$(join_unique_words "${skip_resources:-}" "${current_skip_resources:-}")"
           if [[ -n "$merged_skip_resources" && "$merged_skip_resources" != "${skip_resources:-}" ]]; then
@@ -260,11 +261,15 @@ recover_failed_stack() {
             if ! aws cloudformation continue-update-rollback --stack-name "$stack_name" --resources-to-skip $skip_resources; then
               die "CloudFormation continue-update-rollback retry failed for $stack_name. Repair the skipped resources before rerunning prod deploy."
             fi
+            stagnant_failed_polls=0
           fi
           log "Recent CloudFormation events for $stack_name:"
           describe_recent_stack_events "$stack_name" | while IFS= read -r line; do
             log "  $line"
           done
+          if (( stagnant_failed_polls >= 6 )); then
+            die "CloudFormation stack recovery for $stack_name is not progressing after ${stagnant_failed_polls} failed polls. Repair the reported resource errors before rerunning prod deploy."
+          fi
         fi
         sleep 10
         ;;

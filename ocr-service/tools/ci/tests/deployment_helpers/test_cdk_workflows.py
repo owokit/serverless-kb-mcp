@@ -51,6 +51,7 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "Installing CDK dependencies" in script_text
     assert "Recent CloudFormation events for" in script_text
     assert "Retrying rollback recovery" in script_text
+    assert "is not progressing after" in script_text
     assert "stdbuf -oL -eL bash" not in script_text
 
 
