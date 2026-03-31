@@ -334,7 +334,7 @@ for spec in functions:
         if error_code not in {"ResourceNotFoundException", "ResourceNotFoundExceptionException"} and "not found" not in str(exc).lower():
             raise
         role_name = names["lambda_role"] if spec["role_key"] == "query" else f"{names['lambda_role']}-{spec['role_key']}"
-        role_arn = ensure_role_exists(role_name, "lambda.amazonaws.com", ["AWSLambdaBasicExecutionRole", "AWSXRayDaemonWriteAccess"])
+        role_arn = ensure_role_exists(role_name, "lambda.amazonaws.com", ["service-role/AWSLambdaBasicExecutionRole", "AWSXRayDaemonWriteAccess"])
         zip_path = artifact_dir / f"{repo_name}_{spec['function_key']}.zip"
         if not zip_path.exists():
             raise SystemExit(f"Missing Lambda zip asset: {zip_path}")
