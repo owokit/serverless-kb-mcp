@@ -66,11 +66,11 @@ function attachLambdaDataPlanePolicy(
   if (roleKey === 'query') {
     statements.push(
       new iam.PolicyStatement({
-        actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
+        actions: ['dynamodb:GetItem', 'dynamodb:BatchGetItem', 'dynamodb:DescribeTable'],
         resources: [params.bindings.objectStateTableArn],
       }),
       new iam.PolicyStatement({
-        actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
+        actions: ['dynamodb:GetItem', 'dynamodb:BatchGetItem', 'dynamodb:DescribeTable'],
         resources: [params.bindings.executionStateTableArn],
       }),
       new iam.PolicyStatement({
@@ -93,11 +93,11 @@ function attachLambdaDataPlanePolicy(
   } else if (roleKey === 'status') {
     statements.push(
       new iam.PolicyStatement({
-        actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
+        actions: ['dynamodb:GetItem', 'dynamodb:BatchGetItem', 'dynamodb:DescribeTable'],
         resources: [params.bindings.objectStateTableArn],
       }),
       new iam.PolicyStatement({
-        actions: ['dynamodb:GetItem', 'dynamodb:DescribeTable'],
+        actions: ['dynamodb:GetItem', 'dynamodb:BatchGetItem', 'dynamodb:DescribeTable'],
         resources: [params.bindings.executionStateTableArn],
       }),
       new iam.PolicyStatement({
