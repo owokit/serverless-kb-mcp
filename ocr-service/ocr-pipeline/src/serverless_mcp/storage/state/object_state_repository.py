@@ -16,7 +16,7 @@ from urllib.parse import quote
 from botocore.exceptions import ClientError
 
 from serverless_mcp.domain.models import ObjectStateRecord, S3ObjectRef, utc_now_iso
-from serverless_mcp.storage.batch import dedupe_preserve_order
+from serverless_mcp.storage.batch import batch_get_records
 
 _STATE_RECORD_TYPE = "STATE"
 _LOOKUP_RECORD_TYPE = "LOOKUP"
@@ -372,38 +372,15 @@ class ObjectStateRepository:
         if not object_pks:
             return {}
 
-        unique_object_pks = dedupe_preserve_order(object_pks)
-        result: dict[str, ObjectStateRecord | None] = {}
-        remaining = unique_object_pks[:]
-
-        while remaining:
-            batch = remaining[:100]
-            remaining = remaining[100:]
-
-            keys = [self._build_state_key(pk) for pk in batch]
-            response = self._ddb.batch_get_item(
-                RequestItems={
-                    self._table_name: {
-                        "Keys": keys,
-                        "ConsistentRead": True,
-                    }
-                }
-            )
-
-            items = response.get("Responses", {}).get(self._table_name, [])
-            for item in items:
-                record = _deserialize_object_state(item)
-                result[record.pk] = record
-
-            unprocessed = response.get("UnprocessedKeys", {})
-            if unprocessed.get(self._table_name, {}).get("Keys"):
-                remaining.extend([pk for pk in batch if pk not in result])
-
-        for pk in object_pks:
-            if pk not in result:
-                result[pk] = None
-
-        return result
+        return batch_get_records(
+            self._ddb,
+            table_name=self._table_name,
+            items=object_pks,
+            build_request_key=self._build_state_key,
+            parse_request_key=lambda item: item["pk"]["S"],
+            parse_record_key=lambda record: record.pk,
+            parse_record=_deserialize_object_state,
+        )
 
 
     def get_lookup_record(self, *, bucket: str, key: str) -> ObjectStateLookupRecord | None:

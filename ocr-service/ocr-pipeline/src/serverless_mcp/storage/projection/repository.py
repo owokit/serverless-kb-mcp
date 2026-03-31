@@ -10,12 +10,10 @@ migrations do not interfere with each other.
 """
 from __future__ import annotations
 
-import time
 from urllib.parse import quote
 
 from serverless_mcp.domain.models import EmbeddingOutcome, EmbeddingProfile, EmbeddingProjectionStateRecord, S3ObjectRef, utc_now_iso
-from serverless_mcp.storage.batch import flush_batch_write
-from serverless_mcp.storage.batch import dedupe_preserve_order
+from serverless_mcp.storage.batch import batch_get_records, flush_batch_write
 
 
 class EmbeddingProjectionStateRepository:
@@ -120,44 +118,17 @@ class EmbeddingProjectionStateRepository:
         if not keys:
             return {}
 
-        unique_keys = dedupe_preserve_order(keys)
-        records: dict[tuple[str, str, str], EmbeddingProjectionStateRecord | None] = {
-            key: None for key in keys
-        }
-        pending = list(unique_keys)
-        for attempt in range(8):
-            pending = dedupe_preserve_order(pending)
-            request_items = {
-                self._table_name: {
-                    "Keys": [
-                        {
-                            "pk": {"S": _build_projection_pk(object_pk=object_pk, version_id=version_id)},
-                            "sk": {"S": profile_id},
-                        }
-                        for object_pk, version_id, profile_id in pending
-                    ],
-                    "ConsistentRead": True,
-                }
-            }
-            response = self._ddb.batch_get_item(RequestItems=request_items)
-            for item in response.get("Responses", {}).get(self._table_name, []):
-                record = _deserialize_projection_state(item)
-                records[(record.object_pk, record.version_id, record.profile_id)] = record
-
-            unprocessed_items = response.get("UnprocessedKeys", {}).get(self._table_name, {}).get("Keys") or []
-            if not unprocessed_items:
-                return records
-
-            pending = [
-                _parse_projection_key(item["pk"]["S"], item["sk"]["S"])
-                for item in unprocessed_items
-            ]
-            if attempt < 7:
-                time.sleep(min(0.05 * (2**attempt), 1.0))
-
-        raise RuntimeError(
-            "DynamoDB batch_get_item did not drain after projection state retries; "
-            f"table={self._table_name}"
+        return batch_get_records(
+            self._ddb,
+            table_name=self._table_name,
+            items=keys,
+            build_request_key=lambda key: {
+                "pk": {"S": _build_projection_pk(object_pk=key[0], version_id=key[1])},
+                "sk": {"S": key[2]},
+            },
+            parse_request_key=lambda item: _parse_projection_key(item["pk"]["S"], item["sk"]["S"]),
+            parse_record_key=lambda record: (record.object_pk, record.version_id, record.profile_id),
+            parse_record=_deserialize_projection_state,
         )
 
     def list_version_records(self, *, object_pk: str, version_id: str) -> list[EmbeddingProjectionStateRecord]:
