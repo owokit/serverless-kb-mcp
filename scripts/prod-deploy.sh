@@ -325,8 +325,25 @@ def ensure_role_exists(role_name: str, service_principal: str, managed_policies:
             PolicyArn=f"arn:aws:iam::aws:policy/{policy_name}",
         )
     print(f"Created missing IAM role {role_name}")
-    time.sleep(5)
+    time.sleep(10)
     return iam.get_role(RoleName=role_name)["Role"]["Arn"]
+
+def create_lambda_function_with_retry(function_name: str, kwargs: dict[str, object]) -> None:
+    for attempt in range(1, 6):
+        try:
+            lambda_client.create_function(**kwargs)
+            print(f"Created missing Lambda function {function_name}")
+            return
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code", "")
+            message = str(exc)
+            if error_code == "InvalidParameterValueException" and "cannot be assumed by Lambda" in message:
+                wait_seconds = 10 * attempt
+                print(f"Waiting {wait_seconds}s for IAM trust propagation before retrying {function_name} (attempt {attempt}/5)")
+                time.sleep(wait_seconds)
+                continue
+            raise
+    raise SystemExit(f"Failed to create Lambda function {function_name} after IAM trust retries")
 
 created = []
 already_present = []
@@ -360,9 +377,8 @@ for spec in functions:
         }
         if layer_list:
             kwargs["Layers"] = layer_list
-        lambda_client.create_function(**kwargs)
+        create_lambda_function_with_retry(function_name, kwargs)
         created.append(function_name)
-        print(f"Created missing Lambda function {function_name}")
     else:
         already_present.append(function_name)
 
