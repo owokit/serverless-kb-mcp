@@ -396,6 +396,158 @@ def create_lambda_function_with_retry(function_name: str, kwargs: dict[str, obje
             raise
     raise SystemExit(f"Failed to create Lambda function {function_name} after IAM trust retries")
 
+def ensure_state_machine_role_exists(role_name: str, lambda_function_arns: list[str], log_group_arn: str) -> str:
+    def get_role_arn() -> str | None:
+        try:
+            return iam.get_role(RoleName=role_name)["Role"]["Arn"]
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code", "")
+            message = str(exc).lower()
+            if error_code in {"NoSuchEntity", "NoSuchEntityException", "ResourceNotFoundException"} or "not found" in message:
+                return None
+            raise
+
+    existing_role_arn = get_role_arn()
+    if existing_role_arn:
+        return existing_role_arn
+
+    try:
+        iam.create_role(
+            RoleName=role_name,
+            AssumeRolePolicyDocument=json.dumps(
+                {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {"Service": "states.amazonaws.com"},
+                            "Action": "sts:AssumeRole",
+                        }
+                    ],
+                }
+            ),
+            Description=f"Rehydrated Step Functions execution role for {role_name}",
+        )
+    except ClientError as exc:
+        error_code = exc.response.get("Error", {}).get("Code", "")
+        message = str(exc).lower()
+        if error_code not in {"EntityAlreadyExists", "EntityAlreadyExistsException", "EntityAlreadyExistsExceptionException"} and "already exists" not in message:
+            raise
+
+    iam.put_role_policy(
+        RoleName=role_name,
+        PolicyName="RehydratedStateMachineAccess",
+        PolicyDocument=json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["lambda:InvokeFunction"],
+                        "Resource": lambda_function_arns,
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "logs:CreateLogDelivery",
+                            "logs:CreateLogStream",
+                            "logs:GetLogDelivery",
+                            "logs:PutLogEvents",
+                            "logs:UpdateLogDelivery",
+                            "logs:DeleteLogDelivery",
+                            "logs:ListLogDeliveries",
+                            "logs:PutResourcePolicy",
+                            "logs:DescribeResourcePolicies",
+                            "logs:DescribeLogGroups",
+                        ],
+                        "Resource": log_group_arn,
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": ["xray:PutTraceSegments", "xray:PutTelemetryRecords"],
+                        "Resource": "*",
+                    },
+                ],
+            }
+        ),
+    )
+    print(f"Created missing IAM role {role_name}")
+    for attempt in range(1, 7):
+        time.sleep(10)
+        role_arn = get_role_arn()
+        if role_arn:
+            return role_arn
+        print(f"Waiting for IAM role visibility for {role_name} (attempt {attempt}/6)")
+    return get_role_arn() or sys.exit(f"Failed to observe IAM role {role_name} after creation")
+
+def restore_missing_state_machine() -> None:
+    sfn = boto3.client("stepfunctions")
+    state_machine_name = names["state_machine"]
+    state_machine_arn = f"arn:aws:states:{region}:{account_id}:stateMachine:{state_machine_name}"
+    state_machine_role_name = names["state_machine_role"]
+    state_machine_log_group_arn = f"arn:aws:logs:{region}:{account_id}:log-group:{names['state_machine_log_group']}"
+
+    lambda_arns_by_key: dict[str, str] = {}
+    for spec in functions:
+        function_name = spec["function_name"]
+        lambda_arns_by_key[spec["function_key"]] = lambda_client.get_function(FunctionName=function_name)["Configuration"]["FunctionArn"]
+
+    try:
+        sfn.describe_state_machine(stateMachineArn=state_machine_arn)
+        return
+    except ClientError as exc:
+        error_code = exc.response.get("Error", {}).get("Code", "")
+        if error_code not in {"StateMachineDoesNotExist", "StateMachineDoesNotExistException", "StateMachineDoesNotExistExceptionException"} and "does not exist" not in str(exc).lower():
+            raise
+
+    role_arn = ensure_state_machine_role_exists(
+        state_machine_role_name,
+        [lambda_arns_by_key[key] for key in [
+            "extract_prepare",
+            "extract_sync",
+            "extract_submit",
+            "extract_poll",
+            "extract_persist",
+            "extract_mark_failed",
+        ]],
+        state_machine_log_group_arn,
+    )
+
+    template_path = Path("ocr-service/ocr-pipeline/src/serverless_mcp/workflows/extract_state_machine.asl.json")
+    template = template_path.read_text(encoding="utf-8")
+    placeholders = [
+        ("${PREPARE_LAMBDA_ARN}", "extract_prepare"),
+        ("${SYNC_LAMBDA_ARN}", "extract_sync"),
+        ("${SUBMIT_LAMBDA_ARN}", "extract_submit"),
+        ("${POLL_LAMBDA_ARN}", "extract_poll"),
+        ("${PERSIST_LAMBDA_ARN}", "extract_persist"),
+        ("${MARK_FAILED_LAMBDA_ARN}", "extract_mark_failed"),
+    ]
+    for placeholder, key in placeholders:
+        template = template.replace(placeholder, lambda_arns_by_key[key])
+    json.loads(template)
+
+    for attempt in range(1, 6):
+        try:
+            sfn.create_state_machine(
+                name=state_machine_name,
+                definition=template,
+                roleArn=role_arn,
+                type="STANDARD",
+            )
+            print(f"Created missing Step Functions state machine {state_machine_name}")
+            return
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code", "")
+            message = str(exc)
+            if error_code == "InvalidParameterValueException" and "cannot be assumed" in message:
+                wait_seconds = 10 * attempt
+                print(f"Waiting {wait_seconds}s for IAM trust propagation before retrying state machine {state_machine_name} (attempt {attempt}/5)")
+                time.sleep(wait_seconds)
+                continue
+            raise
+    raise SystemExit(f"Failed to create Step Functions state machine {state_machine_name} after IAM trust retries")
+
 created = []
 already_present = []
 for spec in functions:
@@ -432,6 +584,8 @@ for spec in functions:
         created.append(function_name)
     else:
         already_present.append(function_name)
+
+restore_missing_state_machine()
 
 print(json.dumps({"already_present": already_present, "created": created}, ensure_ascii=False, indent=2))
 PY
