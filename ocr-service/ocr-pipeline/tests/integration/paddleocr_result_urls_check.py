@@ -89,6 +89,13 @@ def normalize_optional(value: str | None) -> str | None:
     return stripped or None
 
 
+def source_named_output_name(pdf_name: str, suffix: str) -> str:
+    normalized_suffix = suffix.strip().lstrip(".")
+    if not normalized_suffix:
+        raise SystemExit("suffix is required")
+    return f"{Path(pdf_name).name}.{normalized_suffix}"
+
+
 def submit_job(
     *,
     session: requests.Session,
@@ -167,14 +174,16 @@ def synthesize_markdown(json_lines: list[dict[str, Any]]) -> str:
     return build_markdown_text_from_json_lines(json_lines)
 
 
-def write_result_files(*, output_dir: Path, json_text: str, markdown_text: str, markdown_source: str) -> None:
-    (output_dir / "result.jsonl").write_text(json_text, encoding="utf-8")
-    (output_dir / "result.md").write_text(markdown_text, encoding="utf-8")
+def write_result_files(*, output_dir: Path, pdf_name: str, json_text: str, markdown_text: str, markdown_source: str) -> None:
+    json_path = output_dir / source_named_output_name(pdf_name, "json")
+    markdown_path = output_dir / source_named_output_name(pdf_name, "md")
+    json_path.write_text(json_text, encoding="utf-8")
+    markdown_path.write_text(markdown_text, encoding="utf-8")
 
-    print(f"saved_jsonl={output_dir / 'result.jsonl'}")
-    print(f"saved_markdown={output_dir / 'result.md'}")
+    print(f"saved_json={json_path}")
+    print(f"saved_markdown={markdown_path}")
     print(f"markdown_source={markdown_source}")
-    print(f"jsonl_bytes={len(json_text.encode('utf-8'))}")
+    print(f"json_bytes={len(json_text.encode('utf-8'))}")
     print(f"markdown_chars={len(markdown_text)}")
 
 
@@ -259,6 +268,7 @@ def main() -> int:
 
     write_result_files(
         output_dir=output_dir,
+        pdf_name=pdf_path.name,
         json_text=json_text,
         markdown_text=markdown_text,
         markdown_source=markdown_source,
