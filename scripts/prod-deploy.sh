@@ -291,7 +291,13 @@ delete_stack_and_wait() {
 rebuild_drifted_stack_if_needed() {
   local stack_name="$1"
   local stack_kind="$2"
-  local drift_detection_id detection_status stack_drift_status deleted_count
+  local stack_status drift_detection_id detection_status stack_drift_status deleted_count
+
+  stack_status="$(aws cloudformation describe-stacks --stack-name "$stack_name" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
+  if [[ -z "$stack_status" || "$stack_status" == "None" || "$stack_status" == "DELETE_COMPLETE" ]]; then
+    log "Stack $stack_name does not exist (status=${stack_status:-missing}); skipping drift inspection and letting CDK recreate it"
+    return 0
+  fi
 
   log "Detecting CloudFormation drift for $stack_name"
   drift_detection_id="$(aws cloudformation detect-stack-drift --stack-name "$stack_name" --query 'StackDriftDetectionId' --output text)"
