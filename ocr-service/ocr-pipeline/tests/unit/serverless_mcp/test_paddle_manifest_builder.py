@@ -144,3 +144,34 @@ def test_paddle_manifest_builder_accepts_markdown_only_input() -> None:
     assert manifest.metadata["markdown_asset_count"] == 2
     assert manifest.metadata["document_markdown_asset_count"] == 1
     assert manifest.chunks[0].text.startswith("# Intro")
+
+
+def test_paddle_manifest_builder_synthesizes_markdown_from_json_lines() -> None:
+    """
+    EN: Paddle manifest builder should synthesize Markdown from JSONL page payloads.
+    CN: Paddle manifest builder 应能从 JSONL 页级载荷合成 Markdown。
+    """
+    builder = PaddleOCRManifestBuilder()
+
+    markdown = builder.build_markdown_text_from_json_lines(
+        [
+            {
+                "result": {
+                    "layoutParsingResults": [
+                        {"markdown": {"text": "# Page 1"}},
+                        {"markdown": {"text": "First paragraph."}},
+                    ]
+                }
+            },
+            {
+                "result": {
+                    "layoutParsingResults": [
+                        {"markdown": {"text": "## Page 2"}},
+                        {"markdown": {"text": "Second paragraph."}},
+                    ]
+                }
+            },
+        ]
+    )
+
+    assert markdown == "# Page 1\n\nFirst paragraph.\n\n## Page 2\n\nSecond paragraph."

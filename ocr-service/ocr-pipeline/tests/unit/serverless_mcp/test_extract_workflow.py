@@ -140,10 +140,11 @@ class _FakeSourceRepo:
 class _FakeOCRClient:
     # EN: Stub PaddleOCR client that tracks polls and returns canned responses.
     # CN: 同上。
-    def __init__(self):
+    def __init__(self, *, markdown_url: str | None = "https://example.com/result.md") -> None:
         self.polls = 0
         self.download_json_calls: list[str] = []
         self.download_markdown_calls: list[str] = []
+        self.markdown_url = markdown_url
 
     def submit_job(self, *, payload, key):
         return _Submission(job_id="job-1")
@@ -155,7 +156,7 @@ class _FakeOCRClient:
             job_id=job_id,
             state=state,
             json_url="https://example.com/result.jsonl",
-            markdown_url="https://example.com/result.md",
+            markdown_url=self.markdown_url,
             error_message=None,
         )
 
@@ -176,6 +177,7 @@ class _FakeManifestBuilder:
     # CN: 杩斿洖鍥哄畾 manifest 鐨?PaddleOCRManifestBuilder 鏇胯韩銆?
     def __init__(self):
         self.json_lines_calls: list[list[dict] | None] = []
+        self.markdown_text_calls: list[list[dict]] = []
 
     def build_manifest_from_markdown(self, *, source, markdown_text, binary_loader, json_lines=None):
         self.json_lines_calls.append(json_lines)
@@ -204,6 +206,10 @@ class _FakeManifestBuilder:
                 "ocr_engine": "PaddleOCR-VL-1.5",
             },
         )
+
+    def build_markdown_text_from_json_lines(self, json_lines):
+        self.markdown_text_calls.append(json_lines)
+        return "# Fallback\n\nhello"
 
 
 def test_step_functions_workflow_polls_until_ocr_completes() -> None:
@@ -327,6 +333,44 @@ def test_step_functions_workflow_supports_markdown_only_persist() -> None:
     assert ocr_client.download_json_calls == []
     assert ocr_client.download_markdown_calls == ["https://example.com/result.md"]
     assert manifest_builder.json_lines_calls == [None]
+
+
+def test_step_functions_workflow_falls_back_to_jsonl_when_markdown_url_is_missing() -> None:
+    """
+    EN: JSONL-only OCR results should be converted to Markdown and persisted.
+    CN: 仅有 JSONL 的 OCR 结果应被转换为 Markdown 并持久化。
+    """
+    ocr_client = _FakeOCRClient(markdown_url=None)
+    manifest_builder = _FakeManifestBuilder()
+    workflow = StepFunctionsExtractWorkflow(
+        extract_worker=_FakeExtractWorker(),
+        result_persister=_FakePersister(),
+        object_state_repo=_FakeObjectStateRepo(),
+        source_repo=_FakeSourceRepo(),
+        ocr_client=ocr_client,
+        manifest_builder=manifest_builder,
+    )
+    source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/scan.pdf", version_id="v1")
+    processing_state = ObjectStateRecord(
+        pk=source.object_pk,
+        latest_version_id=source.version_id,
+        latest_sequencer=source.sequencer,
+        extract_status="EXTRACTING",
+        embed_status="PENDING",
+    )
+
+    result = workflow.persist_ocr_result(
+        job=ExtractJobMessage(source=source, trace_id="trace-1"),
+        processing_state=processing_state,
+        json_url="https://example.com/result.jsonl",
+        markdown_url=None,
+    )
+
+    assert result["chunk_count"] == 1
+    assert ocr_client.download_json_calls == ["https://example.com/result.jsonl"]
+    assert ocr_client.download_markdown_calls == []
+    assert manifest_builder.markdown_text_calls == [[{"result": {"layoutParsingResults": [{"markdown": {"text": "hello"}, "outputImages": {}}]}}]]
+    assert manifest_builder.json_lines_calls == [[{"result": {"layoutParsingResults": [{"markdown": {"text": "hello"}, "outputImages": {}}]}}]]
 
 
 def test_step_functions_workflow_marks_failed_state() -> None:

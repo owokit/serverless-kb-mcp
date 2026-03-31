@@ -197,27 +197,31 @@ class PersistOcrResultAction:
         job: ExtractJobMessage,
         processing_state: ObjectStateRecord,
         json_url: str | None = None,
-        markdown_url: str,
+        markdown_url: str | None = None,
     ) -> dict:
-        if not isinstance(markdown_url, str) or not markdown_url.strip():
-            raise ValueError("markdown_url is required when persisting OCR output")
         if json_url is not None and not json_url.strip():
             raise ValueError("json_url must be blank-free when provided")
         normalized_json_url = json_url.strip() if json_url is not None else None
-        normalized_markdown_url = markdown_url.strip()
+        normalized_markdown_url = markdown_url.strip() if isinstance(markdown_url, str) and markdown_url.strip() else None
+        if normalized_json_url is None and normalized_markdown_url is None:
+            raise ValueError("json_url or markdown_url is required when persisting OCR output")
         start = monotonic()
         trace_payload = {
             "document_uri": job.source.document_uri,
             "trace_id": job.trace_id,
-            "markdown_url_host": urlparse(normalized_markdown_url).hostname,
-            "markdown_url_path": urlparse(normalized_markdown_url).path,
             "previous_version_id": processing_state.previous_version_id,
             "json_url_present": normalized_json_url is not None,
+            "markdown_url_present": normalized_markdown_url is not None,
         }
         if normalized_json_url is not None:
             trace_payload.update(
                 json_url_host=urlparse(normalized_json_url).hostname,
                 json_url_path=urlparse(normalized_json_url).path,
+            )
+        if normalized_markdown_url is not None:
+            trace_payload.update(
+                markdown_url_host=urlparse(normalized_markdown_url).hostname,
+                markdown_url_path=urlparse(normalized_markdown_url).path,
             )
         emit_trace("persist_ocr_result.start", **trace_payload)
         json_lines = None
@@ -231,15 +235,29 @@ class PersistOcrResultAction:
                 json_line_count=len(json_lines),
                 elapsed_ms=round((monotonic() - download_start) * 1000, 2),
             )
-        markdown_download_start = monotonic()
-        markdown_text = self._ocr_client.download_markdown(normalized_markdown_url)
-        emit_trace(
-            "persist_ocr_result.markdown_download_done",
-            document_uri=job.source.document_uri,
-            trace_id=job.trace_id,
-            markdown_char_count=len(markdown_text),
-            elapsed_ms=round((monotonic() - markdown_download_start) * 1000, 2),
-        )
+        if normalized_markdown_url is not None:
+            markdown_download_start = monotonic()
+            markdown_text = self._ocr_client.download_markdown(normalized_markdown_url)
+            emit_trace(
+                "persist_ocr_result.markdown_download_done",
+                document_uri=job.source.document_uri,
+                trace_id=job.trace_id,
+                markdown_char_count=len(markdown_text),
+                elapsed_ms=round((monotonic() - markdown_download_start) * 1000, 2),
+            )
+        else:
+            if json_lines is None:
+                raise ValueError("json_url is required when markdown_url is missing for persist_ocr_result")
+            markdown_text = self._manifest_builder.build_markdown_text_from_json_lines(json_lines)
+            if not markdown_text.strip():
+                raise ValueError("PaddleOCR json_url did not contain markdown text for persist_ocr_result")
+            emit_trace(
+                "persist_ocr_result.markdown_synthesized",
+                document_uri=job.source.document_uri,
+                trace_id=job.trace_id,
+                markdown_char_count=len(markdown_text),
+                json_line_count=len(json_lines),
+            )
         build_start = monotonic()
         manifest = self._manifest_builder.build_manifest_from_markdown(
             source=job.source,

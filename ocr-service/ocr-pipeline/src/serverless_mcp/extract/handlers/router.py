@@ -108,9 +108,9 @@ def lambda_handler(event: dict, _context) -> dict:
                 json_url = event.get("json_url")
                 normalized_json_url = json_url.strip() if isinstance(json_url, str) and json_url.strip() else None
                 markdown_url = event.get("markdown_url")
-                if not isinstance(markdown_url, str) or not markdown_url.strip():
-                    raise ValueError("markdown_url is required for persist_ocr_result")
-                normalized_markdown_url = markdown_url.strip()
+                normalized_markdown_url = markdown_url.strip() if isinstance(markdown_url, str) and markdown_url.strip() else None
+                if normalized_json_url is None and normalized_markdown_url is None:
+                    raise ValueError("json_url or markdown_url is required for persist_ocr_result")
                 job = validate_job(job_payload, required_for="persist_ocr_result")
                 processing_state = validate_processing_state(
                     processing_state_payload,
@@ -122,13 +122,17 @@ def lambda_handler(event: dict, _context) -> dict:
                     "trace_id": job.trace_id,
                     "processing_state_pk": processing_state.pk,
                     "json_url_present": normalized_json_url is not None,
-                    "markdown_url_host": urlparse(normalized_markdown_url).hostname,
-                    "markdown_url_path": urlparse(normalized_markdown_url).path,
+                    "markdown_url_present": normalized_markdown_url is not None,
                 }
                 if normalized_json_url is not None:
                     trace_payload.update(
                         json_url_host=urlparse(normalized_json_url).hostname,
                         json_url_path=urlparse(normalized_json_url).path,
+                    )
+                if normalized_markdown_url is not None:
+                    trace_payload.update(
+                        markdown_url_host=urlparse(normalized_markdown_url).hostname,
+                        markdown_url_path=urlparse(normalized_markdown_url).path,
                     )
                 emit_trace(
                     "handler.dispatch",
