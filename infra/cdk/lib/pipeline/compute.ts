@@ -268,8 +268,8 @@ function buildLambdaEnvironment(params: {
   if (functionKey === 'ingest') {
     env.STEP_FUNCTIONS_STATE_MACHINE_ARN = bindings.stateMachineArn;
   }
-  if (functionKey === 'remote_mcp' && deploymentInputs.remoteMcpDefaultTenantId) {
-    env.REMOTE_MCP_DEFAULT_TENANT_ID = deploymentInputs.remoteMcpDefaultTenantId;
+  if (functionKey === 'remote_mcp') {
+    env.REMOTE_MCP_DEFAULT_TENANT_ID = deploymentInputs.remoteMcpDefaultTenantId ?? defaultSettings.remote_mcp_default_tenant_id;
   }
   if (deploymentInputs.paddleApiToken) {
     env.PADDLE_OCR_API_TOKEN = deploymentInputs.paddleApiToken;

@@ -372,6 +372,39 @@ def test_lambda_handler_initialize_tools_list_and_call(monkeypatch) -> None:
     assert context.query_service.calls[0]["security_scope"] == ()
 
 
+def test_lambda_handler_defaults_search_documents_to_lookup_tenant(monkeypatch) -> None:
+    """
+    EN: Unauthenticated search_documents calls should fall back to the configured lookup tenant.
+    CN: 未认证的 search_documents 调用应回退到配置的 lookup tenant。
+    """
+    context = _install_gateway_context(monkeypatch)
+
+    response = remote_mcp_handler.lambda_handler(
+        _build_api_gateway_event(
+            {
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_documents",
+                    "arguments": {
+                        "query": "emergency",
+                        "top_k": 5,
+                        "neighbor_expand": 1,
+                    },
+                },
+            }
+        ),
+        None,
+    )
+
+    assert response["statusCode"] == 200
+    payload = json.loads(response["body"])
+    content = json.loads(payload["result"]["content"][0]["text"])
+    assert content["query"] == "emergency"
+    assert context.query_service.calls[0]["tenant_id"] == "lookup"
+
+
 def test_lambda_handler_rejects_invalid_json_and_invalid_tool_params(monkeypatch) -> None:
     """
     EN: The vendored handler should reject malformed JSON and invalid tool calls.

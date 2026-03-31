@@ -103,7 +103,7 @@ def resolve_effective_tenant_id(
 
     if allow_unauthenticated_query:
         fallback_tenant_id = (default_tenant_id or "").strip()
-        if fallback_tenant_id and fallback_tenant_id != "lookup":
+        if fallback_tenant_id:
             return fallback_tenant_id
     raise ValueError("tenant_id is required")
 
