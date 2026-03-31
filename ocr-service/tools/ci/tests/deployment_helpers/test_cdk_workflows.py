@@ -49,9 +49,11 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "Waiting for CloudFormation stack recovery" in script_text
     assert "Command failed at line" in script_text
     assert "Installing CDK dependencies" in script_text
-    assert "Recent CloudFormation events for" in script_text
+    assert "Current CloudFormation failures for" in script_text
     assert "Retrying rollback recovery" in script_text
     assert "is not progressing after" in script_text
+    assert "Suggested one-click repair command:" in script_text
+    assert "describe-stack-resources" in script_text
     assert "stdbuf -oL -eL bash" not in script_text
 
 

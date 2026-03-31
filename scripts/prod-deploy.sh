@@ -165,7 +165,7 @@ PY
 collect_rollback_skip_resources() {
   local stack_name="$1"
 
-  aws cloudformation describe-stack-events --stack-name "$stack_name" --output json | python3 -c '
+  aws cloudformation describe-stack-resources --stack-name "$stack_name" --output json | python3 -c '
 from __future__ import annotations
 
 import json
@@ -175,22 +175,43 @@ stack_name = sys.argv[1]
 payload = json.load(sys.stdin)
 ids: list[str] = []
 seen: set[str] = set()
-eligible_statuses = {"UPDATE_FAILED", "DELETE_FAILED"}
-for event in payload.get("StackEvents", []):
-    if event.get("ResourceStatus") not in eligible_statuses:
+for resource in payload.get("StackResources", []):
+    if resource.get("ResourceStatus") != "UPDATE_FAILED":
         continue
-    reason = event.get("ResourceStatusReason") or ""
+    reason = resource.get("ResourceStatusReason") or ""
     if (
         "could not be found" not in reason
         and "HandlerErrorCode: NotFound" not in reason
     ):
         continue
-    logical_id = event.get("LogicalResourceId")
+    logical_id = resource.get("LogicalResourceId")
     if logical_id and logical_id not in seen and logical_id != stack_name:
         seen.add(logical_id)
         ids.append(logical_id)
 print(" ".join(ids))
 ' "$stack_name"
+}
+
+describe_current_stack_failures() {
+  local stack_name="$1"
+
+  aws cloudformation describe-stack-resources --stack-name "$stack_name" --output json | python3 -c '
+from __future__ import annotations
+
+import json
+import sys
+
+payload = json.load(sys.stdin)
+resources = payload.get("StackResources", [])
+failed = [r for r in resources if r.get("ResourceStatus") in {"UPDATE_FAILED", "DELETE_FAILED"}]
+for resource in failed[:15]:
+    logical_id = resource.get("LogicalResourceId") or "unknown"
+    resource_type = resource.get("ResourceType") or "unknown"
+    status = resource.get("ResourceStatus") or "unknown"
+    reason = (resource.get("ResourceStatusReason") or "").replace("\n", " ").strip()
+    physical_id = resource.get("PhysicalResourceId") or "unknown"
+    print(f"{logical_id} | {resource_type} | {status} | {physical_id} | {reason}")
+' 
 }
 
 describe_recent_stack_events() {
@@ -227,11 +248,15 @@ recover_failed_stack() {
   skip_resources="$(collect_rollback_skip_resources "$stack_name")"
   if [[ -n "$skip_resources" ]]; then
     printf '::warning::Skipping CloudFormation resources for %s: %s\n' "$stack_name" "$skip_resources"
+    log "Suggested one-click repair command:"
+    log "  aws cloudformation continue-update-rollback --stack-name $stack_name --resources-to-skip $skip_resources"
     if ! aws cloudformation continue-update-rollback --stack-name "$stack_name" --resources-to-skip $skip_resources; then
       die "CloudFormation continue-update-rollback failed for $stack_name. Repair the skipped resources before rerunning prod deploy."
     fi
   else
     printf '::warning::No explicit skip list found for %s; retrying rollback without skips.\n' "$stack_name"
+    log "Suggested one-click repair command:"
+    log "  aws cloudformation continue-update-rollback --stack-name $stack_name"
     if ! aws cloudformation continue-update-rollback --stack-name "$stack_name"; then
       die "CloudFormation continue-update-rollback failed for $stack_name. Inspect stack events before rerunning prod deploy."
     fi
@@ -258,13 +283,15 @@ recover_failed_stack() {
             log "Refreshed rollback skip resources for $stack_name: $merged_skip_resources"
             skip_resources="$merged_skip_resources"
             printf '::warning::Retrying rollback recovery for %s with updated skip list: %s\n' "$stack_name" "$skip_resources"
+            log "Suggested one-click repair command:"
+            log "  aws cloudformation continue-update-rollback --stack-name $stack_name --resources-to-skip $skip_resources"
             if ! aws cloudformation continue-update-rollback --stack-name "$stack_name" --resources-to-skip $skip_resources; then
               die "CloudFormation continue-update-rollback retry failed for $stack_name. Repair the skipped resources before rerunning prod deploy."
             fi
             stagnant_failed_polls=0
           fi
-          log "Recent CloudFormation events for $stack_name:"
-          describe_recent_stack_events "$stack_name" | while IFS= read -r line; do
+          log "Current CloudFormation failures for $stack_name:"
+          describe_current_stack_failures "$stack_name" | while IFS= read -r line; do
             log "  $line"
           done
           if (( stagnant_failed_polls >= 6 )); then
