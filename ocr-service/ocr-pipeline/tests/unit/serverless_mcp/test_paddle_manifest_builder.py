@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from serverless_mcp.extract import policy
 from serverless_mcp.ocr.paddle_manifest_builder import PaddleOCRManifestBuilder
+from serverless_mcp.ocr.paddle_jsonl_utils import build_markdown_text_from_json_lines
 from serverless_mcp.ocr import paddle_manifest_builder as builder_module
 from serverless_mcp.domain.models import S3ObjectRef
 
@@ -175,3 +176,24 @@ def test_paddle_manifest_builder_synthesizes_markdown_from_json_lines() -> None:
     )
 
     assert markdown == "# Page 1\n\nFirst paragraph.\n\n## Page 2\n\nSecond paragraph."
+
+
+def test_paddle_jsonl_utils_synthesizes_markdown_text_directly() -> None:
+    """
+    EN: JSONL helper should extract markdown text without importing the full extract package.
+    CN: JSONL helper 应能在不导入完整 extract 包的情况下提取 markdown 文本。
+    """
+    markdown = build_markdown_text_from_json_lines(
+        [
+            {
+                "result": {
+                    "layoutParsingResults": [
+                        {"markdown": {"text": "# Page 1"}},
+                        {"markdown": {"text": "First paragraph."}},
+                    ]
+                }
+            }
+        ]
+    )
+
+    assert markdown == "# Page 1\n\nFirst paragraph."

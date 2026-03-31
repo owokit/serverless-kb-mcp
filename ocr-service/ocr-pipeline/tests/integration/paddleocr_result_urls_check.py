@@ -41,8 +41,7 @@ SRC_PATH = REPO_ROOT / "ocr-service" / "ocr-pipeline" / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-
-from serverless_mcp.ocr.paddle_manifest_builder import PaddleOCRManifestBuilder  # noqa: E402
+from serverless_mcp.ocr.paddle_jsonl_utils import build_markdown_text_from_json_lines  # noqa: E402
 
 
 def _candidate_env_files() -> list[Path]:
@@ -165,7 +164,7 @@ def download_json_lines(*, session: requests.Session, url: str, timeout_seconds:
 
 
 def synthesize_markdown(json_lines: list[dict[str, Any]]) -> str:
-    return PaddleOCRManifestBuilder().build_markdown_text_from_json_lines(json_lines)
+    return build_markdown_text_from_json_lines(json_lines)
 
 
 def main() -> int:
