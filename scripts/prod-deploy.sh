@@ -369,6 +369,11 @@ recover_failed_stack() {
         ;;
       UPDATE_ROLLBACK_FAILED|UPDATE_ROLLBACK_IN_PROGRESS|UPDATE_IN_PROGRESS|CREATE_IN_PROGRESS|ROLLBACK_IN_PROGRESS|ROLLBACK_FAILED)
         if [[ "$current_status" == "UPDATE_ROLLBACK_FAILED" ]]; then
+          log "Current CloudFormation failures for $stack_name:"
+          describe_current_stack_failures "$stack_name" | while IFS= read -r line; do
+            log "  $line"
+          done
+          restore_missing_lambda_functions "$stack_name"
           stagnant_failed_polls=$((stagnant_failed_polls + 1))
           current_skip_resources="$(collect_rollback_skip_resources "$stack_name")"
           merged_skip_resources="$(join_unique_words "${skip_resources:-}" "${current_skip_resources:-}")"
@@ -383,10 +388,6 @@ recover_failed_stack() {
             fi
             stagnant_failed_polls=0
           fi
-          log "Current CloudFormation failures for $stack_name:"
-          describe_current_stack_failures "$stack_name" | while IFS= read -r line; do
-            log "  $line"
-          done
           if (( stagnant_failed_polls >= 6 )); then
             die "CloudFormation stack recovery for $stack_name is not progressing after ${stagnant_failed_polls} failed polls. Repair the reported resource errors before rerunning prod deploy."
           fi
