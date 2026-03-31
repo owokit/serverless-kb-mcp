@@ -337,10 +337,10 @@ def test_query_service_uses_batch_projection_state_reads() -> None:
     }
 
 
-def test_query_service_dedupes_projection_state_batch_keys() -> None:
+def test_query_service_forwards_projection_state_batch_keys() -> None:
     """
-    EN: Query service should dedupe identical projection batch keys before loading state.
-    CN: QueryService 鍦ㄦ壒閲忓姞杞芥椂搴旇鍏堝幓閲嶉噸澶嶇殑 projection key銆?
+    EN: Query service should forward raw projection batch keys and let the repository dedupe.
+    CN: QueryService 搴旇鐩存帴杞彂 projection batch key锛岀敱浠撳簱杩涜鍘婚噸銆?
     """
     batch_repo = _BatchProjectionStateRepo()
     service = QueryService(
@@ -371,6 +371,7 @@ def test_query_service_dedupes_projection_state_batch_keys() -> None:
 
     assert len(result.results) == 2
     assert batch_repo.batch_keys == [
+        ("tenant-a#bucket-a#docs%2Fguide.md", "v2", "gemini-default"),
         ("tenant-a#bucket-a#docs%2Fguide.md", "v2", "gemini-default"),
     ]
 
