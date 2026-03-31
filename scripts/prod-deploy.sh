@@ -356,8 +356,14 @@ rebuild_drifted_stack_if_needed() {
 
 restore_missing_lambda_functions() {
   local stack_name="$1"
+  local stack_status
 
   log "Rehydrating missing Lambda functions for $stack_name if needed"
+  stack_status="$(aws cloudformation describe-stacks --stack-name "$stack_name" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
+  if [[ -z "$stack_status" || "$stack_status" == "None" || "$stack_status" == "DELETE_COMPLETE" ]]; then
+    log "Stack $stack_name does not exist (status=${stack_status:-missing}); skipping Lambda rehydration"
+    return 0
+  fi
   ensure_uv
   uv run --project ocr-service python - "$stack_name" "$CONFIG_PATH" "$ASSET_DIR" "$REPO_NAME" <<'PY'
 from __future__ import annotations
