@@ -179,13 +179,13 @@ def main() -> int:
     pdf_name = normalize_optional(os.getenv("PADDLE_OCR_TEST_PDF_NAME")) or DEFAULT_PDF_NAME
     pdf_path = Path(
         normalize_optional(os.getenv("PADDLE_OCR_TEST_PDF_PATH"))
-        or (_repo_root() / "ocr-service" / "ocr-pipeline" / "tests" / "pdf" / pdf_name)
+        or (_repo_root() / "ocr-service" / "ocr-pipeline" / "tests" / "integration" / "pdf" / pdf_name)
     )
     if not pdf_path.exists():
         alt_candidates = [
             _repo_root() / pdf_name,
             _repo_root() / "ocr-service" / "ocr-pipeline" / pdf_name,
-            _repo_root() / "ocr-service" / "ocr-pipeline" / "tests" / pdf_name,
+            _repo_root() / "ocr-service" / "ocr-pipeline" / "tests" / "pdf" / pdf_name,
         ]
         for alt_path in alt_candidates:
             if alt_path.exists():
@@ -194,7 +194,7 @@ def main() -> int:
     if not pdf_path.exists():
         raise SystemExit(f"PDF not found: {pdf_path}")
 
-    output_dir = Path(__file__).resolve().parent / "_artifacts" / pdf_path.stem
+    output_dir = Path(__file__).resolve().parent / ".tmp" / pdf_path.stem
     output_dir.mkdir(parents=True, exist_ok=True)
 
     session = requests.Session()
