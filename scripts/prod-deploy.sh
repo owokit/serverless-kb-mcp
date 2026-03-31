@@ -200,6 +200,7 @@ describe_current_stack_failures() {
 from __future__ import annotations
 
 import json
+import time
 import sys
 
 payload = json.load(sys.stdin)
