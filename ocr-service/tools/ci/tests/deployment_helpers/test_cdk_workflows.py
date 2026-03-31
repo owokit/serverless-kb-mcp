@@ -42,6 +42,9 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "UPDATE_FAILED" in script_text
     assert "DELETE_FAILED" in script_text
     assert "CloudFormation continue-update-rollback failed for" in script_text
+    assert "Waiting for CloudFormation stack recovery" in script_text
+    assert "Command failed at line" in script_text
+    assert "Installing CDK dependencies" in script_text
 
 
 def test_destroy_workflow_uses_cdk_destroy_with_placeholder_assets() -> None:

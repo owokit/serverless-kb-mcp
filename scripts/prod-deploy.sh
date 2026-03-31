@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'die "Command failed at line ${LINENO}: ${BASH_COMMAND}"' ERR
 
 usage() {
   cat <<'EOF'
@@ -12,6 +13,10 @@ EOF
 die() {
   printf '::error::%s\n' "$*" >&2
   exit 1
+}
+
+log() {
+  printf '[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"
 }
 
 json_read() {
@@ -57,17 +62,23 @@ ensure_uv() {
 build_release_assets_from_source() {
   local functions layers report_path source_branch source_sha
 
+  log "Building release assets from the checked-out source"
   ensure_uv
   mkdir -p "$ASSET_DIR/layers"
+  log "Synchronizing uv environment for ocr-service"
   uv sync --locked --project ocr-service
 
+  log "Enumerating Lambda package artifacts"
   functions="$(uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/list_lambda_artifacts.py --format plain | xargs)"
+  log "Enumerating Lambda layer artifacts"
   layers="$(uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/list_layer_artifacts.py --format plain | xargs)"
 
+  log "Building Lambda package artifacts"
   uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/build_lambda_artifacts.py \
     --repo-name "$REPO_NAME" \
     --output-dir "$ASSET_DIR" \
     --functions "$functions"
+  log "Building Lambda layer artifacts"
   uv run --project ocr-service python ./ocr-service/tools/packaging/serverless_mcp/build_layer_artifacts.py \
     --repo-name "$REPO_NAME" \
     --output-dir "$ASSET_DIR/layers" \
@@ -76,6 +87,7 @@ build_release_assets_from_source() {
   report_path="$ASSET_DIR/package-release-report.json"
   source_branch="${GITHUB_REF_NAME:-main}"
   source_sha="${GITHUB_SHA:-unknown}"
+  log "Writing prepared package release manifest to $report_path"
   python3 - "$report_path" "$RELEASE_TAG" "$source_branch" "$source_sha" <<'PY'
 from __future__ import annotations
 
@@ -98,10 +110,12 @@ PY
 
 download_release_assets() {
   mkdir -p "$ASSET_DIR/layers"
+  log "Downloading release assets for $RELEASE_TAG"
   gh release download "$RELEASE_TAG" --dir "$ASSET_DIR" --pattern '*.zip' --pattern 'package-release-report.json'
   shopt -s nullglob
   local layer_zips=("$ASSET_DIR"/*_layer.zip)
   if (( ${#layer_zips[@]} > 0 )); then
+    log "Moving layer assets into $ASSET_DIR/layers"
     mv "${layer_zips[@]}" "$ASSET_DIR/layers/"
   fi
   shopt -u nullglob
@@ -111,6 +125,7 @@ validate_release_manifest() {
   local report_path="$ASSET_DIR/package-release-report.json"
   [[ -f "$report_path" ]] || die "Missing release manifest: $report_path"
 
+  log "Validating release manifest at $report_path"
   python3 - "$report_path" "$RELEASE_TAG" <<'PY'
 from __future__ import annotations
 
@@ -161,6 +176,7 @@ recover_failed_stack() {
   local stack_name="$1"
   local stack_status skip_resources
 
+  log "Checking CloudFormation stack status for $stack_name"
   stack_status="$(aws cloudformation describe-stacks --stack-name "$stack_name" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
   if [[ "$stack_status" != "UPDATE_ROLLBACK_FAILED" ]]; then
     return 0
@@ -179,10 +195,12 @@ recover_failed_stack() {
       die "CloudFormation continue-update-rollback failed for $stack_name. Inspect stack events before rerunning prod deploy."
     fi
   fi
+  log "Rollback recovery request submitted for $stack_name"
 
   local attempts current_status
   for attempts in {1..60}; do
     current_status="$(aws cloudformation describe-stacks --stack-name "$stack_name" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
+    log "Waiting for CloudFormation stack recovery ($stack_name): attempt $attempts/60, status=${current_status:-unknown}"
     case "$current_status" in
       UPDATE_ROLLBACK_COMPLETE|UPDATE_COMPLETE|CREATE_COMPLETE)
         printf '::notice::Stack %s recovered with status %s.\n' "$stack_name" "$current_status"
@@ -238,6 +256,7 @@ main() {
   [[ "$release_tag" == "$confirm_release_tag" ]] || die "release_tag confirmation does not match"
   export RELEASE_TAG="$release_tag"
 
+  log "Resolving repository root"
   ROOT="$(resolve_repo_root)"
   CONFIG_PATH="$ROOT/infra/pipeline-config.json"
   ASSET_DIR="$ROOT/release-assets"
@@ -247,6 +266,7 @@ main() {
 
   cd "$ROOT"
 
+  log "Loading deployment metadata from $CONFIG_PATH"
   REPO_NAME="$(json_read "$CONFIG_PATH" repo_name)"
   STACK_PREFIX="$(json_read "$CONFIG_PATH" name_prefix)"
   export REPO_NAME
@@ -254,11 +274,14 @@ main() {
   export MCP_PIPELINE_CONFIG_PATH="$CONFIG_PATH"
   export GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
 
+  log "Recovering production stacks for prefix $STACK_PREFIX"
   recover_failed_stack "$STACK_PREFIX-foundation"
   recover_failed_stack "$STACK_PREFIX-compute"
   recover_failed_stack "$STACK_PREFIX-api"
 
+  log "Checking release tag $release_tag"
   if gh release view "$release_tag" >/dev/null 2>&1; then
+    log "Release $release_tag exists; downloading assets"
     download_release_assets
   elif [[ "$release_tag" == "main" ]]; then
     printf '::notice::Release %s does not exist yet. Building release assets from the checked-out source.\n' "$release_tag"
@@ -269,6 +292,7 @@ main() {
 
   validate_release_manifest
 
+  log "Installing CDK dependencies"
   npm ci --prefix infra/cdk
 
   if [[ -n "${AWS_ROLE_TO_ASSUME:-}" || -n "${AWS_ACCESS_KEY_ID:-}" || -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
@@ -277,13 +301,16 @@ main() {
     die "AWS credentials are not configured"
   fi
 
+  log "Resolving AWS identity for the deploy account"
   CDK_DEFAULT_ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
   CDK_DEFAULT_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
   export CDK_DEFAULT_ACCOUNT
   export CDK_DEFAULT_REGION
 
+  log "Running CDK deploy"
   npm --prefix infra/cdk run deploy
 
+  log "Writing deploy report to $DEPLOY_REPORT"
   python3 - "$DEPLOY_REPORT" "$release_tag" "${GITHUB_REF_NAME:-main}" "${GITHUB_SHA:-unknown}" <<'PY'
 from __future__ import annotations
 
