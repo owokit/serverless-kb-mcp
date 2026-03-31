@@ -175,7 +175,7 @@ stack_name = sys.argv[1]
 payload = json.load(sys.stdin)
 ids: list[str] = []
 seen: set[str] = set()
-eligible_statuses = {"UPDATE_FAILED", "DELETE_FAILED", "UPDATE_ROLLBACK_FAILED"}
+eligible_statuses = {"UPDATE_FAILED", "DELETE_FAILED"}
 for event in payload.get("StackEvents", []):
     if event.get("ResourceStatus") not in eligible_statuses:
         continue
@@ -183,7 +183,6 @@ for event in payload.get("StackEvents", []):
     if (
         "could not be found" not in reason
         and "HandlerErrorCode: NotFound" not in reason
-        and event.get("ResourceStatus") != "UPDATE_ROLLBACK_FAILED"
     ):
         continue
     logical_id = event.get("LogicalResourceId")
