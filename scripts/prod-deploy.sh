@@ -130,6 +130,73 @@ print(json.dumps(report, ensure_ascii=False, indent=2))
 PY
 }
 
+collect_rollback_skip_resources() {
+  local stack_name="$1"
+
+  aws cloudformation describe-stack-events --stack-name "$stack_name" --output json | python3 -c '
+from __future__ import annotations
+
+import json
+import sys
+
+payload = json.load(sys.stdin)
+ids: list[str] = []
+seen: set[str] = set()
+for event in payload.get("StackEvents", []):
+    reason = event.get("ResourceStatusReason") or ""
+    if "could not be found" not in reason and "HandlerErrorCode: NotFound" not in reason:
+        continue
+    logical_id = event.get("LogicalResourceId")
+    if logical_id and logical_id not in seen:
+        seen.add(logical_id)
+        ids.append(logical_id)
+print(" ".join(ids))
+'
+}
+
+recover_failed_stack() {
+  local stack_name="$1"
+  local stack_status skip_resources
+
+  stack_status="$(aws cloudformation describe-stacks --stack-name "$stack_name" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
+  if [[ "$stack_status" != "UPDATE_ROLLBACK_FAILED" ]]; then
+    return 0
+  fi
+
+  printf '::warning::Stack %s is %s; attempting rollback recovery.\n' "$stack_name" "$stack_status"
+  skip_resources="$(collect_rollback_skip_resources "$stack_name")"
+  if [[ -n "$skip_resources" ]]; then
+    printf '::warning::Skipping CloudFormation resources for %s: %s\n' "$stack_name" "$skip_resources"
+    aws cloudformation continue-update-rollback --stack-name "$stack_name" --resources-to-skip $skip_resources
+  else
+    printf '::warning::No explicit skip list found for %s; retrying rollback without skips.\n' "$stack_name"
+    aws cloudformation continue-update-rollback --stack-name "$stack_name"
+  fi
+
+  local attempts current_status
+  for attempts in {1..60}; do
+    current_status="$(aws cloudformation describe-stacks --stack-name "$stack_name" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
+    case "$current_status" in
+      UPDATE_ROLLBACK_COMPLETE|UPDATE_COMPLETE|CREATE_COMPLETE)
+        printf '::notice::Stack %s recovered with status %s.\n' "$stack_name" "$current_status"
+        return 0
+        ;;
+      UPDATE_ROLLBACK_FAILED|UPDATE_ROLLBACK_IN_PROGRESS|UPDATE_IN_PROGRESS|CREATE_IN_PROGRESS|ROLLBACK_IN_PROGRESS|ROLLBACK_FAILED)
+        sleep 10
+        ;;
+      "")
+        printf '::warning::Stack %s disappeared while recovering; continuing with deploy.\n' "$stack_name"
+        return 0
+        ;;
+      *)
+        sleep 10
+        ;;
+    esac
+  done
+
+  die "Timed out waiting for CloudFormation stack recovery: $stack_name"
+}
+
 main() {
   local arg release_tag confirm_release_tag config_path deploy_report
   release_tag="main"
@@ -171,10 +238,15 @@ main() {
   cd "$ROOT"
 
   REPO_NAME="$(json_read "$CONFIG_PATH" repo_name)"
+  STACK_PREFIX="$(json_read "$CONFIG_PATH" name_prefix)"
   export REPO_NAME
   export MCP_CDK_ASSET_DIR="$ASSET_DIR"
   export MCP_PIPELINE_CONFIG_PATH="$CONFIG_PATH"
   export GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+
+  recover_failed_stack "$STACK_PREFIX-foundation"
+  recover_failed_stack "$STACK_PREFIX-compute"
+  recover_failed_stack "$STACK_PREFIX-api"
 
   if gh release view "$release_tag" >/dev/null 2>&1; then
     download_release_assets
