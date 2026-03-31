@@ -125,43 +125,6 @@ print(json.dumps(report, ensure_ascii=False, indent=2))
 PY
 }
 
-download_release_assets() {
-  mkdir -p "$ASSET_DIR/layers"
-  log "Downloading release assets for $RELEASE_TAG"
-  gh release download "$RELEASE_TAG" --dir "$ASSET_DIR" --pattern '*.zip' --pattern 'package-release-report.json'
-  shopt -s nullglob
-  local layer_zips=("$ASSET_DIR"/*_layer.zip)
-  if (( ${#layer_zips[@]} > 0 )); then
-    log "Moving layer assets into $ASSET_DIR/layers"
-    mv "${layer_zips[@]}" "$ASSET_DIR/layers/"
-  fi
-  shopt -u nullglob
-}
-
-validate_release_manifest() {
-  local report_path="$ASSET_DIR/package-release-report.json"
-  [[ -f "$report_path" ]] || die "Missing release manifest: $report_path"
-
-  log "Validating release manifest at $report_path"
-  python3 - "$report_path" "$RELEASE_TAG" <<'PY'
-from __future__ import annotations
-
-import json
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-expected_release_tag = sys.argv[2]
-report = json.loads(path.read_text(encoding="utf-8"))
-actual_release_tag = report.get("release_tag")
-if actual_release_tag != expected_release_tag:
-    raise SystemExit(
-        f"Release manifest does not match requested tag: expected {expected_release_tag!r}, got {actual_release_tag!r}"
-    )
-print(json.dumps(report, ensure_ascii=False, indent=2))
-PY
-}
-
 collect_rollback_skip_resources() {
   local stack_name="$1"
 
@@ -718,7 +681,6 @@ main() {
   export REPO_NAME
   export MCP_CDK_ASSET_DIR="$ASSET_DIR"
   export MCP_PIPELINE_CONFIG_PATH="$CONFIG_PATH"
-  export GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
   export PYTHONUNBUFFERED=1
 
   log "Recovering production stacks for prefix $STACK_PREFIX"
@@ -726,18 +688,8 @@ main() {
   recover_failed_stack "$STACK_PREFIX-compute"
   recover_failed_stack "$STACK_PREFIX-api"
 
-  log "Checking release tag $release_tag"
-  if [[ "$release_tag" == "main" ]]; then
-    printf '::notice::Release %s uses checked-out source; building release assets from the current checkout.\n' "$release_tag"
-    build_release_assets_from_source
-  elif gh release view "$release_tag" >/dev/null 2>&1; then
-    log "Release $release_tag exists; downloading assets"
-    download_release_assets
-  else
-    die "Release '$release_tag' does not exist. Publish the release first or pass an existing release tag."
-  fi
-
-  validate_release_manifest
+  log "Building release assets from the current checkout"
+  build_release_assets_from_source
   restore_missing_lambda_functions "$STACK_PREFIX-compute"
 
   log "Installing CDK dependencies"

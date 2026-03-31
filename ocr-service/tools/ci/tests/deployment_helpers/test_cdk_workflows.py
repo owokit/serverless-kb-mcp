@@ -37,7 +37,8 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "MCP_CDK_ASSET_DIR" in script_text
     assert "MCP_PIPELINE_CONFIG_PATH" in script_text
     assert 'export RELEASE_TAG="$release_tag"' in script_text
-    assert "gh release download" in script_text
+    assert "gh release download" not in script_text
+    assert "gh release view" not in script_text
     assert "uv sync --locked --project ocr-service" in script_text
     assert "npm ci --prefix infra/cdk" in script_text
     assert "npm --prefix infra/cdk run deploy" in script_text
@@ -59,6 +60,9 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "resolve_name_suffix" in script_text
     assert '"name_suffix"' in script_text
     assert "resolved_lambda_role" in script_text
+    assert "validate_release_manifest" not in script_text
+    assert "download_release_assets" not in script_text
+    assert "Checking release tag" not in script_text
     assert "stdbuf -oL -eL bash" not in script_text
 
 
