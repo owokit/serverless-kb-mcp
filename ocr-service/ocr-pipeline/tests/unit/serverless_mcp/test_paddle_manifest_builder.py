@@ -39,11 +39,12 @@ def test_paddle_manifest_builder_splits_layout_markdown_into_multiple_assets() -
     assert manifest.doc_type == "pdf"
     assert len(manifest.chunks) == 2
     assert [chunk.section_path for chunk in manifest.chunks] == [("Page 1 A",), ("Page 1 A", "Page 1 B")]
+    assert manifest.metadata["source_format"] == "paddleocr_async"
     assert manifest.chunks[0].chunk_type == "section_text_chunk"
     assert manifest.chunks[0].text.startswith("# Page 1 A")
     assert "assets/asset-000001.png" in manifest.chunks[0].text
     assert "assets/asset-000002.png" in manifest.chunks[1].text
-    assert all(chunk.metadata["source_format"] == "markdown" for chunk in manifest.chunks)
+    assert all(chunk.metadata["source_format"] == "paddleocr_async" for chunk in manifest.chunks)
     assert all(chunk.metadata["chunking_strategy"] == "v2_markdown_semchunk" for chunk in manifest.chunks)
     assert [chunk.metadata["layout_index"] for chunk in manifest.chunks] == [1, 2]
 

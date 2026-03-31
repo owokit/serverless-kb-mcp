@@ -119,6 +119,9 @@ class PaddleOCRManifestBuilder:
         )
 
         for layout_index, markdown_chunk in enumerate(markdown_chunks, start=1):
+            chunk_metadata = spec.chunk_metadata(layout_index=layout_index) | {
+                k: v for k, v in markdown_chunk.metadata.items() if k != "source_format"
+            }
             assets.append(
                 ExtractedAsset(
                     asset_id=f"ocr#markdown-section-{layout_index:06d}",
@@ -143,8 +146,7 @@ class PaddleOCRManifestBuilder:
                     doc_type="pdf",
                     token_estimate=markdown_chunk.token_estimate,
                     section_path=markdown_chunk.header_path,
-                    metadata=spec.chunk_metadata(layout_index=layout_index)
-                    | markdown_chunk.metadata
+                    metadata=chunk_metadata
                     | {
                         "layout_index": layout_index,
                         "section_path": list(markdown_chunk.header_path),
