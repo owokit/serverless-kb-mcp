@@ -19,6 +19,23 @@ log() {
   printf '[%s] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"
 }
 
+join_unique_words() {
+  python3 - "$@" <<'PY'
+from __future__ import annotations
+
+import sys
+
+seen: set[str] = set()
+ordered: list[str] = []
+for value in sys.argv[1:]:
+    for item in value.split():
+        if item and item not in seen:
+            seen.add(item)
+            ordered.append(item)
+print(" ".join(ordered))
+PY
+}
+
 json_read() {
   local path="$1"
   local key="$2"
@@ -148,33 +165,58 @@ PY
 collect_rollback_skip_resources() {
   local stack_name="$1"
 
-  aws cloudformation describe-stack-events --stack-name "$stack_name" --output json | python3 -c '
+  aws cloudformation describe-stack-events --stack-name "$stack_name" --output json | python3 - "$stack_name" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+
+stack_name = sys.argv[1]
+payload = json.load(sys.stdin)
+ids: list[str] = []
+seen: set[str] = set()
+eligible_statuses = {"UPDATE_FAILED", "DELETE_FAILED", "UPDATE_ROLLBACK_FAILED"}
+for event in payload.get("StackEvents", []):
+    if event.get("ResourceStatus") not in eligible_statuses:
+        continue
+    reason = event.get("ResourceStatusReason") or ""
+    if (
+        "could not be found" not in reason
+        and "HandlerErrorCode: NotFound" not in reason
+        and event.get("ResourceStatus") != "UPDATE_ROLLBACK_FAILED"
+    ):
+        continue
+    logical_id = event.get("LogicalResourceId")
+    if logical_id and logical_id not in seen and logical_id != stack_name:
+        seen.add(logical_id)
+        ids.append(logical_id)
+print(" ".join(ids))
+PY
+}
+
+describe_recent_stack_events() {
+  local stack_name="$1"
+
+  aws cloudformation describe-stack-events --stack-name "$stack_name" --output json | python3 - <<'PY'
 from __future__ import annotations
 
 import json
 import sys
 
 payload = json.load(sys.stdin)
-ids: list[str] = []
-seen: set[str] = set()
-eligible_statuses = {"UPDATE_FAILED", "DELETE_FAILED"}
-for event in payload.get("StackEvents", []):
-    if event.get("ResourceStatus") not in eligible_statuses:
-        continue
-    reason = event.get("ResourceStatusReason") or ""
-    if "could not be found" not in reason and "HandlerErrorCode: NotFound" not in reason:
-        continue
-    logical_id = event.get("LogicalResourceId")
-    if logical_id and logical_id not in seen:
-        seen.add(logical_id)
-        ids.append(logical_id)
-print(" ".join(ids))
-'
+events = payload.get("StackEvents", [])[:10]
+for event in events:
+    timestamp = event.get("Timestamp") or "unknown"
+    logical_id = event.get("LogicalResourceId") or "unknown"
+    status = event.get("ResourceStatus") or "unknown"
+    reason = (event.get("ResourceStatusReason") or "").replace("\n", " ").strip()
+    print(f"{timestamp} | {logical_id} | {status} | {reason}")
+PY
 }
 
 recover_failed_stack() {
   local stack_name="$1"
-  local stack_status skip_resources
+  local stack_status skip_resources current_skip_resources merged_skip_resources attempts current_status
 
   log "Checking CloudFormation stack status for $stack_name"
   stack_status="$(aws cloudformation describe-stacks --stack-name "$stack_name" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
@@ -197,7 +239,6 @@ recover_failed_stack() {
   fi
   log "Rollback recovery request submitted for $stack_name"
 
-  local attempts current_status
   for attempts in {1..60}; do
     current_status="$(aws cloudformation describe-stacks --stack-name "$stack_name" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)"
     log "Waiting for CloudFormation stack recovery ($stack_name): attempt $attempts/60, status=${current_status:-unknown}"
@@ -210,6 +251,22 @@ recover_failed_stack() {
         return 0
         ;;
       UPDATE_ROLLBACK_FAILED|UPDATE_ROLLBACK_IN_PROGRESS|UPDATE_IN_PROGRESS|CREATE_IN_PROGRESS|ROLLBACK_IN_PROGRESS|ROLLBACK_FAILED)
+        if [[ "$current_status" == "UPDATE_ROLLBACK_FAILED" ]]; then
+          current_skip_resources="$(collect_rollback_skip_resources "$stack_name")"
+          merged_skip_resources="$(join_unique_words "${skip_resources:-}" "${current_skip_resources:-}")"
+          if [[ -n "$merged_skip_resources" && "$merged_skip_resources" != "${skip_resources:-}" ]]; then
+            log "Refreshed rollback skip resources for $stack_name: $merged_skip_resources"
+            skip_resources="$merged_skip_resources"
+            printf '::warning::Retrying rollback recovery for %s with updated skip list: %s\n' "$stack_name" "$skip_resources"
+            if ! aws cloudformation continue-update-rollback --stack-name "$stack_name" --resources-to-skip $skip_resources; then
+              die "CloudFormation continue-update-rollback retry failed for $stack_name. Repair the skipped resources before rerunning prod deploy."
+            fi
+          fi
+          log "Recent CloudFormation events for $stack_name:"
+          describe_recent_stack_events "$stack_name" | while IFS= read -r line; do
+            log "  $line"
+          done
+        fi
         sleep 10
         ;;
       "")
@@ -273,6 +330,7 @@ main() {
   export MCP_CDK_ASSET_DIR="$ASSET_DIR"
   export MCP_PIPELINE_CONFIG_PATH="$CONFIG_PATH"
   export GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+  export PYTHONUNBUFFERED=1
 
   log "Recovering production stacks for prefix $STACK_PREFIX"
   recover_failed_stack "$STACK_PREFIX-foundation"

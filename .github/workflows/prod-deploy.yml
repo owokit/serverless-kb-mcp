@@ -107,9 +107,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ inputs.release_tag }}
           CONFIRM_RELEASE_TAG: ${{ inputs.confirm_release_tag }}
+          PYTHONUNBUFFERED: "1"
         run: |
           set -euo pipefail
           echo "::group::Run production deploy entrypoint"
           echo "::notice::Executing $ENTRYPOINT with release tag $RELEASE_TAG"
-          bash "$ENTRYPOINT" --release-tag "$RELEASE_TAG" --confirm-release-tag "$CONFIRM_RELEASE_TAG"
+          stdbuf -oL -eL bash "$ENTRYPOINT" --release-tag "$RELEASE_TAG" --confirm-release-tag "$CONFIRM_RELEASE_TAG"
           echo "::endgroup::"

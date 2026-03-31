@@ -22,6 +22,7 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "Resolve production deploy entrypoint" in workflow_text
     assert "Using deploy entrypoint" in workflow_text
     assert "Run production deploy entrypoint" in workflow_text
+    assert "stdbuf -oL -eL bash" in workflow_text
     assert "MCP_CDK_ASSET_DIR:" not in workflow_text
     assert "Validate release asset manifest" not in workflow_text
     assert "Deploy production backend" not in workflow_text
@@ -48,6 +49,9 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "Waiting for CloudFormation stack recovery" in script_text
     assert "Command failed at line" in script_text
     assert "Installing CDK dependencies" in script_text
+    assert "Recent CloudFormation events for" in script_text
+    assert "Retrying rollback recovery" in script_text
+    assert "stdbuf -oL -eL bash" not in script_text
 
 
 def test_destroy_workflow_uses_cdk_destroy_with_placeholder_assets() -> None:
