@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from serverless_mcp.domain.models import ObjectStateRecord, S3ObjectRef, utc_now_iso
+from serverless_mcp.storage.batch import dedupe_preserve_order
 from .object_state_repository import DuplicateOrStaleEventError, _normalize_sequencer
 
 
@@ -76,11 +77,12 @@ class ExecutionStateRepository:
             return {}
 
         result: dict[str, ObjectStateRecord | None] = {}
-        remaining = object_pks[:]
+        remaining = dedupe_preserve_order(object_pks)
 
         while remaining:
             batch = remaining[:100]
             remaining = remaining[100:]
+            batch = dedupe_preserve_order(batch)
 
             keys = [{"pk": {"S": pk}} for pk in batch]
             response = self._ddb.batch_get_item(

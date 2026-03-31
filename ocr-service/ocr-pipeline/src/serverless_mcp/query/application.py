@@ -22,6 +22,7 @@ from serverless_mcp.domain.models import (
     QueryResultItem,
     S3ObjectRef,
 )
+from serverless_mcp.storage.batch import dedupe_preserve_order
 from serverless_mcp.storage.state.execution_state_repository import ExecutionStateRepository
 from serverless_mcp.storage.manifest.repository import ManifestRepository
 from serverless_mcp.storage.projection.repository import EmbeddingProjectionStateRepository
@@ -177,17 +178,20 @@ class QueryService:
         results: list[QueryResultItem] = []
 
         sorted_candidates = sorted(ranked_candidates.values(), key=lambda item: item.rrf_score, reverse=True)[:top_k]
-        unique_object_pks = list({candidate.source.object_pk for candidate in sorted_candidates})
+        unique_object_pks = dedupe_preserve_order([candidate.source.object_pk for candidate in sorted_candidates])
         if unique_object_pks:
             batch_states = self._load_execution_states_batch(object_pks=unique_object_pks)
             state_cache.update(batch_states)
         if self._projection_state_repo is not None and sorted_candidates:
+            projection_keys = dedupe_preserve_order(
+                [
+                    (candidate.source.object_pk, candidate.source.version_id, candidate.match.profile_id)
+                    for candidate in sorted_candidates
+                ]
+            )
             projection_cache.update(
                 self._load_projection_states_batch(
-                    keys=[
-                        (candidate.source.object_pk, candidate.source.version_id, candidate.match.profile_id)
-                        for candidate in sorted_candidates
-                    ]
+                    keys=projection_keys
                 )
             )
 

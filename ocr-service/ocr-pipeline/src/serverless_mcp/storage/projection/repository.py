@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 from serverless_mcp.domain.models import EmbeddingOutcome, EmbeddingProfile, EmbeddingProjectionStateRecord, S3ObjectRef, utc_now_iso
 from serverless_mcp.storage.batch import flush_batch_write
+from serverless_mcp.storage.batch import dedupe_preserve_order
 
 
 class EmbeddingProjectionStateRepository:
@@ -119,11 +120,13 @@ class EmbeddingProjectionStateRepository:
         if not keys:
             return {}
 
+        unique_keys = dedupe_preserve_order(keys)
         records: dict[tuple[str, str, str], EmbeddingProjectionStateRecord | None] = {
             key: None for key in keys
         }
-        pending = list(keys)
+        pending = list(unique_keys)
         for attempt in range(8):
+            pending = dedupe_preserve_order(pending)
             request_items = {
                 self._table_name: {
                     "Keys": [

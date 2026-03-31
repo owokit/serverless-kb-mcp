@@ -16,6 +16,7 @@ from urllib.parse import quote
 from botocore.exceptions import ClientError
 
 from serverless_mcp.domain.models import ObjectStateRecord, S3ObjectRef, utc_now_iso
+from serverless_mcp.storage.batch import dedupe_preserve_order
 
 _STATE_RECORD_TYPE = "STATE"
 _LOOKUP_RECORD_TYPE = "LOOKUP"
@@ -371,8 +372,9 @@ class ObjectStateRepository:
         if not object_pks:
             return {}
 
+        unique_object_pks = dedupe_preserve_order(object_pks)
         result: dict[str, ObjectStateRecord | None] = {}
-        remaining = object_pks[:]
+        remaining = unique_object_pks[:]
 
         while remaining:
             batch = remaining[:100]
@@ -402,6 +404,7 @@ class ObjectStateRepository:
                 result[pk] = None
 
         return result
+
 
     def get_lookup_record(self, *, bucket: str, key: str) -> ObjectStateLookupRecord | None:
         """

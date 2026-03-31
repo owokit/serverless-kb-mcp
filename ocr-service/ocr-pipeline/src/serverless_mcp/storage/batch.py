@@ -7,6 +7,19 @@ from __future__ import annotations
 import time
 import random
 from collections.abc import Callable
+from typing import TypeVar
+
+T = TypeVar("T")
+
+
+def dedupe_preserve_order(items: list[T]) -> list[T]:
+    """
+    EN: Return items with duplicates removed while preserving first-seen order.
+    CN: 杩斿洖鍘婚噸鍚庣殑鍒楄〃锛屽苟淇濇寔棣栨鍑虹幇鐨勯『搴忋€?
+    """
+    if not items:
+        return []
+    return list(dict.fromkeys(items))
 
 
 def flush_batch_write(

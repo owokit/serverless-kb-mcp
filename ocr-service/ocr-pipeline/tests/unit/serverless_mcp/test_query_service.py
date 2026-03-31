@@ -107,6 +107,46 @@ class _FakeVectorRepo:
         ]
 
 
+class _DuplicateProjectionVectorRepo:
+    # EN: Vector repo returning duplicate projection keys across different chunks.
+    # CN: 鍚屼笂銆?
+    def query_vectors(self, *, profile, query_vector, top_k, metadata_filter):
+        return [
+            VectorQueryMatch(
+                key="gemini-default#tenant-a#bucket-a#docs/guide.md#v2#chunk#000001",
+                chunk_id="chunk#000001",
+                manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+                profile_id="gemini-default",
+                distance=0.01,
+                metadata={
+                    "tenant_id": "tenant-a",
+                    "bucket": "bucket-a",
+                    "key": "docs/guide.md",
+                    "version_id": "v2",
+                    "is_latest": True,
+                    "manifest_s3_uri": "s3://manifest-bucket/manifests/example.json",
+                    "chunk_id": "chunk#000001",
+                },
+            ),
+            VectorQueryMatch(
+                key="gemini-default#tenant-a#bucket-a#docs/guide.md#v2#chunk#000002",
+                chunk_id="chunk#000002",
+                manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+                profile_id="gemini-default",
+                distance=0.02,
+                metadata={
+                    "tenant_id": "tenant-a",
+                    "bucket": "bucket-a",
+                    "key": "docs/guide.md",
+                    "version_id": "v2",
+                    "is_latest": True,
+                    "manifest_s3_uri": "s3://manifest-bucket/manifests/example.json",
+                    "chunk_id": "chunk#000002",
+                },
+            ),
+        ]
+
+
 class _RestrictedVectorRepo:
     # EN: Vector repo returning one restricted match and one public match.
     # CN: 返回一个受限匹配和一个公开匹配的 vector repo。
@@ -295,6 +335,44 @@ def test_query_service_uses_batch_projection_state_reads() -> None:
         ("tenant-a#bucket-a#docs%2Fguide.md", "v2", "gemini-default"),
         ("tenant-a#bucket-a#docs%2Fguide.md", "v1", "gemini-default"),
     }
+
+
+def test_query_service_dedupes_projection_state_batch_keys() -> None:
+    """
+    EN: Query service should dedupe identical projection batch keys before loading state.
+    CN: QueryService 鍦ㄦ壒閲忓姞杞芥椂搴旇鍏堝幓閲嶉噸澶嶇殑 projection key銆?
+    """
+    batch_repo = _BatchProjectionStateRepo()
+    service = QueryService(
+        embedding_clients={"gemini-default": _FakeGeminiClient()},
+        query_profiles=(
+            EmbeddingProfile(
+                profile_id="gemini-default",
+                provider="gemini",
+                model="gemini-embedding-2-preview",
+                dimension=3072,
+                vector_bucket_name="vector-bucket",
+                vector_index_name="index-gemini",
+                supported_content_kinds=("text", "image"),
+            ),
+        ),
+        vector_repo=_DuplicateProjectionVectorRepo(),
+        manifest_repo=_FakeManifestRepo(),
+        object_state_repo=_FakeObjectStateRepo(),
+        projection_state_repo=batch_repo,
+    )
+
+    result = service.search(
+        query="hello",
+        tenant_id="tenant-a",
+        top_k=5,
+        neighbor_expand=1,
+    )
+
+    assert len(result.results) == 2
+    assert batch_repo.batch_keys == [
+        ("tenant-a#bucket-a#docs%2Fguide.md", "v2", "gemini-default"),
+    ]
 
 
 def _build_profiles():
