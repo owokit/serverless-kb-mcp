@@ -165,7 +165,7 @@ PY
 collect_rollback_skip_resources() {
   local stack_name="$1"
 
-  aws cloudformation describe-stack-events --stack-name "$stack_name" --output json | python3 - "$stack_name" <<'PY'
+  aws cloudformation describe-stack-events --stack-name "$stack_name" --output json | python3 -c '
 from __future__ import annotations
 
 import json
@@ -191,13 +191,13 @@ for event in payload.get("StackEvents", []):
         seen.add(logical_id)
         ids.append(logical_id)
 print(" ".join(ids))
-PY
+' "$stack_name"
 }
 
 describe_recent_stack_events() {
   local stack_name="$1"
 
-  aws cloudformation describe-stack-events --stack-name "$stack_name" --output json | python3 - <<'PY'
+  aws cloudformation describe-stack-events --stack-name "$stack_name" --output json | python3 -c '
 from __future__ import annotations
 
 import json
@@ -211,7 +211,7 @@ for event in events:
     status = event.get("ResourceStatus") or "unknown"
     reason = (event.get("ResourceStatusReason") or "").replace("\n", " ").strip()
     print(f"{timestamp} | {logical_id} | {status} | {reason}")
-PY
+' 
 }
 
 recover_failed_stack() {
