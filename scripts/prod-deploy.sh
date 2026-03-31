@@ -223,6 +223,7 @@ describe_recent_stack_events() {
 from __future__ import annotations
 
 import json
+import time
 import sys
 
 payload = json.load(sys.stdin)
