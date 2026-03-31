@@ -169,6 +169,7 @@ collect_rollback_skip_resources() {
 from __future__ import annotations
 
 import json
+import time
 import sys
 
 stack_name = sys.argv[1]
@@ -321,6 +322,7 @@ def ensure_role_exists(role_name: str, service_principal: str, managed_policies:
             PolicyArn=f"arn:aws:iam::aws:policy/{policy_name}",
         )
     print(f"Created missing IAM role {role_name}")
+    time.sleep(5)
     return iam.get_role(RoleName=role_name)["Role"]["Arn"]
 
 created = []
