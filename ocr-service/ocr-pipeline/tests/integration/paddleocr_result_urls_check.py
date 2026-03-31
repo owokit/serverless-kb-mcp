@@ -26,6 +26,9 @@ import requests
 
 DEFAULT_PDF_NAME = "Attention Is All You Need.pdf"
 DEFAULT_JOB_URL = "https://paddleocr.aistudio-app.com/api/v2/ocr/jobs"
+DEFAULT_SUBMIT_TIMEOUT_SECONDS = 600
+DEFAULT_POLL_TIMEOUT_SECONDS = 1200
+DEFAULT_DOWNLOAD_TIMEOUT_SECONDS = 120
 
 
 def _repo_root() -> Path:
@@ -77,7 +80,15 @@ def normalize_optional(value: str | None) -> str | None:
     return stripped or None
 
 
-def submit_job(*, session: requests.Session, job_url: str, token: str, pdf_path: Path, model: str) -> str:
+def submit_job(
+    *,
+    session: requests.Session,
+    job_url: str,
+    token: str,
+    pdf_path: Path,
+    model: str,
+    timeout_seconds: int,
+) -> str:
     headers = {"Authorization": f"bearer {token}"}
     with pdf_path.open("rb") as fh:
         response = session.post(
@@ -95,7 +106,7 @@ def submit_job(*, session: requests.Session, job_url: str, token: str, pdf_path:
                 ),
             },
             files={"file": (pdf_path.name, fh, "application/pdf")},
-            timeout=120,
+            timeout=(30, timeout_seconds),
         )
     response.raise_for_status()
     payload = response.json()
@@ -105,7 +116,7 @@ def submit_job(*, session: requests.Session, job_url: str, token: str, pdf_path:
     return job_id
 
 
-def poll_job(*, session: requests.Session, job_url: str, token: str, job_id: str, timeout_seconds: int = 600) -> dict[str, Any]:
+def poll_job(*, session: requests.Session, job_url: str, token: str, job_id: str, timeout_seconds: int) -> dict[str, Any]:
     headers = {"Authorization": f"bearer {token}"}
     start = monotonic()
     while True:
@@ -123,7 +134,7 @@ def poll_job(*, session: requests.Session, job_url: str, token: str, job_id: str
         sleep(5)
 
 
-def download_text(*, session: requests.Session, url: str, timeout_seconds: int = 120) -> str:
+def download_text(*, session: requests.Session, url: str, timeout_seconds: int = DEFAULT_DOWNLOAD_TIMEOUT_SECONDS) -> str:
     response = session.get(url, timeout=timeout_seconds)
     response.raise_for_status()
     return response.text
@@ -135,6 +146,9 @@ def main() -> int:
     token = require_env("PADDLE_OCR_API_TOKEN")
     job_url = (normalize_optional(os.getenv("PADDLE_OCR_API_BASE_URL")) or DEFAULT_JOB_URL).rstrip("/")
     model = normalize_optional(os.getenv("PADDLE_OCR_MODEL")) or "PaddleOCR-VL-1.5"
+    submit_timeout_seconds = int(normalize_optional(os.getenv("PADDLE_OCR_SUBMIT_TIMEOUT_SECONDS")) or str(DEFAULT_SUBMIT_TIMEOUT_SECONDS))
+    poll_timeout_seconds = int(normalize_optional(os.getenv("PADDLE_OCR_POLL_TIMEOUT_SECONDS")) or str(DEFAULT_POLL_TIMEOUT_SECONDS))
+    download_timeout_seconds = int(normalize_optional(os.getenv("PADDLE_OCR_DOWNLOAD_TIMEOUT_SECONDS")) or str(DEFAULT_DOWNLOAD_TIMEOUT_SECONDS))
     pdf_name = normalize_optional(os.getenv("PADDLE_OCR_TEST_PDF_NAME")) or DEFAULT_PDF_NAME
     pdf_path = Path(
         normalize_optional(os.getenv("PADDLE_OCR_TEST_PDF_PATH"))
@@ -157,10 +171,17 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     session = requests.Session()
-    job_id = submit_job(session=session, job_url=job_url, token=token, pdf_path=pdf_path, model=model)
+    job_id = submit_job(
+        session=session,
+        job_url=job_url,
+        token=token,
+        pdf_path=pdf_path,
+        model=model,
+        timeout_seconds=submit_timeout_seconds,
+    )
     print(f"job_id={job_id}")
 
-    result_payload = poll_job(session=session, job_url=job_url, token=token, job_id=job_id)
+    result_payload = poll_job(session=session, job_url=job_url, token=token, job_id=job_id, timeout_seconds=poll_timeout_seconds)
     print("status_payload=")
     print(json.dumps(result_payload, ensure_ascii=False, indent=2))
 
@@ -182,8 +203,8 @@ def main() -> int:
         print(f"missing_result_urls={','.join(missing)}", file=sys.stderr)
         return 2
 
-    json_text = download_text(session=session, url=json_url)
-    markdown_text = download_text(session=session, url=markdown_url)
+    json_text = download_text(session=session, url=json_url, timeout_seconds=download_timeout_seconds)
+    markdown_text = download_text(session=session, url=markdown_url, timeout_seconds=download_timeout_seconds)
 
     (output_dir / "result.jsonl").write_text(json_text, encoding="utf-8")
     (output_dir / "result.md").write_text(markdown_text, encoding="utf-8")
