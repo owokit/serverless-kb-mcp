@@ -142,7 +142,10 @@ import sys
 payload = json.load(sys.stdin)
 ids: list[str] = []
 seen: set[str] = set()
+eligible_statuses = {"UPDATE_FAILED", "DELETE_FAILED"}
 for event in payload.get("StackEvents", []):
+    if event.get("ResourceStatus") not in eligible_statuses:
+        continue
     reason = event.get("ResourceStatusReason") or ""
     if "could not be found" not in reason and "HandlerErrorCode: NotFound" not in reason:
         continue
@@ -167,10 +170,14 @@ recover_failed_stack() {
   skip_resources="$(collect_rollback_skip_resources "$stack_name")"
   if [[ -n "$skip_resources" ]]; then
     printf '::warning::Skipping CloudFormation resources for %s: %s\n' "$stack_name" "$skip_resources"
-    aws cloudformation continue-update-rollback --stack-name "$stack_name" --resources-to-skip $skip_resources
+    if ! aws cloudformation continue-update-rollback --stack-name "$stack_name" --resources-to-skip $skip_resources; then
+      die "CloudFormation continue-update-rollback failed for $stack_name. Repair the skipped resources before rerunning prod deploy."
+    fi
   else
     printf '::warning::No explicit skip list found for %s; retrying rollback without skips.\n' "$stack_name"
-    aws cloudformation continue-update-rollback --stack-name "$stack_name"
+    if ! aws cloudformation continue-update-rollback --stack-name "$stack_name"; then
+      die "CloudFormation continue-update-rollback failed for $stack_name. Inspect stack events before rerunning prod deploy."
+    fi
   fi
 
   local attempts current_status
