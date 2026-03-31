@@ -234,6 +234,99 @@ for event in events:
 ' 
 }
 
+restore_missing_lambda_functions() {
+  local stack_name="$1"
+
+  log "Rehydrating missing Lambda functions for $stack_name if needed"
+  uv run --project ocr-service python - "$stack_name" "$CONFIG_PATH" "$ASSET_DIR" "$REPO_NAME" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import boto3
+from botocore.exceptions import ClientError
+
+stack_name = sys.argv[1]
+config_path = Path(sys.argv[2])
+artifact_dir = Path(sys.argv[3])
+repo_name = sys.argv[4]
+
+config = json.loads(config_path.read_text(encoding="utf-8"))
+names = config["resource_names"]
+defaults = config["defaults"]
+lambda_settings = config.get("lambda_settings", {})
+
+functions = [
+    {"function_key": "ingest", "function_name": names["ingest_lambda"], "role_key": "ingest", "layer_keys": ["core"]},
+    {"function_key": "extract_prepare", "function_name": names["extract_prepare_lambda"], "role_key": "extract", "layer_keys": ["core", "extract"]},
+    {"function_key": "extract_sync", "function_name": names["extract_sync_lambda"], "role_key": "extract", "layer_keys": ["core", "extract"]},
+    {"function_key": "extract_submit", "function_name": names["extract_submit_lambda"], "role_key": "extract", "layer_keys": ["core", "extract"]},
+    {"function_key": "extract_poll", "function_name": names["extract_poll_lambda"], "role_key": "extract", "layer_keys": ["core", "extract"]},
+    {"function_key": "extract_persist", "function_name": names["extract_persist_lambda"], "role_key": "extract", "layer_keys": ["core", "extract"]},
+    {"function_key": "extract_mark_failed", "function_name": names["extract_mark_failed_lambda"], "role_key": "extract", "layer_keys": ["core", "extract"]},
+    {"function_key": "embed", "function_name": names["embed_lambda"], "role_key": "embed", "layer_keys": ["core", "embedding"]},
+    {"function_key": "remote_mcp", "function_name": names["remote_mcp_lambda"], "role_key": "query", "layer_keys": ["core", "embedding"]},
+    {"function_key": "backfill", "function_name": names["backfill_lambda"], "role_key": "backfill", "layer_keys": ["core", "extract", "embedding"]},
+    {"function_key": "job_status", "function_name": names["job_status_lambda"], "role_key": "status", "layer_keys": ["core"]},
+]
+
+cf = boto3.client("cloudformation")
+iam = boto3.client("iam")
+lambda_client = boto3.client("lambda")
+stack_resources = cf.describe_stack_resources(StackName=stack_name).get("StackResources", [])
+resource_map = {resource["LogicalResourceId"]: resource for resource in stack_resources}
+layer_arns = {}
+for layer_key in ("core", "extract", "embedding"):
+    logical_id = f"{layer_key.capitalize()}Layer"
+    resource = resource_map.get(logical_id)
+    if not resource or not resource.get("PhysicalResourceId"):
+        raise SystemExit(f"Missing layer resource {logical_id} for {stack_name}")
+    layer_arns[layer_key] = resource["PhysicalResourceId"]
+
+created = []
+already_present = []
+for spec in functions:
+    function_name = spec["function_name"]
+    try:
+        lambda_client.get_function(FunctionName=function_name)
+    except ClientError as exc:
+        error_code = exc.response.get("Error", {}).get("Code", "")
+        if error_code not in {"ResourceNotFoundException", "ResourceNotFoundExceptionException"} and "not found" not in str(exc).lower():
+            raise
+        role_name = names["lambda_role"] if spec["role_key"] == "query" else f"{names['lambda_role']}-{spec['role_key']}"
+        role_arn = iam.get_role(RoleName=role_name)["Role"]["Arn"]
+        zip_path = artifact_dir / f"{repo_name}_{spec['function_key']}.zip"
+        if not zip_path.exists():
+            raise SystemExit(f"Missing Lambda zip asset: {zip_path}")
+        settings = lambda_settings.get(spec["function_key"], {})
+        layer_list = [layer_arns[layer_key] for layer_key in spec["layer_keys"]]
+        kwargs = {
+            "FunctionName": function_name,
+            "Runtime": defaults["runtime"],
+            "Role": role_arn,
+            "Handler": "lambda_function.lambda_handler",
+            "Code": {"ZipFile": zip_path.read_bytes()},
+            "Description": f"{repo_name}:{spec['function_key']}",
+            "Timeout": int(settings.get("timeout_seconds", defaults["lambda_timeout_seconds"])),
+            "MemorySize": int(settings.get("memory_size", defaults["lambda_memory_size"])),
+            "TracingConfig": {"Mode": "Active"},
+            "Architectures": [defaults["architecture"]],
+            "Publish": True,
+        }
+        if layer_list:
+            kwargs["Layers"] = layer_list
+        lambda_client.create_function(**kwargs)
+        created.append(function_name)
+        print(f"Created missing Lambda function {function_name}")
+    else:
+        already_present.append(function_name)
+
+print(json.dumps({"already_present": already_present, "created": created}, ensure_ascii=False, indent=2))
+PY
+}
+
 recover_failed_stack() {
   local stack_name="$1"
   local stack_status skip_resources current_skip_resources merged_skip_resources attempts current_status stagnant_failed_polls=0
@@ -380,6 +473,7 @@ main() {
   fi
 
   validate_release_manifest
+  restore_missing_lambda_functions "$STACK_PREFIX-compute"
 
   log "Installing CDK dependencies"
   npm ci --prefix infra/cdk
