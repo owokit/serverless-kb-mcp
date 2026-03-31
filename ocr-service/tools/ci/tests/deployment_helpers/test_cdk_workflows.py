@@ -55,6 +55,11 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "is not progressing after" in script_text
     assert "Suggested one-click repair command:" in script_text
     assert "describe-stack-resources" in script_text
+    assert "detect-stack-drift" in script_text
+    assert "describe-stack-drift-detection-status" in script_text
+    assert "describe-stack-resource-drifts" in script_text
+    assert "Deleting drifted stack" in script_text
+    assert "delete-stack" in script_text
     assert "Rehydrating missing Lambda functions" in script_text
     assert "Created missing Lambda function" in script_text
     assert "resolve_name_suffix" in script_text

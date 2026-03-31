@@ -200,6 +200,154 @@ for event in events:
 ' 
 }
 
+count_deleted_stack_drifts() {
+  local stack_name="$1"
+
+  python3 - "$stack_name" <<'PY'
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+
+stack_name = sys.argv[1]
+payload = json.loads(
+    subprocess.check_output(
+        [
+            "aws",
+            "cloudformation",
+            "describe-stack-resource-drifts",
+            "--stack-name",
+            stack_name,
+            "--output",
+            "json",
+        ],
+        text=True,
+    )
+)
+count = sum(1 for drift in payload.get("StackResourceDrifts", []) if drift.get("StackResourceDriftStatus") == "DELETED")
+print(count)
+PY
+}
+
+log_deleted_stack_drifts() {
+  local stack_name="$1"
+
+  python3 - "$stack_name" <<'PY'
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+
+stack_name = sys.argv[1]
+payload = json.loads(
+    subprocess.check_output(
+        [
+            "aws",
+            "cloudformation",
+            "describe-stack-resource-drifts",
+            "--stack-name",
+            stack_name,
+            "--output",
+            "json",
+        ],
+        text=True,
+    )
+)
+deleted = []
+for drift in payload.get("StackResourceDrifts", []):
+    if drift.get("StackResourceDriftStatus") != "DELETED":
+        continue
+    deleted.append(
+        {
+            "logical_id": drift.get("LogicalResourceId") or "unknown",
+            "resource_type": drift.get("ResourceType") or "unknown",
+            "physical_id": drift.get("PhysicalResourceId") or "unknown",
+            "reason": (drift.get("StackResourceDriftStatusReason") or "").replace("\n", " ").strip(),
+        }
+    )
+
+print(json.dumps({"stack_name": stack_name, "deleted": deleted}, ensure_ascii=False, indent=2))
+PY
+}
+
+delete_stack_and_wait() {
+  local stack_name="$1"
+
+  log "Deleting drifted stack $stack_name so CloudFormation can recreate missing resources from the template"
+  log "Suggested one-click repair command:"
+  log "  aws cloudformation delete-stack --stack-name $stack_name"
+  if ! aws cloudformation delete-stack --stack-name "$stack_name"; then
+    die "Failed to submit delete-stack for $stack_name"
+  fi
+  log "Waiting for stack deletion to finish: $stack_name"
+  if ! aws cloudformation wait stack-delete-complete --stack-name "$stack_name"; then
+    die "Timed out waiting for stack deletion: $stack_name"
+  fi
+  log "Stack $stack_name deleted"
+}
+
+rebuild_drifted_stack_if_needed() {
+  local stack_name="$1"
+  local stack_kind="$2"
+  local drift_detection_id detection_status stack_drift_status deleted_count
+
+  log "Detecting CloudFormation drift for $stack_name"
+  drift_detection_id="$(aws cloudformation detect-stack-drift --stack-name "$stack_name" --query 'StackDriftDetectionId' --output text)"
+  log "Started drift detection for $stack_name: $drift_detection_id"
+
+  for attempt in {1..60}; do
+    detection_status="$(aws cloudformation describe-stack-drift-detection-status --stack-drift-detection-id "$drift_detection_id" --query 'DetectionStatus' --output text 2>/dev/null || true)"
+    stack_drift_status="$(aws cloudformation describe-stack-drift-detection-status --stack-drift-detection-id "$drift_detection_id" --query 'StackDriftStatus' --output text 2>/dev/null || true)"
+    log "Waiting for drift detection ($stack_name): attempt $attempt/60, detection_status=${detection_status:-unknown}, stack_drift_status=${stack_drift_status:-unknown}"
+    case "$detection_status" in
+      DETECTION_COMPLETE)
+        break
+        ;;
+      DETECTION_FAILED)
+        die "CloudFormation drift detection failed for $stack_name"
+        ;;
+      *)
+        sleep 5
+        ;;
+    esac
+  done
+
+  if [[ "${detection_status:-}" != "DETECTION_COMPLETE" ]]; then
+    die "Timed out waiting for drift detection: $stack_name"
+  fi
+
+  if [[ "${stack_drift_status:-}" != "DRIFTED" ]]; then
+    log "Stack $stack_name is not drifted (status=${stack_drift_status:-unknown})"
+    return 0
+  fi
+
+  log "Stack $stack_name is drifted; collecting deleted resource details"
+  log "Recent CloudFormation events for $stack_name:"
+  describe_recent_stack_events "$stack_name" | while IFS= read -r line; do
+    log "  $line"
+  done
+  log "Deleted resources for $stack_name:"
+  log_deleted_stack_drifts "$stack_name" | while IFS= read -r line; do
+    log "  $line"
+  done
+
+  deleted_count="$(count_deleted_stack_drifts "$stack_name")"
+  if [[ "$deleted_count" == "0" ]]; then
+    log "Stack $stack_name is drifted but has no deleted resources; leaving it for a normal CDK update"
+    return 0
+  fi
+
+  if [[ "$stack_kind" != "foundation" && "$stack_kind" != "api" ]]; then
+    log "Stack $stack_name has deleted resources, but $stack_kind is not auto-recreated by this repair path"
+    return 0
+  fi
+
+  printf '::warning::Stack %s has %s deleted resource(s); deleting and recreating it so CloudFormation can restore the missing resources.\n' "$stack_name" "$deleted_count"
+  delete_stack_and_wait "$stack_name"
+}
+
 restore_missing_lambda_functions() {
   local stack_name="$1"
 
@@ -687,6 +835,11 @@ main() {
   recover_failed_stack "$STACK_PREFIX-foundation"
   recover_failed_stack "$STACK_PREFIX-compute"
   recover_failed_stack "$STACK_PREFIX-api"
+
+  log "Inspecting drift on production stacks"
+  rebuild_drifted_stack_if_needed "$STACK_PREFIX-foundation" "foundation"
+  rebuild_drifted_stack_if_needed "$STACK_PREFIX-compute" "compute"
+  rebuild_drifted_stack_if_needed "$STACK_PREFIX-api" "api"
 
   log "Building release assets from the current checkout"
   build_release_assets_from_source
