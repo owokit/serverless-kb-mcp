@@ -39,6 +39,9 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "npm --prefix infra/cdk run deploy" in script_text
     assert "prod-deploy-report.json" in script_text
     assert "Restore the missing stack resources before re-running prod deploy." in script_text
+    assert "UPDATE_FAILED" in script_text
+    assert "DELETE_FAILED" in script_text
+    assert "CloudFormation continue-update-rollback failed for" in script_text
 
 
 def test_destroy_workflow_uses_cdk_destroy_with_placeholder_assets() -> None:
