@@ -276,6 +276,9 @@ functions = [
 cf = boto3.client("cloudformation")
 iam = boto3.client("iam")
 lambda_client = boto3.client("lambda")
+sts = boto3.client("sts")
+account_id = sts.get_caller_identity()["Account"]
+region = (boto3.session.Session().region_name or "us-east-1")
 stack_resources = cf.describe_stack_resources(StackName=stack_name).get("StackResources", [])
 resource_map = {resource["LogicalResourceId"]: resource for resource in stack_resources}
 layer_arns = {}
@@ -289,6 +292,37 @@ for layer_key in ("core", "extract", "embedding"):
         raise SystemExit(f"Missing layer resource {logical_prefix} for {stack_name}")
     layer_arns[layer_key] = resource["PhysicalResourceId"]
 
+def ensure_role_exists(role_name: str, service_principal: str, managed_policies: list[str]) -> str:
+    try:
+        return iam.get_role(RoleName=role_name)["Role"]["Arn"]
+    except ClientError as exc:
+        error_code = exc.response.get("Error", {}).get("Code", "")
+        if error_code not in {"NoSuchEntity", "NoSuchEntityException", "ResourceNotFoundException"} and "not found" not in str(exc).lower():
+            raise
+    iam.create_role(
+        RoleName=role_name,
+        AssumeRolePolicyDocument=json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {"Service": service_principal},
+                        "Action": "sts:AssumeRole",
+                    }
+                ],
+            }
+        ),
+        Description=f"Rehydrated execution role for {role_name}",
+    )
+    for policy_name in managed_policies:
+        iam.attach_role_policy(
+            RoleName=role_name,
+            PolicyArn=f"arn:aws:iam::aws:policy/{policy_name}",
+        )
+    print(f"Created missing IAM role {role_name}")
+    return iam.get_role(RoleName=role_name)["Role"]["Arn"]
+
 created = []
 already_present = []
 for spec in functions:
@@ -300,7 +334,7 @@ for spec in functions:
         if error_code not in {"ResourceNotFoundException", "ResourceNotFoundExceptionException"} and "not found" not in str(exc).lower():
             raise
         role_name = names["lambda_role"] if spec["role_key"] == "query" else f"{names['lambda_role']}-{spec['role_key']}"
-        role_arn = iam.get_role(RoleName=role_name)["Role"]["Arn"]
+        role_arn = ensure_role_exists(role_name, "lambda.amazonaws.com", ["AWSLambdaBasicExecutionRole", "AWSXRayDaemonWriteAccess"])
         zip_path = artifact_dir / f"{repo_name}_{spec['function_key']}.zip"
         if not zip_path.exists():
             raise SystemExit(f"Missing Lambda zip asset: {zip_path}")
