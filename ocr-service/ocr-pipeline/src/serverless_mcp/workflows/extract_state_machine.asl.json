@@ -211,8 +211,7 @@
         "processing_state.$": "$.processing_state",
         "json_url.$": "$.ocr_status.json_url",
         "markdown_url.$": "$.ocr_status.markdown_url",
-        "poll_attempt.$": "$.ocr_status.poll_attempt",
-        "max_poll_attempts.$": "$.ocr_status.max_poll_attempts"
+        "poll_attempt.$": "$.ocr_status.poll_attempt"
       },
       "End": true,
       "Retry": [

@@ -74,7 +74,7 @@ _EXTRACT_STATE_CONTRACTS: tuple[_StateContract, ...] = (
     _StateContract(
         "PersistOcrResult",
         "Task",
-        ("job", "processing_state", "json_url", "markdown_url", "poll_attempt", "max_poll_attempts"),
+        ("job", "processing_state", "json_url", "markdown_url", "poll_attempt"),
         end=True,
     ),
     _StateContract("MarkFailed", "Task", ("job", "failure"), end=True),
