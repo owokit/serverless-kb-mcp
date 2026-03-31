@@ -56,6 +56,9 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "describe-stack-resources" in script_text
     assert "Rehydrating missing Lambda functions" in script_text
     assert "Created missing Lambda function" in script_text
+    assert "resolve_name_suffix" in script_text
+    assert '"name_suffix"' in script_text
+    assert "resolved_lambda_role" in script_text
     assert "stdbuf -oL -eL bash" not in script_text
 
 

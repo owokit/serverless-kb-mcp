@@ -259,7 +259,22 @@ artifact_dir = Path(sys.argv[3])
 repo_name = sys.argv[4]
 
 config = json.loads(config_path.read_text(encoding="utf-8"))
-names = config["resource_names"]
+account_id = boto3.client("sts").get_caller_identity()["Account"]
+region = boto3.session.Session().region_name or "us-east-1"
+
+def resolve_name_suffix(suffix: str | None, account: str, region_name: str) -> str:
+    if not suffix or suffix == "" or suffix == "none":
+        return ""
+    if suffix == "auto":
+        return f"{account}-{region_name}"
+    return suffix
+
+suffix = resolve_name_suffix(config.get("name_suffix"), account_id, region)
+base_names = config["resource_names"]
+names = {
+    key: (f"{value}-{suffix}" if suffix else value)
+    for key, value in base_names.items()
+}
 defaults = config["defaults"]
 lambda_settings = config.get("lambda_settings", {})
 
@@ -281,8 +296,6 @@ cf = boto3.client("cloudformation")
 iam = boto3.client("iam")
 lambda_client = boto3.client("lambda")
 sts = boto3.client("sts")
-account_id = sts.get_caller_identity()["Account"]
-region = (boto3.session.Session().region_name or "us-east-1")
 stack_resources = cf.describe_stack_resources(StackName=stack_name).get("StackResources", [])
 resource_map = {resource["LogicalResourceId"]: resource for resource in stack_resources}
 layer_arns = {}
@@ -296,37 +309,75 @@ for layer_key in ("core", "extract", "embedding"):
         raise SystemExit(f"Missing layer resource {logical_prefix} for {stack_name}")
     layer_arns[layer_key] = resource["PhysicalResourceId"]
 
+print(
+    json.dumps(
+        {
+            "stack_name": stack_name,
+            "account_id": account_id,
+            "region": region,
+            "name_suffix": suffix,
+            "resolved_lambda_role": names["lambda_role"],
+            "resolved_functions": {
+                spec["function_key"]: spec["function_name"]
+                for spec in functions
+            },
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+)
+
 def ensure_role_exists(role_name: str, service_principal: str, managed_policies: list[str]) -> str:
+    def get_role_arn() -> str | None:
+        try:
+            return iam.get_role(RoleName=role_name)["Role"]["Arn"]
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code", "")
+            message = str(exc).lower()
+            if error_code in {"NoSuchEntity", "NoSuchEntityException", "ResourceNotFoundException"} or "not found" in message:
+                return None
+            raise
+
+    existing_role_arn = get_role_arn()
+    if existing_role_arn:
+        return existing_role_arn
+
     try:
-        return iam.get_role(RoleName=role_name)["Role"]["Arn"]
+        iam.create_role(
+            RoleName=role_name,
+            AssumeRolePolicyDocument=json.dumps(
+                {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {"Service": service_principal},
+                            "Action": "sts:AssumeRole",
+                        }
+                    ],
+                }
+            ),
+            Description=f"Rehydrated execution role for {role_name}",
+        )
     except ClientError as exc:
         error_code = exc.response.get("Error", {}).get("Code", "")
-        if error_code not in {"NoSuchEntity", "NoSuchEntityException", "ResourceNotFoundException"} and "not found" not in str(exc).lower():
+        message = str(exc).lower()
+        if error_code not in {"EntityAlreadyExists", "EntityAlreadyExistsException", "EntityAlreadyExistsExceptionException"} and "already exists" not in message:
             raise
-    iam.create_role(
-        RoleName=role_name,
-        AssumeRolePolicyDocument=json.dumps(
-            {
-                "Version": "2012-10-17",
-                "Statement": [
-                    {
-                        "Effect": "Allow",
-                        "Principal": {"Service": service_principal},
-                        "Action": "sts:AssumeRole",
-                    }
-                ],
-            }
-        ),
-        Description=f"Rehydrated execution role for {role_name}",
-    )
+
     for policy_name in managed_policies:
         iam.attach_role_policy(
             RoleName=role_name,
             PolicyArn=f"arn:aws:iam::aws:policy/{policy_name}",
         )
     print(f"Created missing IAM role {role_name}")
-    time.sleep(10)
-    return iam.get_role(RoleName=role_name)["Role"]["Arn"]
+    for attempt in range(1, 7):
+        time.sleep(10)
+        role_arn = get_role_arn()
+        if role_arn:
+            return role_arn
+        print(f"Waiting for IAM role visibility for {role_name} (attempt {attempt}/6)")
+    return get_role_arn() or sys.exit(f"Failed to observe IAM role {role_name} after creation")
 
 def create_lambda_function_with_retry(function_name: str, kwargs: dict[str, object]) -> None:
     for attempt in range(1, 6):
