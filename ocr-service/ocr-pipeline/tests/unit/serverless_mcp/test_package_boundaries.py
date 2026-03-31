@@ -15,7 +15,7 @@ from serverless_mcp.query.application import QueryService as NewQueryService
 from serverless_mcp.status.application import JobStatusService as NewJobStatusService
 from serverless_mcp.storage.batch import flush_batch_write
 from serverless_mcp.storage.manifest.repository import ManifestRepository
-from serverless_mcp.storage.paths import build_manifest_key, optimize_source_file_name
+from serverless_mcp.storage.paths import build_manifest_key, build_source_named_asset_path, optimize_source_file_name
 from serverless_mcp.storage.projection.repository import EmbeddingProjectionStateRepository
 from serverless_mcp.storage.state.object_state_repository import ObjectStateRepository
 
@@ -67,6 +67,7 @@ def test_canonical_storage_modules_are_importable() -> None:
     assert ManifestRepository.__module__ == "serverless_mcp.storage.manifest.repository"
     assert EmbeddingProjectionStateRepository.__module__ == "serverless_mcp.storage.projection.repository"
     assert build_manifest_key.__module__ == "serverless_mcp.storage.paths"
+    assert build_source_named_asset_path.__module__ == "serverless_mcp.storage.paths"
     assert optimize_source_file_name.__module__ == "serverless_mcp.storage.paths"
     assert flush_batch_write.__module__ == "serverless_mcp.storage.batch"
 

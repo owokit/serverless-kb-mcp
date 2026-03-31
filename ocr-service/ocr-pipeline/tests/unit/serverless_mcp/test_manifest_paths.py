@@ -8,7 +8,12 @@ from __future__ import annotations
 import hashlib
 
 from serverless_mcp.domain.models import S3ObjectRef
-from serverless_mcp.storage.paths import build_manifest_key, build_manifest_root, optimize_source_file_name
+from serverless_mcp.storage.paths import (
+    build_manifest_key,
+    build_manifest_root,
+    build_source_named_asset_path,
+    optimize_source_file_name,
+)
 
 
 def test_optimize_source_file_name_keeps_readable_unicode_and_hashes_identity() -> None:
@@ -64,3 +69,19 @@ def test_document_uri_encodes_reserved_key_and_version_chars() -> None:
     )
 
     assert source.document_uri == "s3://bucket-a/docs/guide%201%2B2.pdf?versionId=v%2F123"
+
+
+def test_source_named_asset_path_uses_input_filename_verbatim() -> None:
+    """
+    EN: Source-named assets should keep the original filename and append the requested suffix.
+    CN: 以源文件名命名的资产应保留原始文件名并追加指定后缀。
+    """
+    source = S3ObjectRef(
+        tenant_id="tenant-a",
+        bucket="bucket-a",
+        key="incoming/reports/Attention Is All You Need.pdf",
+        version_id="v1",
+    )
+
+    assert build_source_named_asset_path(source, "json") == "Attention Is All You Need.pdf.json"
+    assert build_source_named_asset_path(source, ".md") == "Attention Is All You Need.pdf.md"

@@ -63,6 +63,17 @@ def build_asset_key(source: S3ObjectRef, relative_path: str, *, manifest_prefix:
     return f"{build_manifest_root(source, manifest_prefix=manifest_prefix)}/{relative_path}"
 
 
+def build_source_named_asset_path(source: S3ObjectRef, suffix: str) -> str:
+    """
+    EN: Build a source-name-derived artifact path such as ``XXX.pdf.json``.
+    CN: 鍩轰簬婧愭枃浠跺悕鏋勫缓璧勪骇璺緞锛屼緥濡?``XXX.pdf.json``銆?
+    """
+    normalized_suffix = suffix.strip().lstrip(".")
+    if not normalized_suffix:
+        raise ValueError("suffix is required")
+    return f"{_source_filename(source)}.{normalized_suffix}"
+
+
 def build_s3_uri(bucket: str, key: str, *, version_id: str | None = None) -> str:
     """
     EN: Render a version-aware S3 URI.
@@ -123,3 +134,15 @@ def _sanitize_suffix(suffix: str) -> str:
     if not suffix:
         return ""
     return suffix.lower()
+
+
+def _source_filename(source: S3ObjectRef) -> str:
+    """
+    EN: Extract a stable filename from the source key for artifact naming.
+    CN: 浠?source key 涓彁鍙栫ǔ瀹氱殑鏂囦欢鍚嶏紝鐢ㄤ簬璧勪骇鍛藉悕銆?
+    """
+    raw_name = PurePosixPath(source.key.rstrip("/")).name or "document"
+    normalized = unicodedata.normalize("NFKC", raw_name).strip()
+    if not normalized or normalized in {".", ".."}:
+        return "document"
+    return normalized

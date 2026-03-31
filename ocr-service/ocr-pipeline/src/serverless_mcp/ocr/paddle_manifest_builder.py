@@ -22,6 +22,7 @@ from serverless_mcp.extract.markdown_chunker import split_markdown_for_embedding
 from serverless_mcp.extract.policy import _get_token_encoder
 from serverless_mcp.ocr.paddle_jsonl_utils import build_markdown_text_from_json_lines as _build_markdown_text_from_json_lines
 from serverless_mcp.ocr.paddle_jsonl_utils import extract_page_markdown_text as _extract_page_markdown_text_fn
+from serverless_mcp.storage.paths import build_source_named_asset_path
 
 
 class PaddleOCRManifestBuilder:
@@ -85,7 +86,7 @@ class PaddleOCRManifestBuilder:
                     payload=raw_json_payload,
                     page_no=None,
                     metadata=spec.asset_metadata(
-                        relative_path="raw.jsonl",
+                        relative_path=build_source_named_asset_path(source, "json"),
                         source_field="json_lines",
                         page_count=page_count,
                     ),
@@ -161,7 +162,7 @@ class PaddleOCRManifestBuilder:
                     payload=rewritten_markdown_text.encode("utf-8"),
                     page_no=None,
                     metadata=spec.asset_metadata(
-                        relative_path="document.md",
+                        relative_path=build_source_named_asset_path(source, "md"),
                         source_field="markdownUrl",
                         page_count=len(markdown_chunks) or 1,
                     ),

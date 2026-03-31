@@ -54,8 +54,8 @@ def test_paddle_manifest_builder_splits_layout_markdown_into_multiple_assets() -
     assert manifest.metadata["markdown_asset_count"] == 3
 
     assets_by_path = {asset.metadata["relative_path"]: asset for asset in manifest.assets}
-    raw_json_asset = assets_by_path["raw.jsonl"]
-    document_md_asset = assets_by_path["document.md"]
+    raw_json_asset = assets_by_path["scan.pdf.json"]
+    document_md_asset = assets_by_path["scan.pdf.md"]
     section_md_asset_1 = assets_by_path["sections/section-000001.md"]
     section_md_asset_2 = assets_by_path["sections/section-000002.md"]
 
