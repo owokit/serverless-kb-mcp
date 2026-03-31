@@ -286,7 +286,8 @@ function buildLambdaEnvironment(params: {
   if (functionKey === 'embed') {
     env.FAIL_ON_JOB_ERROR = String(defaultSettings.fail_on_job_error);
   }
-  if (functionKey === 'extract_persist' || functionKey === 'backfill') {
+  const needsEmbedQueueUrl = functionKey === 'extract_sync' || functionKey === 'extract_persist' || functionKey === 'backfill';
+  if (needsEmbedQueueUrl) {
     env.EMBED_QUEUE_URL = bindings.embedQueueUrl;
   }
   return env;
