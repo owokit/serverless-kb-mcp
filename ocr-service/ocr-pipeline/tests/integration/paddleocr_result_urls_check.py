@@ -167,6 +167,17 @@ def synthesize_markdown(json_lines: list[dict[str, Any]]) -> str:
     return build_markdown_text_from_json_lines(json_lines)
 
 
+def write_result_files(*, output_dir: Path, json_text: str, markdown_text: str, markdown_source: str) -> None:
+    (output_dir / "result.jsonl").write_text(json_text, encoding="utf-8")
+    (output_dir / "result.md").write_text(markdown_text, encoding="utf-8")
+
+    print(f"saved_jsonl={output_dir / 'result.jsonl'}")
+    print(f"saved_markdown={output_dir / 'result.md'}")
+    print(f"markdown_source={markdown_source}")
+    print(f"jsonl_bytes={len(json_text.encode('utf-8'))}")
+    print(f"markdown_chars={len(markdown_text)}")
+
+
 def main() -> int:
     load_env()
 
@@ -220,36 +231,38 @@ def main() -> int:
     print(f"json_url={json_url}")
     print(f"markdown_url={markdown_url}")
 
-    missing: list[str] = []
     if not isinstance(json_url, str) or not json_url.strip():
-        missing.append("jsonUrl")
-    if not isinstance(markdown_url, str) or not markdown_url.strip():
-        missing.append("markdownUrl")
-
-    if missing:
-        print(f"missing_result_urls={','.join(missing)}", file=sys.stderr)
+        print("missing_result_urls=jsonUrl", file=sys.stderr)
         return 2
 
     json_lines = download_json_lines(session=session, url=json_url, timeout_seconds=download_timeout_seconds)
     json_text = "\n".join(json.dumps(item, ensure_ascii=False) for item in json_lines)
+
+    markdown_text = ""
+    markdown_source = "jsonUrl"
+    markdown_download_failed = False
     if isinstance(markdown_url, str) and markdown_url.strip():
-        markdown_text = download_text(session=session, url=markdown_url, timeout_seconds=download_timeout_seconds)
-        markdown_source = "markdownUrl"
-    else:
+        try:
+            markdown_text = download_text(session=session, url=markdown_url, timeout_seconds=download_timeout_seconds)
+            markdown_source = "markdownUrl"
+        except requests.RequestException as exc:
+            markdown_download_failed = True
+            print(f"markdown_url_download_failed={type(exc).__name__}: {exc}")
+
+    if not markdown_text.strip():
         markdown_text = synthesize_markdown(json_lines)
         markdown_source = "jsonUrl"
         if not markdown_text.strip():
-            raise SystemExit("markdownUrl is missing and jsonUrl did not produce markdown text")
-        print("markdown_url_missing=true")
+            raise SystemExit("jsonUrl did not produce markdown text")
+        if markdown_download_failed or not (isinstance(markdown_url, str) and markdown_url.strip()):
+            print("markdown_url_missing=true")
 
-    (output_dir / "result.jsonl").write_text(json_text, encoding="utf-8")
-    (output_dir / "result.md").write_text(markdown_text, encoding="utf-8")
-
-    print(f"saved_jsonl={output_dir / 'result.jsonl'}")
-    print(f"saved_markdown={output_dir / 'result.md'}")
-    print(f"markdown_source={markdown_source}")
-    print(f"jsonl_bytes={len(json_text.encode('utf-8'))}")
-    print(f"markdown_chars={len(markdown_text)}")
+    write_result_files(
+        output_dir=output_dir,
+        json_text=json_text,
+        markdown_text=markdown_text,
+        markdown_source=markdown_source,
+    )
     return 0
 
 
