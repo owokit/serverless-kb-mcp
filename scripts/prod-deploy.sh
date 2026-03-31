@@ -270,7 +270,7 @@ recover_failed_stack() {
       UPDATE_ROLLBACK_COMPLETE|UPDATE_COMPLETE|CREATE_COMPLETE)
         printf '::notice::Stack %s recovered with status %s.\n' "$stack_name" "$current_status"
         if [[ -n "$skip_resources" ]]; then
-          die "CloudFormation recovery for $stack_name required skipping resources: $skip_resources. Restore the missing stack resources before re-running prod deploy."
+          printf '::warning::CloudFormation recovery for %s required skipping resources: %s. Continuing deploy so CloudFormation can reconcile them.\n' "$stack_name" "$skip_resources"
         fi
         return 0
         ;;
