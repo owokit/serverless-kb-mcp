@@ -8,6 +8,9 @@ Reads skills from ai/skills-src/ and generates tool-specific skill directories:
 
 Only the common frontmatter subset (name, description) is preserved in generated
 SKILL.md files to ensure cross-tool compatibility.
+
+Nested skill trees are supported so subtree-managed packs can live under
+subdirectories such as ai/skills-src/organization/.
 """
 
 import shutil
@@ -75,7 +78,11 @@ def generate_skill(skill_path: Path, output_dir: Path) -> None:
     output_file = output_dir / skill_name / "SKILL.md"
     output_file.parent.mkdir(parents=True, exist_ok=True)
     output_file.write_text(new_content, encoding="utf-8")
-    print(f"  Generated: {output_file.relative_to(Path.cwd())}")
+    try:
+        display_path = output_file.relative_to(Path.cwd())
+    except ValueError:
+        display_path = output_file
+    print(f"  Generated: {display_path}")
 
 
 def sync_skills(src_dir: Path, dst_dir: Path) -> None:
@@ -86,10 +93,8 @@ def sync_skills(src_dir: Path, dst_dir: Path) -> None:
 
     skill_count = 0
     for skill_path in src_dir.rglob("SKILL.md"):
-        # Only process top-level skill SKILL.md, not nested ones
-        if skill_path.parent == src_dir / skill_path.parent.name:
-            generate_skill(skill_path, dst_dir)
-            skill_count += 1
+        generate_skill(skill_path, dst_dir)
+        skill_count += 1
 
     print(f"Synced {skill_count} skills to {dst_dir}")
 
