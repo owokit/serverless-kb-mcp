@@ -1,5 +1,6 @@
 """
 EN: Ingest workflow starter that enforces idempotency and launches Step Functions executions.
+CN: 入口工作流启动器，负责幂等校验并启动 Step Functions 执行。
 """
 from __future__ import annotations
 
@@ -26,13 +27,19 @@ _STEP_FUNCTIONS_FAILURE_TYPES = (ClientError, KeyError, OSError, RuntimeError, T
 
 
 class _DeleteLifecycleManager(Protocol):
-    """Protocol for delete-marker cleanup planning."""
+    """
+    EN: Structural protocol for delete-marker cleanup planning.
+    CN: 删除标记清理计划的结构协议。
+    """
 
     def handle_delete(self, *, source: S3ObjectRef) -> dict[str, object] | None: ...
 
 
 class DeleteMarkerGovernance:
-    """Plan cleanup targets for the latest visible document version after a delete marker becomes authoritative."""
+    """
+    EN: Plan cleanup targets for the latest visible document version after a delete marker becomes authoritative.
+    CN: 当删除标记成为权威版本后，为最新可见文档版本生成清理目标计划。
+    """
 
     def __init__(
         self,
@@ -50,7 +57,10 @@ class DeleteMarkerGovernance:
         self._projection_state_repo = projection_state_repo
 
     def handle_delete(self, *, source: S3ObjectRef) -> dict[str, object] | None:
-        """Record cleanup targets for every write-enabled profile after object deletion."""
+        """
+        EN: Record cleanup targets for every write-enabled profile after object deletion.
+        CN: 对象删除后，为所有可写 profile 记录清理目标。
+        """
         lookup = self._object_state_repo.get_lookup_for_source(source)
         if lookup is None:
             return None
@@ -90,7 +100,10 @@ class DeleteMarkerGovernance:
 
 
 class IngestWorkflowStarter:
-    """Start Step Functions Standard executions for S3 object versions after idempotency checks."""
+    """
+    EN: Start Step Functions Standard executions for S3 object versions after idempotency checks.
+    CN: 在完成幂等校验后，为 S3 对象版本启动 Step Functions Standard 执行。
+    """
 
     def __init__(
         self,
@@ -106,7 +119,10 @@ class IngestWorkflowStarter:
         self._delete_lifecycle_manager = delete_lifecycle_manager
 
     def handle_batch(self, event: dict) -> dict:
-        """Process an S3 event batch, enforce idempotency, and route create/delete events."""
+        """
+        EN: Process an S3 event batch, enforce idempotency, and route create/delete events.
+        CN: 处理 S3 事件批次，执行幂等控制，并分发创建/删除事件。
+        """
         batch = parse_event(event)
         started: list[dict] = []
         skipped: list[dict] = []
@@ -192,7 +208,10 @@ class IngestWorkflowStarter:
         }
 
     def _build_processing_state(self, source: S3ObjectRef):
-        """Build the queued processing state from the current snapshot without persisting before execution start."""
+        """
+        EN: Build the queued processing state from the current snapshot without persisting before execution start.
+        CN: 在执行开始前，根据当前快照构建排队中的处理状态，不提前持久化。
+        """
         current_state = self._object_state_repo.get_state(object_pk=source.object_pk)
         normalized_sequencer = _normalize_sequencer_value(source.sequencer)
         if current_state is not None:
@@ -222,7 +241,10 @@ class IngestWorkflowStarter:
 
 
 def _build_execution_name(source: S3ObjectRef) -> str:
-    """Generate unique Step Functions execution name from S3 object identity."""
+    """
+    EN: Generate unique Step Functions execution name from S3 object identity.
+    CN: 根据 S3 对象身份生成唯一的 Step Functions 执行名称。
+    """
     tenant_digest = hashlib.sha1(source.tenant_id.encode("utf-8")).hexdigest()[:8]
     bucket_digest = hashlib.sha1(source.bucket.encode("utf-8")).hexdigest()[:8]
     key_digest = hashlib.sha1(source.key.encode("utf-8")).hexdigest()[:16]
@@ -233,7 +255,10 @@ def _build_execution_name(source: S3ObjectRef) -> str:
 
 
 def _normalize_sequencer_value(sequencer: str | None) -> str | None:
-    """Normalize sequencer text so in-memory stale checks match repository ordering semantics."""
+    """
+    EN: Normalize sequencer text so in-memory stale checks match repository ordering semantics.
+    CN: 规范化 sequencer 文本，使内存中的过期判断与仓库排序语义一致。
+    """
     value = (sequencer or "").strip()
     if not value:
         return None
@@ -241,7 +266,10 @@ def _normalize_sequencer_value(sequencer: str | None) -> str | None:
 
 
 def _build_vector_keys(*, profile_id: str, manifest) -> list[str]:
-    """Build vector keys for all chunks and image assets in the given manifest."""
+    """
+    EN: Build vector keys for all chunks and image assets in the given manifest.
+    CN: 为给定 manifest 中的所有 chunk 和图片资产构建向量 key。
+    """
     keys = [f"{profile_id}#{manifest.source.version_pk}#{chunk.chunk_id}" for chunk in manifest.chunks]
     for asset in manifest.assets:
         if asset.chunk_type in {"page_image_chunk", "slide_image_chunk", "image_chunk"}:
@@ -250,7 +278,10 @@ def _build_vector_keys(*, profile_id: str, manifest) -> list[str]:
 
 
 def _build_failure_record(document_uri: str, stage: str, exc: Exception) -> dict[str, object]:
-    """Build a structured failure payload for ingest batch diagnostics."""
+    """
+    EN: Build a structured failure payload for ingest batch diagnostics.
+    CN: 为 ingest 批处理诊断构建结构化失败信息。
+    """
     return {
         "document_uri": document_uri,
         "stage": stage,
@@ -264,7 +295,10 @@ def build_ingest_workflow_starter(
     lambda_context: object | None = None,
     settings: Settings | None = None,
 ) -> IngestWorkflowStarter:
-    """Build the ingest workflow starter with required dependencies."""
+    """
+    EN: Build the ingest workflow starter with required dependencies.
+    CN: 使用所需依赖构建 ingest workflow starter。
+    """
     runtime_context = build_runtime_context(settings=settings)
     active_settings = runtime_context.settings
     if not active_settings.step_functions_state_machine_arn:

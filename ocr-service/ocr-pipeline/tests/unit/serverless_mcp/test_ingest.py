@@ -1,5 +1,6 @@
 """
-Tests for the ingest workflow starter and delete cleanup planning.
+EN: Tests for the ingest workflow starter and delete cleanup planning.
+CN: 测试 ingest workflow starter 和删除清理计划。
 """
 
 from __future__ import annotations
@@ -98,6 +99,10 @@ class _FakeProjectionStateRepoForDelete:
 
 
 def test_ingest_starts_step_functions_execution_from_sqs_event() -> None:
+    """
+    EN: Verify the ingest starter parses an SQS-wrapped S3 event and starts Step Functions.
+    CN: 验证 ingest starter 能解析 SQS 包装的 S3 事件并启动 Step Functions。
+    """
     state_repo = _FakeObjectStateRepo()
     stepfunctions = _FakeStepFunctions()
     starter = IngestWorkflowStarter(
@@ -145,6 +150,10 @@ def test_ingest_starts_step_functions_execution_from_sqs_event() -> None:
 
 
 def test_execution_name_includes_tenant_and_bucket_identity() -> None:
+    """
+    EN: Verify that the execution name includes hashes of tenant and bucket identity.
+    CN: 验证执行名称中包含 tenant 和 bucket 身份哈希。
+    """
     shared_key = "docs/guide.pdf"
     shared_version = "v1"
     shared_sequencer = "001"
@@ -173,6 +182,10 @@ def test_execution_name_includes_tenant_and_bucket_identity() -> None:
 
 
 def test_ingest_skips_duplicate_or_stale_events() -> None:
+    """
+    EN: Verify that duplicate or stale S3 events are skipped.
+    CN: 验证重复或过期的 S3 事件会被跳过。
+    """
     class _DuplicateStateRepo(_FakeObjectStateRepo):
         def get_state(self, *, object_pk):
             return ObjectStateRecord(
@@ -213,6 +226,10 @@ def test_ingest_skips_duplicate_or_stale_events() -> None:
 
 
 def test_ingest_handles_delete_marker_without_starting_step_functions() -> None:
+    """
+    EN: Verify that delete marker events do not start Step Functions and return a cleanup plan.
+    CN: 验证删除标记事件不会启动 Step Functions，而是返回清理计划。
+    """
     state_repo = _FakeObjectStateRepo()
     delete_manager = _FakeDeleteLifecycleManager()
     stepfunctions = _FakeStepFunctions()
@@ -252,6 +269,10 @@ def test_ingest_handles_delete_marker_without_starting_step_functions() -> None:
 
 
 def test_ingest_retries_delete_side_effects_after_transient_failure() -> None:
+    """
+    EN: Verify that a transient delete governance failure is retried on the next invocation.
+    CN: 验证临时性的删除治理失败会在下一次调用中重试。
+    """
     class _RetryableDeleteStateRepo(_FakeObjectStateRepo):
         def __init__(self) -> None:
             super().__init__()
@@ -324,6 +345,10 @@ def test_ingest_retries_delete_side_effects_after_transient_failure() -> None:
 
 
 def test_delete_marker_governance_marks_projection_states_deleted_for_each_profile() -> None:
+    """
+    EN: Verify that DeleteMarkerGovernance marks each embedding profile projection state deleted.
+    CN: 验证 DeleteMarkerGovernance 会将每个 embedding profile 的 projection state 标记为 deleted。
+    """
     state_repo = _FakeObjectStateRepo()
     state_repo.state_by_object_pk["tenant-a#bucket-a#docs/guide.pdf"] = ObjectStateRecord(
         pk="tenant-a#bucket-a#docs/guide.pdf",
@@ -406,6 +431,10 @@ def test_delete_marker_governance_marks_projection_states_deleted_for_each_profi
 
 
 def test_execution_name_keeps_version_and_sequencer_uniqueness_for_long_keys() -> None:
+    """
+    EN: Verify that long S3 keys produce execution names within the 80-char limit.
+    CN: 验证长 S3 key 生成的执行名称仍然保持在 80 字符限制内。
+    """
     source_v1 = S3ObjectRef(
         tenant_id="tenant-a",
         bucket="bucket-a",
@@ -430,6 +459,10 @@ def test_execution_name_keeps_version_and_sequencer_uniqueness_for_long_keys() -
 
 
 def test_ingest_handler_exposes_structured_failed_records_for_sqs_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    EN: Verify that the ingest handler returns structured failure diagnostics for SQS retries.
+    CN: 验证 ingest handler 会为 SQS 重试返回结构化失败诊断。
+    """
     class _FailingStarter:
         def handle_batch(self, event):
             if event["Records"][0]["messageId"] == "msg-2":
