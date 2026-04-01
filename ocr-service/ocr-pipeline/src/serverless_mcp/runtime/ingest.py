@@ -1,6 +1,6 @@
 """
 EN: Ingest workflow starter that enforces idempotency and launches Step Functions executions.
-CN: 同上。
+CN: 入口工作流启动器，负责幂等校验并启动 Step Functions 执行。
 """
 from __future__ import annotations
 
@@ -11,19 +11,14 @@ from typing import Protocol
 
 from botocore.exceptions import ClientError
 
-from serverless_mcp.embed.vector_repository import S3VectorRepository
 from serverless_mcp.core.parsers import parse_event
 from serverless_mcp.domain.models import EmbeddingProfile, ObjectStateRecord, S3ObjectRef
 from serverless_mcp.runtime.aws_resolution import resolve_step_functions_state_machine_arn
-from serverless_mcp.runtime.bootstrap import (
-    build_runtime_context,
-    build_runtime_repositories,
-)
+from serverless_mcp.runtime.bootstrap import build_runtime_context, build_runtime_repositories
 from serverless_mcp.runtime.config import Settings
 from serverless_mcp.runtime.embedding_profiles import get_write_profiles
 from serverless_mcp.storage.manifest.repository import ManifestRepository
 from serverless_mcp.storage.state.execution_state_repository import ExecutionStateRepository
-from serverless_mcp.storage.projection.repository import EmbeddingProjectionStateRepository
 from serverless_mcp.storage.state.object_state_repository import DuplicateOrStaleEventError, ObjectStateRepository
 
 
@@ -32,17 +27,17 @@ _STEP_FUNCTIONS_FAILURE_TYPES = (ClientError, KeyError, OSError, RuntimeError, T
 
 class _DeleteLifecycleManager(Protocol):
     """
-    EN: Structural protocol for delete-marker side effects such as vector invalidation.
-    CN: 同上。
+    EN: Structural protocol for delete-marker cleanup planning.
+    CN: 删除标记清理计划的结构协议。
     """
 
-    def handle_delete(self, *, source: S3ObjectRef) -> None: ...
+    def handle_delete(self, *, source: S3ObjectRef) -> dict[str, object] | None: ...
 
 
 class DeleteMarkerGovernance:
     """
-    EN: Invalidate vectors for the latest visible document version after a delete marker becomes authoritative.
-    CN: 同上。
+    EN: Plan cleanup targets for the latest visible document version after a delete marker becomes authoritative.
+    CN: 当删除标记成为权威版本后，为最新可见文档版本生成清理目标计划。
     """
 
     def __init__(
@@ -50,45 +45,60 @@ class DeleteMarkerGovernance:
         *,
         object_state_repo: ObjectStateRepository,
         manifest_repo: ManifestRepository,
-        vector_repo: S3VectorRepository,
         profiles: tuple[EmbeddingProfile, ...],
-        projection_state_repo: EmbeddingProjectionStateRepository | None = None,
         execution_state_repo: ExecutionStateRepository | None = None,
     ) -> None:
         self._object_state_repo = object_state_repo
         self._execution_state_repo = execution_state_repo
         self._manifest_repo = manifest_repo
-        self._vector_repo = vector_repo
         self._profiles = tuple(profile for profile in profiles if profile.enable_write)
-        self._projection_state_repo = projection_state_repo
 
-    def handle_delete(self, *, source: S3ObjectRef) -> None:
+    def handle_delete(self, *, source: S3ObjectRef) -> dict[str, object] | None:
         """
-        EN: Mark current vectors stale for every write-enabled profile after object deletion.
-        CN: 同上。
+        EN: Record cleanup targets for every write-enabled profile after object deletion.
+        CN: 对象删除后，为所有可写 profile 记录清理目标。
         """
         lookup = self._object_state_repo.get_lookup_for_source(source)
         if lookup is None:
-            return
-        state = self._execution_state_repo.get_state(object_pk=lookup.object_pk) if self._execution_state_repo else self._object_state_repo.get_state(object_pk=lookup.object_pk)
+            return None
+        state = (
+            self._execution_state_repo.get_state(object_pk=lookup.object_pk)
+            if self._execution_state_repo
+            else self._object_state_repo.get_state(object_pk=lookup.object_pk)
+        )
         if state is None or not state.latest_manifest_s3_uri:
-            return
+            return None
+
         manifest = self._manifest_repo.load_manifest(state.latest_manifest_s3_uri)
+        cleanup_targets: list[dict[str, object]] = []
         for profile in self._profiles:
             stale_keys = _build_vector_keys(profile_id=profile.profile_id, manifest=manifest)
-            self._vector_repo.mark_vectors_stale(profile=profile, keys=stale_keys)
-            if self._projection_state_repo is not None:
-                self._projection_state_repo.mark_deleted(
-                    source=manifest.source,
-                    profile=profile,
-                    manifest_s3_uri=state.latest_manifest_s3_uri,
-                )
+            if not stale_keys:
+                continue
+            cleanup_targets.append(
+                {
+                    "profile_id": profile.profile_id,
+                    "vector_bucket_name": profile.vector_bucket_name,
+                    "vector_index_name": profile.vector_index_name,
+                    "keys": stale_keys,
+                }
+            )
+
+        if not cleanup_targets:
+            return None
+
+        return {
+            "document_uri": source.document_uri,
+            "object_pk": lookup.object_pk,
+            "latest_manifest_s3_uri": state.latest_manifest_s3_uri,
+            "cleanup_targets": cleanup_targets,
+        }
 
 
 class IngestWorkflowStarter:
     """
     EN: Start Step Functions Standard executions for S3 object versions after idempotency checks.
-    CN: 同上。
+    CN: 在完成幂等校验后，为 S3 对象版本启动 Step Functions Standard 执行。
     """
 
     def __init__(
@@ -106,8 +116,8 @@ class IngestWorkflowStarter:
 
     def handle_batch(self, event: dict) -> dict:
         """
-        EN: Process S3 event batch, enforce idempotency, and route create/delete events.
-        CN: 同上。
+        EN: Process an S3 event batch, enforce idempotency, and route create/delete events.
+        CN: 处理 S3 事件批次，执行幂等控制，并分发创建/删除事件。
         """
         batch = parse_event(event)
         started: list[dict] = []
@@ -117,8 +127,6 @@ class IngestWorkflowStarter:
 
         for job in batch.jobs:
             try:
-                # EN: Route delete events to vector invalidation before skipping extract logic.
-                # CN: 灏嗗垹闄や簨浠惰矾鐢卞埌鍚戦噺澶辨晥澶勭悊锛岀劧鍚庤烦杩囨彁鍙栭€昏緫銆?
                 if job.operation == "DELETE":
                     deleted_record = self._object_state_repo.mark_deleted(
                         bucket=job.source.bucket,
@@ -126,12 +134,35 @@ class IngestWorkflowStarter:
                         version_id=job.source.version_id,
                         sequencer=job.source.sequencer,
                     )
+                    cleanup_plan = None
+                    cleanup_executions: list[dict[str, object]] = []
                     if self._delete_lifecycle_manager is not None:
-                        self._delete_lifecycle_manager.handle_delete(source=job.source)
+                        cleanup_plan = self._delete_lifecycle_manager.handle_delete(source=job.source)
+                    if cleanup_plan is not None:
+                        for cleanup_target in cleanup_plan.get("cleanup_targets", []):
+                            execution = self._stepfunctions.start_execution(
+                                stateMachineArn=self._state_machine_arn,
+                                name=_build_cleanup_execution_name(job.source, cleanup_target),
+                                input=json.dumps(
+                                    {
+                                        "cleanup_plan": cleanup_plan,
+                                        "cleanup_target": cleanup_target,
+                                    },
+                                    ensure_ascii=False,
+                                ),
+                            )
+                            cleanup_executions.append(
+                                {
+                                    "profile_id": cleanup_target["profile_id"],
+                                    "execution_arn": execution["executionArn"],
+                                }
+                            )
                     deleted.append(
                         {
                             "document_uri": job.source.document_uri,
                             "object_pk": deleted_record.pk,
+                            "cleanup_plan": cleanup_plan,
+                            "cleanup_executions": cleanup_executions,
                         }
                     )
                     continue
@@ -196,25 +227,20 @@ class IngestWorkflowStarter:
     def _build_processing_state(self, source: S3ObjectRef):
         """
         EN: Build the queued processing state from the current snapshot without persisting before execution start.
-        CN: 同上。
+        CN: 在执行开始前，根据当前快照构建排队中的处理状态，不提前持久化。
         """
         current_state = self._object_state_repo.get_state(object_pk=source.object_pk)
         normalized_sequencer = _normalize_sequencer_value(source.sequencer)
         if current_state is not None:
-            # EN: Reject if the version_id is already the latest, preventing duplicate workflow launches.
-            # CN: 同上。
             if current_state.latest_version_id == source.version_id:
                 raise DuplicateOrStaleEventError(source.document_uri)
-            # EN: Reject stale events whose sequencer is not strictly newer than the stored value.
-            # CN: 鎷掔粷 sequencer 涓嶄弗鏍兼柊浜庡凡瀛樺偍鍊肩殑杩囨湡浜嬩欢銆?
             if (
                 normalized_sequencer
                 and current_state.latest_sequencer
                 and current_state.latest_sequencer >= normalized_sequencer
             ):
                 raise DuplicateOrStaleEventError(source.document_uri)
-        # EN: Capture previous version metadata for downstream old-version cleanup references.
-        # CN: 同上。
+
         previous_version_id = current_state.latest_version_id if current_state is not None else None
         previous_manifest_s3_uri = current_state.latest_manifest_s3_uri if current_state is not None else None
         return ObjectStateRecord(
@@ -234,7 +260,7 @@ class IngestWorkflowStarter:
 def _build_execution_name(source: S3ObjectRef) -> str:
     """
     EN: Generate unique Step Functions execution name from S3 object identity.
-    CN: 同上。
+    CN: 根据 S3 对象身份生成唯一的 Step Functions 执行名称。
     """
     tenant_digest = hashlib.sha1(source.tenant_id.encode("utf-8")).hexdigest()[:8]
     bucket_digest = hashlib.sha1(source.bucket.encode("utf-8")).hexdigest()[:8]
@@ -242,16 +268,26 @@ def _build_execution_name(source: S3ObjectRef) -> str:
     version_digest = hashlib.sha1(source.version_id.encode("utf-8")).hexdigest()[:12]
     sequencer = source.sequencer or "noseq"
     sequencer_digest = hashlib.sha1(sequencer.encode("utf-8")).hexdigest()[:12]
-    return (
-        f"ingest-{tenant_digest}-b{bucket_digest}-"
-        f"k{key_digest}-v{version_digest}-s{sequencer_digest}"
-    )
+    return f"ingest-{tenant_digest}-b{bucket_digest}-k{key_digest}-v{version_digest}-s{sequencer_digest}"
+
+
+def _build_cleanup_execution_name(source: S3ObjectRef, cleanup_target: dict[str, object]) -> str:
+    """
+    EN: Generate a deterministic Step Functions execution name for a delete cleanup target.
+    CN: 涓哄垹闄ゆ竻鐞嗙洰鏍囩敓鎴愬畾鍒剁殑 Step Functions 鎵ц鍚嶇О銆?
+    """
+    base_name = _build_execution_name(source)
+    profile_id = str(cleanup_target.get("profile_id") or "profile")
+    vector_index_name = str(cleanup_target.get("vector_index_name") or "index")
+    profile_digest = hashlib.sha1(profile_id.encode("utf-8")).hexdigest()[:8]
+    index_digest = hashlib.sha1(vector_index_name.encode("utf-8")).hexdigest()[:8]
+    return f"{base_name}-cleanup-p{profile_digest}-i{index_digest}"
 
 
 def _normalize_sequencer_value(sequencer: str | None) -> str | None:
     """
     EN: Normalize sequencer text so in-memory stale checks match repository ordering semantics.
-    CN: 同上。
+    CN: 规范化 sequencer 文本，使内存中的过期判断与仓库排序语义一致。
     """
     value = (sequencer or "").strip()
     if not value:
@@ -262,7 +298,7 @@ def _normalize_sequencer_value(sequencer: str | None) -> str | None:
 def _build_vector_keys(*, profile_id: str, manifest) -> list[str]:
     """
     EN: Build vector keys for all chunks and image assets in the given manifest.
-    CN: 同上。
+    CN: 为给定 manifest 中的所有 chunk 和图片资产构建向量 key。
     """
     keys = [f"{profile_id}#{manifest.source.version_pk}#{chunk.chunk_id}" for chunk in manifest.chunks]
     for asset in manifest.assets:
@@ -274,7 +310,7 @@ def _build_vector_keys(*, profile_id: str, manifest) -> list[str]:
 def _build_failure_record(document_uri: str, stage: str, exc: Exception) -> dict[str, object]:
     """
     EN: Build a structured failure payload for ingest batch diagnostics.
-    CN: 为 ingest 批处理诊断构建结构化失败负载。
+    CN: 为 ingest 批处理诊断构建结构化失败信息。
     """
     return {
         "document_uri": document_uri,
@@ -299,6 +335,7 @@ def build_ingest_workflow_starter(
         raise ValueError("STEP_FUNCTIONS_STATE_MACHINE_ARN is required for ingest worker")
     if not active_settings.execution_state_table:
         raise ValueError("EXECUTION_STATE_TABLE is required for ingest worker")
+
     clients = runtime_context.clients
     state_machine_arn = resolve_step_functions_state_machine_arn(
         state_machine_ref=active_settings.step_functions_state_machine_arn,
@@ -308,10 +345,10 @@ def build_ingest_workflow_starter(
     execution_state_repo = repositories.execution_state_repo
     if execution_state_repo is None:
         raise ValueError("EXECUTION_STATE_TABLE is required for ingest worker")
+
     delete_lifecycle_manager = None
     write_profiles = get_write_profiles(active_settings)
     if active_settings.manifest_bucket and active_settings.manifest_index_table and write_profiles:
-        projection_state_repo = repositories.projection_state_repo
         manifest_repo = repositories.manifest_repo
         if manifest_repo is None:
             raise ValueError("MANIFEST_BUCKET and MANIFEST_INDEX_TABLE are required for ingest worker cleanup")
@@ -319,9 +356,7 @@ def build_ingest_workflow_starter(
             object_state_repo=object_state_repo,
             execution_state_repo=execution_state_repo,
             manifest_repo=manifest_repo,
-            vector_repo=S3VectorRepository(s3vectors_client=clients.s3vectors),
             profiles=write_profiles,
-            projection_state_repo=projection_state_repo,
         )
 
     return IngestWorkflowStarter(

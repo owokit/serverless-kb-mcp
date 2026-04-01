@@ -31,7 +31,13 @@ def test_load_extract_state_machine_definition_renders_lambda_arn() -> None:
 
     parsed = json.loads(definition)
 
-    assert parsed["StartAt"] == "PrepareJob"
+    assert parsed["StartAt"] == "RouteWorkflow"
+    assert parsed["States"]["RouteWorkflow"]["Default"] == "PrepareJob"
+    assert parsed["States"]["RouteWorkflow"]["Choices"][0]["Next"] == "DeleteVectors"
+    assert parsed["States"]["DeleteVectors"]["Resource"] == "arn:aws:states:::aws-sdk:s3vectors:deleteVectors"
+    assert parsed["States"]["DeleteVectors"]["Parameters"]["vectorBucketName.$"] == "$.cleanup_target.vector_bucket_name"
+    assert parsed["States"]["DeleteVectors"]["Parameters"]["indexName.$"] == "$.cleanup_target.vector_index_name"
+    assert parsed["States"]["DeleteVectors"]["Parameters"]["keys.$"] == "$.cleanup_target.keys"
     assert parsed["States"]["PrepareJob"]["Resource"] == "arn:aws:lambda:ap-southeast-1:123:function:extract-prepare"
     assert parsed["States"]["SyncExtract"]["Resource"] == "arn:aws:lambda:ap-southeast-1:123:function:extract-sync"
     assert parsed["States"]["WaitForOcr"]["Type"] == "Wait"
@@ -52,5 +58,5 @@ def test_validate_extract_state_machine_contract_rejects_missing_contract_state(
     EN: Verify that the contract validator rejects missing states.
     CN: 验证契约校验器会拒绝缺失状态。
     """
-    with pytest.raises(ValueError, match="missing state: PrepareJob"):
+    with pytest.raises(ValueError, match="must start at RouteWorkflow"):
         validate_extract_state_machine_contract({"States": {}})

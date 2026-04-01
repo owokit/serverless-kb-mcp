@@ -1,6 +1,6 @@
 """
 EN: Embed worker that coordinates profile-scoped embedding calls and S3 Vectors persistence.
-CN: 协调按 profile 划分的嵌入调用和 S3 Vectors 持久化的嵌入工作器。
+CN: 鍗忚皟鎸?profile 鍒掑垎鐨勫祵鍏ヨ皟鐢ㄥ拰 S3 Vectors 鎸佷箙鍖栫殑宓屽叆宸ヤ綔鍣ㄣ€?
 """
 from __future__ import annotations
 
@@ -10,17 +10,9 @@ from typing import Protocol
 from botocore.exceptions import ClientError
 
 from serverless_mcp.embed.asset_source import EmbedAssetSource
-from serverless_mcp.embed.vector_repository import S3VectorRepository
 from serverless_mcp.runtime.observability import emit_trace
 from serverless_mcp.domain.embedding_schema import validate_embedding_job_message
-from serverless_mcp.domain.models import (
-    ChunkManifest,
-    EmbeddingJobMessage,
-    EmbeddingOutcome,
-    EmbeddingProfile,
-    ObjectStateRecord,
-    VectorRecord,
-)
+from serverless_mcp.domain.models import EmbeddingJobMessage, EmbeddingOutcome, EmbeddingProfile, ObjectStateRecord, VectorRecord
 from serverless_mcp.storage.state.execution_state_repository import ExecutionStateRepository
 from serverless_mcp.storage.projection.repository import EmbeddingProjectionStateRepository
 from serverless_mcp.storage.manifest.repository import ManifestRepository
@@ -33,14 +25,14 @@ _EMBED_FAILURE_TYPES = (ClientError, KeyError, OSError, RuntimeError, TypeError,
 class UnknownEmbeddingProfileError(ValueError):
     """
     EN: Raised when an embed job references a profile that is no longer active in the current runtime.
-    CN: 当嵌入作业引用了当前运行时不再活跃的 profile 时抛出。
+    CN: 褰撳祵鍏ヤ綔涓氬紩鐢ㄤ簡褰撳墠杩愯鏃朵笉鍐嶆椿璺冪殑 profile 鏃舵姏鍑恒€?
     """
 
 
 class _EmbeddingClient(Protocol):
     """
     EN: Structural protocol for provider-specific embedding clients.
-    CN: 各 provider 专用嵌入客户端的结构协议。
+    CN: 鍚?provider 涓撶敤宓屽叆瀹㈡埛绔殑缁撴瀯鍗忚銆?
     """
 
     def embed_text(self, request) -> list[float]: ...
@@ -50,79 +42,39 @@ class _EmbeddingClient(Protocol):
 
 class VersionCleanupService:
     """
-    EN: Handle cleanup of previous version vectors, projection state, and manifests.
-    CN: 处理旧版本向量、投影状态和 manifest 的清理。
+    EN: Handle cleanup of previous version projection state and manifests.
+    CN: ????????? projection state ??manifest ?????
 
     This service is responsible for:
-    1. Deleting stale vectors when a new version is indexed
-    2. Cleaning up projection state records for the previous version
-    3. Deleting previous version manifests after all profiles have indexed
-    此服务负责：
-    1. 在新版本被索引时删除过时向量
-    2. 清理上一版本的投影状态记录
-    3. 在所有 profile 索引完成后删除上一版本的 manifest
+    1. Cleaning up projection state records for the previous version
+    2. Deleting previous version manifests after all profiles have indexed
+    ?????????
+    1. ????????????????????
+    2. ?????profile ???????????????????manifest
     """
-
     def __init__(
         self,
         *,
-        vector_repo: S3VectorRepository,
         manifest_repo: ManifestRepository | None,
         projection_state_repo: EmbeddingProjectionStateRepository | None,
         embedding_profiles: dict[str, EmbeddingProfile],
     ) -> None:
-        self._vector_repo = vector_repo
         self._manifest_repo = manifest_repo
         self._projection_state_repo = projection_state_repo
         self._embedding_profiles = embedding_profiles
 
-    def cleanup_previous_version_vectors(
+    def cleanup_previous_version_state(
         self,
         *,
         job: EmbeddingJobMessage,
-        profile: EmbeddingProfile,
     ) -> None:
         """
-        EN: Delete vectors and projection state records for the previous version under the given profile.
-        CN: 删除指定 profile 下旧版本的向量和 projection state 记录。
-
-        Args:
-            job:
-                EN: Embedding job message containing version information.
-                CN: 包含版本信息的 embedding 作业消息。
-            profile:
-                EN: The embedding profile whose vectors should be cleaned up.
-                CN: 应该清理其向量的 embedding profile。
+        EN: Record the need for previous-version cleanup without executing it in Lambda.
+        CN: ?????Lambda ???????????????????????????????
         """
         if not job.previous_version_id:
             return
-        if not self._manifest_repo:
-            raise ValueError("manifest_repo is required for previous version vector governance")
-
-        # EN: Locate the previous manifest, falling back to repository lookup if the URI was not carried in the job.
-        # CN: 定位上一版 manifest；如果作业中没有携带 URI，则回退到仓库查询。
-        previous_manifest_s3_uri = job.previous_manifest_s3_uri or self._manifest_repo.find_manifest_s3_uri(
-            source=job.source,
-            version_id=job.previous_version_id,
-        )
-        if not previous_manifest_s3_uri:
-            return
-
-        try:
-            previous_manifest = self._manifest_repo.load_manifest(previous_manifest_s3_uri)
-        except ClientError as exc:
-            # EN: If the previous manifest was already deleted, treat it as no-op.
-            # CN: 如果旧 manifest 已经被删掉，就当作 no-op。
-            if _is_missing_object_error(exc):
-                return
-            raise
-
-        stale_keys = _build_vector_keys(profile_id=job.profile_id, manifest=previous_manifest)
-        # EN: Delete stale vectors and clean up per-version projection records.
-        # CN: 删除过期向量并清理按版本划分的 projection 记录。
-        self._vector_repo.delete_vectors(profile=profile, keys=stale_keys)
-        if self._projection_state_repo is not None:
-            self._projection_state_repo.delete_version_records(source=job.source, version_id=job.previous_version_id)
+        return
 
     def cleanup_previous_manifest_if_complete(
         self,
@@ -131,27 +83,31 @@ class VersionCleanupService:
     ) -> None:
         """
         EN: Delete the previous version's manifest artifacts only when all active profiles have indexed the new version.
-        CN: 只有当所有启用写入的 profile 都对该版本达到 INDEXED 时才删除旧 manifest 产物。
+        CN: 鍙湁褰撴墍鏈夊惎鐢ㄥ啓鍏ョ殑 profile 閮藉璇ョ増鏈揪鍒?INDEXED 鏃舵墠鍒犻櫎鏃?manifest 浜х墿銆?
 
         Args:
             job:
                 EN: Embedding job message containing version information.
-                CN: 包含版本信息的 embedding 作业消息。
+                CN: 鍖呭惈鐗堟湰淇℃伅鐨?embedding 浣滀笟娑堟伅銆?
         """
         if not job.previous_version_id or not self._manifest_repo:
             return
         if not self._is_version_complete(job.source.object_pk, job.source.version_id):
             return
+        previous_manifest_s3_uri = job.previous_manifest_s3_uri or self._manifest_repo.find_manifest_s3_uri(
+            source=job.source,
+            version_id=job.previous_version_id,
+        )
         self._manifest_repo.delete_previous_version_artifacts(
             source=job.source,
             previous_version_id=job.previous_version_id,
-            previous_manifest_s3_uri=job.previous_manifest_s3_uri,
+            previous_manifest_s3_uri=previous_manifest_s3_uri,
         )
 
     def _is_version_complete(self, object_pk: str, version_id: str) -> bool:
         """
         EN: Check whether all write-enabled profiles have reached INDEXED status for this version.
-        CN: 检查所有启用写入的 profile 是否已达到该版本的 INDEXED 状态。
+        CN: 妫€鏌ユ墍鏈夊惎鐢ㄥ啓鍏ョ殑 profile 鏄惁宸茶揪鍒拌鐗堟湰鐨?INDEXED 鐘舵€併€?
         """
         enabled_profiles = [profile for profile in self._embedding_profiles.values() if profile.enable_write]
         if not enabled_profiles:
@@ -172,10 +128,9 @@ class VersionCleanupService:
 
 class EmbedWorker:
     """
-    EN: Process one profile-scoped embedding job, then clean previous-version artifacts once the new vectors are durably written.
-    CN: 处理单个按 profile 划分的嵌入作业，待新向量持久化后再清理旧版本产物。
+    EN: Process one profile-scoped embedding job, then reconcile previous-version cleanup once the new vectors are durably written.
+    CN: ????????profile ????????????????????????????????????????
     """
-
     def __init__(
         self,
         *,
@@ -206,10 +161,9 @@ class EmbedWorker:
     def _build_default_version_cleanup_service(self) -> VersionCleanupService:
         """
         EN: Build the default VersionCleanupService with current dependencies.
-        CN: 使用当前依赖构建默认的 VersionCleanupService。
+        CN: 浣跨敤褰撳墠渚濊禆鏋勫缓榛樿鐨?VersionCleanupService銆?
         """
         return VersionCleanupService(
-            vector_repo=self._vector_repo,
             manifest_repo=self._manifest_repo,
             projection_state_repo=self._projection_state_repo,
             embedding_profiles=self._embedding_profiles,
@@ -218,41 +172,41 @@ class EmbedWorker:
     def process(self, job: EmbeddingJobMessage) -> EmbeddingOutcome:
         """
         EN: Write vectors first, then reconcile previous-version cleanup, and finally mark the profile ready.
-        CN: 先写入向量，再协调旧版本清理，最后标记 profile 就绪。
+        CN: 鍏堝啓鍏ュ悜閲忥紝鍐嶅崗璋冩棫鐗堟湰娓呯悊锛屾渶鍚庢爣璁?profile 灏辩华銆?
 
         Args:
             job:
                 EN: Embedding job message containing source identity, profile, and embedding requests.
-                CN: 包含源身份、profile 和嵌入请求的嵌入作业消息。
+                CN: 鍖呭惈婧愯韩浠姐€乸rofile 鍜屽祵鍏ヨ姹傜殑宓屽叆浣滀笟娑堟伅銆?
 
         Returns:
             EN: Embedding outcome with vector count and object state snapshot.
-            CN: 包含向量数量和 object_state 快照的嵌入结果。
+            CN: 鍖呭惈鍚戦噺鏁伴噺鍜?object_state 蹇収鐨勫祵鍏ョ粨鏋溿€?
 
         Raises:
             EN: UnknownEmbeddingProfileError if the profile is not registered in this runtime.
-            CN: 如果 profile 未在当前运行时注册，则抛出 UnknownEmbeddingProfileError。
+            CN: 濡傛灉 profile 鏈湪褰撳墠杩愯鏃舵敞鍐岋紝鍒欐姏鍑?UnknownEmbeddingProfileError銆?
         """
         validate_embedding_job_message(job)
         profile = self._require_profile(job.profile_id)
         client = self._require_client(job.profile_id)
         try:
             # EN: Mark embed status as running; single-profile uses object_state, multi-profile uses projection_state.
-            # CN: 标记嵌入为运行中；单 profile 写 object_state，多个 profile 写 projection_state。
+            # CN: 鏍囪宓屽叆涓鸿繍琛屼腑锛涘崟 profile 鍐?object_state锛屽涓?profile 鍐?projection_state銆?
             self._mark_embed_running(job)
             # EN: Embed each request into a vector, then persist all vectors to S3 Vectors.
-            # CN: 先将每个请求嵌入为向量，再把所有向量持久化到 S3 Vectors。
+            # CN: 鍏堝皢姣忎釜璇锋眰宓屽叆涓哄悜閲忥紝鍐嶆妸鎵€鏈夊悜閲忔寔涔呭寲鍒?S3 Vectors銆?
             vectors = [
                 self._embed_request(job, profile, client, request, request_index=index)
                 for index, request in enumerate(job.requests)
             ]
             self._vector_repo.put_vectors(job=job, profile=profile, vectors=vectors)
             # EN: Clean up previous-version vectors and projection state if a prior version exists.
-            # CN: 如果存在上一版本，则清理上一版本的向量和 projection state。
+            # CN: 濡傛灉瀛樺湪涓婁竴鐗堟湰锛屽垯娓呯悊涓婁竴鐗堟湰鐨勫悜閲忓拰 projection state銆?
             if job.previous_version_id:
-                self._handle_version_cleanup(job=job, profile=profile)
+                self._handle_version_cleanup(job=job)
             # EN: Complete object state and mark projection done, then attempt previous-version manifest cleanup.
-            # CN: 完成 object_state 更新并标记 projection 完成，然后尝试清理旧版本 manifest。
+            # CN: 瀹屾垚 object_state 鏇存柊骞舵爣璁?projection 瀹屾垚锛岀劧鍚庡皾璇曟竻鐞嗘棫鐗堟湰 manifest銆?
             object_state = self._complete_object_state(job)
             outcome = EmbeddingOutcome(
                 source=job.source,
@@ -272,7 +226,7 @@ class EmbedWorker:
     def _mark_embed_running(self, job: EmbeddingJobMessage) -> None:
         """
         EN: Mark embed status as running in the appropriate state repository.
-        CN: 在对应的状态仓储中将嵌入标记为运行中。
+        CN: 鍦ㄥ搴旂殑鐘舵€佷粨鍌ㄤ腑灏嗗祵鍏ユ爣璁颁负杩愯涓€?
         """
         if self._execution_state_repo is not None:
             self._execution_state_repo.mark_embed_running(job.source)
@@ -286,13 +240,13 @@ class EmbedWorker:
                 manifest_s3_uri=job.manifest_s3_uri,
             )
 
-    def _handle_version_cleanup(self, *, job: EmbeddingJobMessage, profile: EmbeddingProfile) -> None:
+    def _handle_version_cleanup(self, *, job: EmbeddingJobMessage) -> None:
         """
         EN: Handle cleanup of previous version vectors with error isolation.
-        CN: 处理旧版本向量清理，带错误隔离。
+        CN: 澶勭悊鏃х増鏈悜閲忔竻鐞嗭紝甯﹂敊璇殧绂汇€?
         """
         try:
-            self._version_cleanup_service.cleanup_previous_version_vectors(job=job, profile=profile)
+            self._version_cleanup_service.cleanup_previous_version_state(job=job)
         except _EMBED_FAILURE_TYPES as exc:
             emit_trace(
                 "embed.cleanup_previous_version.failed",
@@ -307,7 +261,7 @@ class EmbedWorker:
     def _handle_manifest_cleanup(self, *, job: EmbeddingJobMessage) -> None:
         """
         EN: Handle manifest cleanup with error isolation, marking cleanup failure without propagating.
-        CN: 处理 manifest 清理，带错误隔离，标记清理失败但不传播错误。
+        CN: 澶勭悊 manifest 娓呯悊锛屽甫閿欒闅旂锛屾爣璁版竻鐞嗗け璐ヤ絾涓嶄紶鎾敊璇€?
         """
         try:
             self._version_cleanup_service.cleanup_previous_manifest_if_complete(job=job)
@@ -325,7 +279,7 @@ class EmbedWorker:
     def _mark_embed_completed(self, *, job: EmbeddingJobMessage, outcome: EmbeddingOutcome) -> None:
         """
         EN: Mark embed as completed in the appropriate state repository.
-        CN: 在对应的状态仓储中将嵌入标记为完成。
+        CN: 鍦ㄥ搴旂殑鐘舵€佷粨鍌ㄤ腑灏嗗祵鍏ユ爣璁颁负瀹屾垚銆?
         """
         if self._projection_state_repo is not None:
             profile = self._require_profile(job.profile_id)
@@ -342,7 +296,7 @@ class EmbedWorker:
     ) -> None:
         """
         EN: On failure, mark embed as failed in the appropriate state repository.
-        CN: 失败时，在对应的状态仓储中将嵌入标记为失败。
+        CN: 澶辫触鏃讹紝鍦ㄥ搴旂殑鐘舵€佷粨鍌ㄤ腑灏嗗祵鍏ユ爣璁颁负澶辫触銆?
         """
         if self._execution_state_repo is not None:
             self._execution_state_repo.mark_embed_failed(job.source, str(exc))
@@ -367,28 +321,28 @@ class EmbedWorker:
     ) -> VectorRecord:
         """
         EN: Embed a single request (text or asset) and produce a VectorRecord with full metadata.
-        CN: 将单个请求（文本或资产）嵌入，并生成包含完整元数据的 VectorRecord。
+        CN: 灏嗗崟涓姹傦紙鏂囨湰鎴栬祫浜э級宓屽叆锛屽苟鐢熸垚鍖呭惈瀹屾暣鍏冩暟鎹殑 VectorRecord銆?
 
         Args:
             job:
                 EN: Parent embedding job message.
-                CN: 父级嵌入作业消息。
+                CN: 鐖剁骇宓屽叆浣滀笟娑堟伅銆?
             profile:
                 EN: Target embedding profile.
-                CN: 目标 embedding profile。
+                CN: 鐩爣 embedding profile銆?
             client:
                 EN: Provider-specific embedding client.
-                CN: provider 专用嵌入客户端。
+                CN: provider 涓撶敤宓屽叆瀹㈡埛绔€?
             request:
                 EN: Individual embedding request from the job.
-                CN: 来自作业的单个嵌入请求。
+                CN: 鏉ヨ嚜浣滀笟鐨勫崟涓祵鍏ヨ姹傘€?
             request_index:
                 EN: Zero-based index of this request within the job.
-                CN: 该请求在作业中的零基索引。
+                CN: 璇ヨ姹傚湪浣滀笟涓殑闆跺熀绱㈠紩銆?
 
         Returns:
             EN: VectorRecord with embedding data, key, and enriched metadata.
-            CN: 包含嵌入数据、键和扩展元数据的 VectorRecord。
+            CN: 鍖呭惈宓屽叆鏁版嵁銆侀敭鍜屾墿灞曞厓鏁版嵁鐨?VectorRecord銆?
         """
         request_context = {
             "profile_id": profile.profile_id,
@@ -404,7 +358,7 @@ class EmbedWorker:
         payload_size_bytes: int | None = None
         try:
             # EN: Route by content_kind - text goes directly, binary assets are loaded from S3 first.
-            # CN: 按 content_kind 路由，文本直接嵌入，二进制资产先从 S3 加载。
+            # CN: 鎸?content_kind 璺敱锛屾枃鏈洿鎺ュ祵鍏ワ紝浜岃繘鍒惰祫浜у厛浠?S3 鍔犺浇銆?
             if request.content_kind == "text":
                 if not request.text:
                     raise ValueError("Text embedding request requires text")
@@ -430,7 +384,7 @@ class EmbedWorker:
             raise
 
         # EN: Enrich metadata with manifest reference and profile identity for query-time lookup.
-        # CN: 先用 manifest 引用和 profile 身份补充元数据，供查询时查找。
+        # CN: 鍏堢敤 manifest 寮曠敤鍜?profile 韬唤琛ュ厖鍏冩暟鎹紝渚涙煡璇㈡椂鏌ユ壘銆?
         metadata = dict(request.metadata)
         metadata["manifest_s3_uri"] = job.manifest_s3_uri
         metadata["chunk_id"] = request.chunk_id
@@ -449,7 +403,7 @@ class EmbedWorker:
     def _complete_object_state(self, job: EmbeddingJobMessage) -> ObjectStateRecord:
         """
         EN: Finalize object_state - single-profile marks done directly, multi-profile reads current state.
-        CN: 完成 object_state：单 profile 直接标记 done，多 profile 则读取当前状态。
+        CN: 瀹屾垚 object_state锛氬崟 profile 鐩存帴鏍囪 done锛屽 profile 鍒欒鍙栧綋鍓嶇姸鎬併€?
         """
         if self._projection_state_repo is None:
             return self._object_state_repo.mark_embed_done(job.source)
@@ -466,7 +420,7 @@ class EmbedWorker:
     def _require_profile(self, profile_id: str) -> EmbeddingProfile:
         """
         EN: Look up the embedding profile by ID or raise UnknownEmbeddingProfileError.
-        CN: 按 ID 查找 embedding profile，找不到就抛出 UnknownEmbeddingProfileError。
+        CN: 鎸?ID 鏌ユ壘 embedding profile锛屾壘涓嶅埌灏辨姏鍑?UnknownEmbeddingProfileError銆?
         """
         profile = self._embedding_profiles.get(profile_id)
         if profile is None:
@@ -476,31 +430,10 @@ class EmbedWorker:
     def _require_client(self, profile_id: str) -> _EmbeddingClient:
         """
         EN: Look up the embedding client for the given profile ID.
-        CN: 按 profile ID 查找 embedding client。
+        CN: 鎸?profile ID 鏌ユ壘 embedding client銆?
         """
         client = self._embedding_clients.get(profile_id)
         if client is None:
             raise ValueError(f"Embedding client is not configured for profile: {profile_id}")
         return client
 
-
-def _build_vector_keys(*, profile_id: str, manifest: ChunkManifest) -> list[str]:
-    """
-    EN: Derive all vector keys from a manifest's chunks and image-type assets for a given profile.
-    CN: 生成给定 profile 的全部向量键。
-    """
-    keys = [f"{profile_id}#{manifest.source.version_pk}#{chunk.chunk_id}" for chunk in manifest.chunks]
-    for asset in manifest.assets:
-        if asset.chunk_type in {"page_image_chunk", "slide_image_chunk", "image_chunk"}:
-            keys.append(f"{profile_id}#{manifest.source.version_pk}#{asset.asset_id}")
-    return keys
-
-
-def _is_missing_object_error(exc: ClientError) -> bool:
-    """
-    EN: Determine whether a ClientError indicates the S3 object does not exist.
-    CN: 判断 ClientError 是否表示 S3 对象不存在。
-    """
-    error = exc.response.get("Error", {})
-    code = str(error.get("Code", ""))
-    return code in {"NoSuchKey", "404", "NotFound"}
