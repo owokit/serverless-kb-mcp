@@ -11,10 +11,6 @@ from typing import Any, Iterator
 from serverless_mcp.runtime.config import load_settings
 
 REQUEST_TENANT_ID: ContextVar[str | None] = ContextVar("mcp_gateway_request_tenant_id", default=None)
-REQUEST_SECURITY_SCOPE: ContextVar[tuple[str, ...]] = ContextVar(
-    "mcp_gateway_request_security_scope",
-    default=(),
-)
 
 
 def get_request_tenant_id() -> str | None:
@@ -25,14 +21,6 @@ def get_request_tenant_id() -> str | None:
     return REQUEST_TENANT_ID.get()
 
 
-def get_request_security_scope() -> tuple[str, ...]:
-    """
-    EN: Read the normalized security scope from the current request context.
-    CN: 从当前请求上下文读取规范化后的 security scope。
-    """
-    return REQUEST_SECURITY_SCOPE.get()
-
-
 @contextmanager
 def push_request_context(event: dict[str, Any]) -> Iterator[None]:
     """
@@ -40,11 +28,9 @@ def push_request_context(event: dict[str, Any]) -> Iterator[None]:
     CN: 在单次 Lambda 调用期间填充请求身份上下文变量。
     """
     token = REQUEST_TENANT_ID.set(extract_request_tenant_id(event))
-    scope_token = REQUEST_SECURITY_SCOPE.set(extract_request_security_scope(event))
     try:
         yield
     finally:
-        REQUEST_SECURITY_SCOPE.reset(scope_token)
         REQUEST_TENANT_ID.reset(token)
 
 
@@ -61,21 +47,6 @@ def extract_request_tenant_id(event: dict[str, Any]) -> str | None:
     if isinstance(claim_value, str) and claim_value.strip():
         return claim_value.strip()
     return None
-
-
-def extract_request_security_scope(event: dict[str, Any]) -> tuple[str, ...]:
-    """
-    EN: Extract and normalize security scope claims from an API Gateway event.
-    CN: 从 API Gateway 事件中提取并规范化 security scope 声明。
-    """
-    authorizer_claims = _extract_authorizer_claims(event)
-    if not authorizer_claims:
-        return ()
-
-    scope_values: list[str] = []
-    for key in ("security_scope", "scope", "scopes", "cognito:groups"):
-        scope_values.extend(_coerce_scope_values(authorizer_claims.get(key)))
-    return tuple(dict.fromkeys(scope_values))
 
 
 def resolve_effective_tenant_id(
@@ -111,7 +82,7 @@ def resolve_effective_tenant_id(
 def _extract_authorizer_claims(event: dict[str, Any]) -> dict[str, Any]:
     """
     EN: Extract authorizer claims from API Gateway REST or HTTP API payloads.
-    CN: 从 API Gateway REST 或 HTTP API 载荷中提取 authorizer claims。
+    CN: 从 API Gateway REST 或 HTTP API 负载中提取 authorizer claims。
     """
     if not isinstance(event, dict):
         return {}
@@ -136,21 +107,3 @@ def _extract_authorizer_claims(event: dict[str, Any]) -> dict[str, Any]:
     for source in claims_sources:
         merged.update(source)
     return merged
-
-
-def _coerce_scope_values(value: object) -> list[str]:
-    """
-    EN: Coerce a scope claim into a deduplicated list of strings.
-    CN: 将 scope 声明转换为去重后的字符串列表。
-    """
-    if isinstance(value, str):
-        tokens = [item.strip() for item in value.replace(",", " ").replace(";", " ").split()]
-        return [token for token in tokens if token]
-    if isinstance(value, (list, tuple, set)):
-        values: list[str] = []
-        for item in value:
-            if isinstance(item, str) and item.strip():
-                values.append(item.strip())
-        return values
-    return []
-

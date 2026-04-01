@@ -32,10 +32,8 @@ from serverless_mcp.query.access import (
     is_queryable_object_state,
     is_queryable_projection_state,
     metadata_is_truthy,
-    metadata_security_scope,
     record_degraded_profile,
     sanitize_result_metadata,
-    security_scope_allows_access,
 )
 from serverless_mcp.query.fusion import (
     RankedCandidate,
@@ -100,7 +98,6 @@ class QueryService:
         tenant_id: str,
         top_k: int = 10,
         neighbor_expand: int = 1,
-        security_scope: tuple[str, ...] = (),
         doc_type: str | None = None,
         key: str | None = None,
     ) -> QueryResponse:
@@ -118,11 +115,10 @@ class QueryService:
             return QueryResponse(query=query, results=[])
 
         logger.info(
-            "search_documents.start query_len=%s top_k=%s neighbor_expand=%s security_scope_count=%s enabled_profiles=%s",
+            "search_documents.start query_len=%s top_k=%s neighbor_expand=%s enabled_profiles=%s",
             len(query),
             top_k,
             neighbor_expand,
-            len(security_scope),
             len(enabled_profiles),
         )
         metadata_filter = build_metadata_filter(
@@ -223,9 +219,6 @@ class QueryService:
         for candidate in sorted_candidates:
             metadata = sanitize_result_metadata(candidate.match.metadata)
             source = candidate.source
-            candidate_security_scope = metadata_security_scope(candidate.match.metadata)
-            if not security_scope_allows_access(candidate_security_scope, security_scope):
-                continue
             vector_is_latest = metadata_is_truthy(candidate.match.metadata, "is_latest")
             object_state = state_cache.get(source.object_pk)
             if object_state is None:

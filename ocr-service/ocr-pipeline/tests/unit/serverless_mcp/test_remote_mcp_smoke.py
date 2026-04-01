@@ -369,7 +369,6 @@ def test_lambda_handler_initialize_tools_list_and_call(monkeypatch) -> None:
     assert content["query"] == "hello"
     assert content["results"][0]["delivery"]["url"].startswith("https://cdn.example.com/")
     assert context.query_service.calls[0]["tenant_id"] == "tenant-a"
-    assert context.query_service.calls[0]["security_scope"] == ()
 
 
 def test_lambda_handler_defaults_search_documents_to_lookup_tenant(monkeypatch) -> None:
