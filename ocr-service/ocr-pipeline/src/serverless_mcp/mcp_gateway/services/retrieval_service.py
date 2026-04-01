@@ -5,7 +5,7 @@ CN: 查询侧 MCP tools 的检索服务辅助函数。
 from __future__ import annotations
 
 from serverless_mcp.core.serialization import coerce_bounded_int, coerce_required_str, serialize_query_response
-from serverless_mcp.mcp_gateway.auth import get_request_security_scope, resolve_effective_tenant_id
+from serverless_mcp.mcp_gateway.auth import resolve_effective_tenant_id
 from serverless_mcp.mcp_gateway.schemas import dump_json_payload
 
 
@@ -47,7 +47,6 @@ def search_documents(
         tenant_id=resolved_tenant_id,
         top_k=bounded_top_k,
         neighbor_expand=bounded_neighbor_expand,
-        security_scope=get_request_security_scope(),
         doc_type=doc_type,
         key=key,
     )

@@ -44,39 +44,6 @@ def metadata_is_truthy(metadata: dict[str, object], field: str) -> bool:
     return False
 
 
-def metadata_security_scope(metadata: dict[str, object]) -> tuple[str, ...]:
-    """
-    EN: Normalize vector metadata security_scope into a comparable tuple.
-    CN: 将向量元数据中的 security_scope 规范化为可比较元组。
-    """
-    value = metadata.get("security_scope")
-    if isinstance(value, str):
-        tokens = [item.strip() for item in value.replace(",", " ").replace(";", " ").split()]
-        return tuple(dict.fromkeys(token for token in tokens if token))
-    if isinstance(value, (list, tuple, set)):
-        scopes: list[str] = []
-        for item in value:
-            if not isinstance(item, str):
-                continue
-            token = item.strip()
-            if token and token not in scopes:
-                scopes.append(token)
-        return tuple(scopes)
-    return ()
-
-
-def security_scope_allows_access(candidate_scopes: tuple[str, ...], request_scopes: tuple[str, ...]) -> bool:
-    """
-    EN: Allow public vectors or vectors whose scope intersects the request scope.
-    CN: 允许公开向量，或其 scope 与请求 scope 有交集的向量。
-    """
-    if not candidate_scopes:
-        return True
-    if not request_scopes:
-        return False
-    return bool(set(candidate_scopes) & set(request_scopes))
-
-
 def is_queryable_object_state(
     object_state: ObjectStateRecord | None,
     source,
@@ -125,7 +92,7 @@ def record_degraded_profile(
 ) -> None:
     """
     EN: Record a degraded profile entry with deduplication by (profile_id, stage, manifest_s3_uri).
-    CN: 按 (profile_id, stage, manifest_s3_uri) 去重后记录一个 degraded profile 条目。
+    CN: 按 (profile_id, stage, manifest_s3_uri) 去重后记录一条 degraded profile。
     """
     key = (profile_id, stage, manifest_s3_uri)
     if key in degraded_keys:
