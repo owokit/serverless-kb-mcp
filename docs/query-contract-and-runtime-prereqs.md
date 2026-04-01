@@ -35,3 +35,10 @@
 - 如果业务确实需要匿名访问，必须显式开启 `allow_unauthenticated_query=true`，并把 `remote_mcp_default_tenant_id` 配成明确的公开 tenant，不要继续依赖 `lookup` 作为默认回退。
 - Embed 侧旧版本向量清理由独立的 Step Functions cleanup workflow 负责，运行时需要显式注入 `VECTOR_CLEANUP_STATE_MACHINE_ARN`。
 - 查询侧优先走 chunk projection 读取，只有投影缺失或回源失败时才读取完整 manifest。
+## 清理可观测性
+
+- 旧版本向量清理由独立的 Step Functions cleanup workflow 执行，embed 侧只负责生成 cleanup plan 并发起编排。
+- cleanup dispatch 会输出结构化 metric `embed.cleanup.dispatch`，`status` 取值为 `started`、`succeeded` 或 `failed`。
+- 失败时会额外带上 `error_type`，并写回 `object_state.last_error`，用于排障和回放。
+- cleanup execution name 由 cleanup plan 的确定性 payload 派生，相同计划重复触发时应得到相同 execution name，便于幂等去重。
+- cleanup dispatch 成功后，不等待删除完成；真正的删除重试、补偿和幂等判断由 cleanup workflow 自己负责。
