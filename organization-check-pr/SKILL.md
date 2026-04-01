@@ -1,6 +1,6 @@
 ---
 name: organization-check-pr
-description: ??? GitHub PR ??????? review comments?status checks ???????
+description: 组织级 GitHub PR 检查技能，覆盖 review comments、status checks 和描述完整性。
 license: MIT
 compatibility: Requires git and gh (GitHub CLI) installed and authenticated.
 metadata:
