@@ -60,7 +60,21 @@
           }
         }
       },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "DynamoDB.ProvisionedThroughputExceededException",
+            "DynamoDB.RequestLimitExceeded",
+            "ThrottlingException"
+          ],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2.0,
+          "MaxAttempts": 3,
+          "JitterStrategy": "FULL"
+        }
+      ],
       "Next": "FailCleanup"
+    },
     },
     "FailCleanup": {
       "Type": "Fail",
