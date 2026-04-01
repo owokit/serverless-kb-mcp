@@ -1,25 +1,20 @@
 """
-EN: Tests for the IngestWorkflowStarter, delete marker governance, and execution name generation.
-CN: 同上。
+Tests for the ingest workflow starter and delete cleanup planning.
 """
+
+from __future__ import annotations
 
 import hashlib
 import json
 
 import pytest
 
+from serverless_mcp.domain.models import ChunkManifest, EmbeddingProfile, ExtractedChunk, ObjectStateRecord, S3ObjectRef
 from serverless_mcp.entrypoints.ingest import lambda_handler as ingest_lambda_handler
-from serverless_mcp.runtime.ingest import (
-    DeleteMarkerGovernance,
-    IngestWorkflowStarter,
-    _build_execution_name,
-)
-from serverless_mcp.domain.models import ChunkManifest, EmbeddingProfile, ObjectStateRecord, S3ObjectRef
+from serverless_mcp.runtime.ingest import DeleteMarkerGovernance, IngestWorkflowStarter, _build_execution_name
 
 
 class _FakeObjectStateRepo:
-    # EN: In-memory stand-in for ObjectStateRepository used in ingest tests.
-    # CN: 鐢ㄤ簬 ingest 娴嬭瘯鐨?ObjectStateRepository 鍐呭瓨鏇胯韩銆?
     def __init__(self):
         self.document_uris = []
         self.deleted = []
@@ -54,8 +49,6 @@ class _FakeObjectStateRepo:
 
 
 class _FakeStepFunctions:
-    # EN: Captures Step Functions start_execution calls for assertion.
-    # CN: 同上。
     def __init__(self):
         self.executions = []
 
@@ -65,8 +58,6 @@ class _FakeStepFunctions:
 
 
 class _FakeDeleteLifecycleManager:
-    # EN: Records delete lifecycle handler invocations.
-    # CN: 璁板綍鍒犻櫎鐢熷懡鍛ㄦ湡澶勭悊鍣ㄨ皟鐢ㄣ€?
     def __init__(self) -> None:
         self.calls = []
 
@@ -75,8 +66,6 @@ class _FakeDeleteLifecycleManager:
 
 
 class _FakeManifestRepo:
-    # EN: Stand-in ManifestRepository returning a fixed ChunkManifest.
-    # CN: 杩斿洖鍥哄畾 ChunkManifest 鐨?ManifestRepository 鏇胯韩銆?
     def load_manifest(self, manifest_s3_uri):
         assert manifest_s3_uri == "s3://manifest-bucket/manifests/example.json"
         return ChunkManifest(
@@ -87,24 +76,20 @@ class _FakeManifestRepo:
                 version_id="v1",
             ),
             doc_type="pdf",
-            chunks=[],
+            chunks=[
+                ExtractedChunk(
+                    chunk_id="chunk#000001",
+                    chunk_type="page_text_chunk",
+                    text="hello",
+                    doc_type="pdf",
+                    token_estimate=2,
+                )
+            ],
             metadata={"source_format": "pdf", "page_count": 0, "visual_page_numbers": [], "page_image_asset_count": 0},
         )
 
 
-class _FakeVectorRepoForDelete:
-    # EN: Records mark_vectors_stale calls for delete governance verification.
-    # CN: 璁板綍 mark_vectors_stale 璋冪敤浠ラ獙璇佸垹闄ゆ不鐞嗐€?
-    def __init__(self) -> None:
-        self.calls = []
-
-    def mark_vectors_stale(self, *, profile, keys):
-        self.calls.append((profile.profile_id, keys))
-
-
 class _FakeProjectionStateRepoForDelete:
-    # EN: Records mark_deleted calls on projection state during delete governance.
-    # CN: 璁板綍鍒犻櫎娌荤悊鏈熼棿 projection state 鐨?mark_deleted 璋冪敤銆?
     def __init__(self) -> None:
         self.calls = []
 
@@ -113,10 +98,6 @@ class _FakeProjectionStateRepoForDelete:
 
 
 def test_ingest_starts_step_functions_execution_from_sqs_event() -> None:
-    """
-    EN: Verify the ingest starter parses an SQS-wrapped S3 event and starts a Step Functions execution.
-    CN: 同上。
-    """
     state_repo = _FakeObjectStateRepo()
     stepfunctions = _FakeStepFunctions()
     starter = IngestWorkflowStarter(
@@ -164,10 +145,6 @@ def test_ingest_starts_step_functions_execution_from_sqs_event() -> None:
 
 
 def test_execution_name_includes_tenant_and_bucket_identity() -> None:
-    """
-    EN: Verify that the execution name includes a hash of tenant_id and bucket for uniqueness.
-    CN: 同上。
-    """
     shared_key = "docs/guide.pdf"
     shared_version = "v1"
     shared_sequencer = "001"
@@ -196,13 +173,7 @@ def test_execution_name_includes_tenant_and_bucket_identity() -> None:
 
 
 def test_ingest_skips_duplicate_or_stale_events() -> None:
-    """
-    EN: Verify that duplicate or stale S3 events are skipped based on sequencer comparison.
-    CN: 同上。
-    """
     class _DuplicateStateRepo(_FakeObjectStateRepo):
-        # EN: ObjectStateRepo that returns a pre-existing state to simulate duplicates.
-        # CN: 同上。
         def get_state(self, *, object_pk):
             return ObjectStateRecord(
                 pk=object_pk,
@@ -242,10 +213,6 @@ def test_ingest_skips_duplicate_or_stale_events() -> None:
 
 
 def test_ingest_handles_delete_marker_without_starting_step_functions() -> None:
-    """
-    EN: Verify that delete marker events invoke the delete lifecycle manager instead of starting Step Functions.
-    CN: 同上。
-    """
     state_repo = _FakeObjectStateRepo()
     delete_manager = _FakeDeleteLifecycleManager()
     stepfunctions = _FakeStepFunctions()
@@ -278,19 +245,14 @@ def test_ingest_handles_delete_marker_without_starting_step_functions() -> None:
 
     assert result["deleted_count"] == 1
     assert result["started_count"] == 0
+    assert result["deleted"][0]["cleanup_plan"] is None
     assert state_repo.deleted == [("bucket-a", "docs/guide.pdf", "delete-v1", "002")]
     assert delete_manager.calls == ["s3://bucket-a/docs/guide.pdf?versionId=delete-v1"]
     assert stepfunctions.executions == []
 
 
 def test_ingest_retries_delete_side_effects_after_transient_failure() -> None:
-    """
-    EN: Verify that a transient delete governance failure is retried successfully on the next invocation.
-    CN: 同上。
-    """
     class _RetryableDeleteStateRepo(_FakeObjectStateRepo):
-        # EN: ObjectStateRepo that succeeds on retry after delete.
-        # CN: 鍒犻櫎鍚庨噸璇曟垚鍔熺殑 ObjectStateRepo銆?
         def __init__(self) -> None:
             super().__init__()
             self._deleted_state = None
@@ -309,11 +271,7 @@ def test_ingest_retries_delete_side_effects_after_transient_failure() -> None:
                 )
             return self._deleted_state
 
-    # EN: Delete lifecycle manager that fails on the first call to simulate transient failure.
-    # CN: 同上。
     class _FlakyDeleteLifecycleManager:
-        # EN: Delete lifecycle manager that fails on first call.
-        # CN: 同上。
         def __init__(self) -> None:
             self.calls = []
 
@@ -366,10 +324,6 @@ def test_ingest_retries_delete_side_effects_after_transient_failure() -> None:
 
 
 def test_delete_marker_governance_marks_projection_states_deleted_for_each_profile() -> None:
-    """
-    EN: Verify that DeleteMarkerGovernance marks each embedding profile projection state as deleted.
-    CN: 同上。
-    """
     state_repo = _FakeObjectStateRepo()
     state_repo.state_by_object_pk["tenant-a#bucket-a#docs/guide.pdf"] = ObjectStateRecord(
         pk="tenant-a#bucket-a#docs/guide.pdf",
@@ -380,12 +334,10 @@ def test_delete_marker_governance_marks_projection_states_deleted_for_each_profi
         latest_manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
         is_deleted=True,
     )
-    vector_repo = _FakeVectorRepoForDelete()
     projection_state_repo = _FakeProjectionStateRepoForDelete()
     governance = DeleteMarkerGovernance(
         object_state_repo=state_repo,
         manifest_repo=_FakeManifestRepo(),
-        vector_repo=vector_repo,
         profiles=(
             EmbeddingProfile(
                 profile_id="gemini-default",
@@ -409,7 +361,7 @@ def test_delete_marker_governance_marks_projection_states_deleted_for_each_profi
         projection_state_repo=projection_state_repo,
     )
 
-    governance.handle_delete(
+    cleanup_plan = governance.handle_delete(
         source=S3ObjectRef(
             tenant_id="lookup",
             bucket="bucket-a",
@@ -418,10 +370,25 @@ def test_delete_marker_governance_marks_projection_states_deleted_for_each_profi
         )
     )
 
-    assert vector_repo.calls == [
-        ("gemini-default", []),
-        ("openai-text-small", []),
-    ]
+    assert cleanup_plan == {
+        "document_uri": "s3://bucket-a/docs/guide.pdf?versionId=delete-v1",
+        "object_pk": "tenant-a#bucket-a#docs/guide.pdf",
+        "latest_manifest_s3_uri": "s3://manifest-bucket/manifests/example.json",
+        "cleanup_targets": [
+            {
+                "profile_id": "gemini-default",
+                "vector_bucket_name": "vector-bucket",
+                "vector_index_name": "index-gemini",
+                "keys": ["gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v1#chunk#000001"],
+            },
+            {
+                "profile_id": "openai-text-small",
+                "vector_bucket_name": "vector-bucket",
+                "vector_index_name": "index-openai",
+                "keys": ["openai-text-small#tenant-a#bucket-a#docs%2Fguide.pdf#v1#chunk#000001"],
+            },
+        ],
+    }
     assert projection_state_repo.calls == [
         (
             "s3://bucket-a/docs/guide.pdf?versionId=v1",
@@ -437,13 +404,8 @@ def test_delete_marker_governance_marks_projection_states_deleted_for_each_profi
         ),
     ]
 
-def test_execution_name_keeps_version_and_sequencer_uniqueness_for_long_keys() -> None:
-    """
-    EN: Verify that long S3 keys produce execution names within the 80-char limit while preserving version uniqueness.
-    CN: 同上。
-    """
-    from serverless_mcp.runtime.ingest import _build_execution_name
 
+def test_execution_name_keeps_version_and_sequencer_uniqueness_for_long_keys() -> None:
     source_v1 = S3ObjectRef(
         tenant_id="tenant-a",
         bucket="bucket-a",
@@ -468,11 +430,6 @@ def test_execution_name_keeps_version_and_sequencer_uniqueness_for_long_keys() -
 
 
 def test_ingest_handler_exposes_structured_failed_records_for_sqs_retry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """
-    EN: Verify that the ingest handler returns structured failure diagnostics for SQS partial batch retries.
-    CN: 验证 ingest 处理器会为 SQS 部分批次重试返回结构化失败诊断。
-    """
-
     class _FailingStarter:
         def handle_batch(self, event):
             if event["Records"][0]["messageId"] == "msg-2":
