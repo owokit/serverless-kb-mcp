@@ -40,6 +40,13 @@ class _StateContract:
 
 
 _EXTRACT_STATE_CONTRACTS: tuple[_StateContract, ...] = (
+    _StateContract("RouteWorkflow", "Choice", default="PrepareJob"),
+    _StateContract(
+        "DeleteVectors",
+        "Task",
+        ("vectorBucketName", "indexName", "keys"),
+        end=True,
+    ),
     _StateContract("PrepareJob", "Task", ("job", "processing_state"), next_state="RouteByExtension"),
     _StateContract("RouteByExtension", "Choice", default="SyncExtract"),
     _StateContract("SyncExtract", "Task", ("job", "processing_state"), end=True),
@@ -109,6 +116,8 @@ def validate_extract_state_machine_contract(definition: Mapping[str, object]) ->
     states = definition.get("States")
     if not isinstance(states, dict):
         raise ValueError("extract state machine definition must contain a States object")
+    if definition.get("StartAt") != "RouteWorkflow":
+        raise ValueError("extract state machine definition must start at RouteWorkflow")
     for contract in _EXTRACT_STATE_CONTRACTS:
         state = states.get(contract.name)
         if not isinstance(state, dict):

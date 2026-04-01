@@ -473,7 +473,7 @@ class ProjectionStateStore(Protocol):
 
 class VectorStore(Protocol):
     """
-    EN: Protocol for persisting and deleting vectors in S3 Vectors.
+    EN: Protocol for persisting vectors in S3 Vectors.
     CN: 用于在 S3 Vectors 中持久化和删除向量的协议。
 
     Implementations must provide atomic vector batch operations with
@@ -504,47 +504,6 @@ class VectorStore(Protocol):
                 CN: 要持久化的 VectorRecord 列表。
         """
         ...
-
-    def delete_vectors(
-        self,
-        *,
-        profile: EmbeddingProfile,
-        keys: list[str],
-    ) -> None:
-        """
-        EN: Delete vectors by their keys from S3 Vectors.
-        CN: 通过键从 S3 Vectors 中删除向量。
-
-        Args:
-            profile:
-                EN: The embedding profile whose vector space to delete from.
-                CN: 要从中删除的 embedding profile 的向量空间。
-            keys:
-                EN: List of vector keys to delete.
-                CN: 要删除的向量键列表。
-        """
-        ...
-
-    def mark_vectors_stale(
-        self,
-        *,
-        profile: EmbeddingProfile,
-        keys: list[str],
-    ) -> None:
-        """
-        EN: Mark vectors as stale rather than deleting immediately.
-        CN: 将向量标记为过时而非立即删除。
-
-        Args:
-            profile:
-                EN: The embedding profile whose vector space contains stale vectors.
-                CN: 包含过时向量的 embedding profile 的向量空间。
-            keys:
-                EN: List of vector keys to mark as stale.
-                CN: 要标记为过时的向量键列表。
-        """
-        ...
-
 
 class QueueDispatcher(Protocol):
     """

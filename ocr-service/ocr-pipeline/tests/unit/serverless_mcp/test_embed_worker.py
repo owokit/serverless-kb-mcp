@@ -76,18 +76,12 @@ class _FakeVectorRepo:
     def __init__(self):
         self.jobs = []
         self.vectors = []
-        self.stale_keys = []
-        self.deleted_keys = []
 
     def put_vectors(self, *, job, profile, vectors):
         self.jobs.append((job, profile.profile_id))
         self.vectors.extend(vectors)
 
-    def mark_vectors_stale(self, *, profile, keys):
-        self.stale_keys.extend((profile.profile_id, key) for key in keys)
 
-    def delete_vectors(self, *, profile, keys):
-        self.deleted_keys.extend((profile.profile_id, key) for key in keys)
 
 
 class _FakeObjectStateRepo:
@@ -337,7 +331,7 @@ def _build_single_profile_worker(
     )
 
 
-def test_embed_worker_writes_vectors_marks_done_and_cleans_previous_version_artifacts() -> None:
+def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cleanup() -> None:
     """
     EN: Embed worker writes vectors marks done and cleans previous version artifacts.
     CN: 妤犲矁鐦?embed worker writes vectors marks done and cleans previous version artifacts閵?
@@ -389,10 +383,6 @@ def test_embed_worker_writes_vectors_marks_done_and_cleans_previous_version_arti
     assert outcome.profile_id == "gemini-default"
     assert len(vector_repo.vectors) == 2
     assert all(vector.metadata["is_latest"] is True for vector in vector_repo.vectors)
-    assert vector_repo.deleted_keys == [
-        ("gemini-default", "gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v0#chunk#000001"),
-        ("gemini-default", "gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v0#asset#000001"),
-    ]
     assert manifest_repo.delete_calls == [(source.document_uri, "v0", "s3://manifest-bucket/manifests/v0.json")]
 
 
@@ -555,7 +545,6 @@ def test_embed_worker_uses_projection_state_without_mutating_global_embed_status
     assert projection_state_repo.running == [
         (source.document_uri, "gemini-default", "s3://manifest-bucket/manifests/example.json")
     ]
-    assert projection_state_repo.deleted == []
     assert projection_state_repo.done == [(source.document_uri, "gemini-default", 1)]
     assert manifest_repo.delete_calls == []
 
@@ -626,7 +615,7 @@ def test_embed_worker_reads_execution_state_when_projection_state_exists() -> No
     assert projection_state_repo.done == [(source.document_uri, "gemini-default", 1)]
 
 
-def test_embed_worker_deletes_previous_projection_state_and_vectors_before_marking_profile_done() -> None:
+def test_embed_worker_defers_previous_projection_cleanup_before_marking_profile_done() -> None:
     """
     EN: Embed worker deletes previous projection state and vectors before marking profile done.
     CN: 妤犲矁鐦?embed worker deletes previous projection state and vectors before marking profile done閵?
@@ -671,11 +660,6 @@ def test_embed_worker_deletes_previous_projection_state_and_vectors_before_marki
         )
     )
 
-    assert projection_state_repo.deleted == [(source.document_uri, "v0")]
-    assert vector_repo.deleted_keys == [
-        ("gemini-default", "gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v0#chunk#000001"),
-        ("gemini-default", "gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v0#asset#000001"),
-    ]
     assert manifest_repo.delete_calls == [(source.document_uri, "v0", "s3://manifest-bucket/manifests/v0.json")]
 
 
@@ -723,7 +707,7 @@ def test_embed_worker_uses_derived_previous_manifest_uri_when_not_explicitly_pro
         )
     )
 
-    assert manifest_repo.loaded_uris[0] == f"{_manifest_root(source, 'v0')}/manifest.json"
+    assert manifest_repo.delete_calls == [(source.document_uri, "v0", f"{_manifest_root(source, 'v0')}/manifest.json")]
 
 
 def test_embed_worker_defers_previous_manifest_cleanup_until_all_write_profiles_complete() -> None:

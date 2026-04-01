@@ -18,7 +18,6 @@ from serverless_mcp.runtime.bootstrap import build_runtime_context, build_runtim
 from serverless_mcp.runtime.config import Settings
 from serverless_mcp.runtime.embedding_profiles import get_write_profiles
 from serverless_mcp.storage.manifest.repository import ManifestRepository
-from serverless_mcp.storage.projection.repository import EmbeddingProjectionStateRepository
 from serverless_mcp.storage.state.execution_state_repository import ExecutionStateRepository
 from serverless_mcp.storage.state.object_state_repository import DuplicateOrStaleEventError, ObjectStateRepository
 
@@ -47,14 +46,12 @@ class DeleteMarkerGovernance:
         object_state_repo: ObjectStateRepository,
         manifest_repo: ManifestRepository,
         profiles: tuple[EmbeddingProfile, ...],
-        projection_state_repo: EmbeddingProjectionStateRepository | None = None,
         execution_state_repo: ExecutionStateRepository | None = None,
     ) -> None:
         self._object_state_repo = object_state_repo
         self._execution_state_repo = execution_state_repo
         self._manifest_repo = manifest_repo
         self._profiles = tuple(profile for profile in profiles if profile.enable_write)
-        self._projection_state_repo = projection_state_repo
 
     def handle_delete(self, *, source: S3ObjectRef) -> dict[str, object] | None:
         """
@@ -76,6 +73,8 @@ class DeleteMarkerGovernance:
         cleanup_targets: list[dict[str, object]] = []
         for profile in self._profiles:
             stale_keys = _build_vector_keys(profile_id=profile.profile_id, manifest=manifest)
+            if not stale_keys:
+                continue
             cleanup_targets.append(
                 {
                     "profile_id": profile.profile_id,
@@ -84,12 +83,9 @@ class DeleteMarkerGovernance:
                     "keys": stale_keys,
                 }
             )
-            if self._projection_state_repo is not None:
-                self._projection_state_repo.mark_deleted(
-                    source=manifest.source,
-                    profile=profile,
-                    manifest_s3_uri=state.latest_manifest_s3_uri,
-                )
+
+        if not cleanup_targets:
+            return None
 
         return {
             "document_uri": source.document_uri,
@@ -139,13 +135,34 @@ class IngestWorkflowStarter:
                         sequencer=job.source.sequencer,
                     )
                     cleanup_plan = None
+                    cleanup_executions: list[dict[str, object]] = []
                     if self._delete_lifecycle_manager is not None:
                         cleanup_plan = self._delete_lifecycle_manager.handle_delete(source=job.source)
+                    if cleanup_plan is not None:
+                        for cleanup_target in cleanup_plan.get("cleanup_targets", []):
+                            execution = self._stepfunctions.start_execution(
+                                stateMachineArn=self._state_machine_arn,
+                                name=_build_cleanup_execution_name(job.source, cleanup_target),
+                                input=json.dumps(
+                                    {
+                                        "cleanup_plan": cleanup_plan,
+                                        "cleanup_target": cleanup_target,
+                                    },
+                                    ensure_ascii=False,
+                                ),
+                            )
+                            cleanup_executions.append(
+                                {
+                                    "profile_id": cleanup_target["profile_id"],
+                                    "execution_arn": execution["executionArn"],
+                                }
+                            )
                     deleted.append(
                         {
                             "document_uri": job.source.document_uri,
                             "object_pk": deleted_record.pk,
                             "cleanup_plan": cleanup_plan,
+                            "cleanup_executions": cleanup_executions,
                         }
                     )
                     continue
@@ -254,6 +271,19 @@ def _build_execution_name(source: S3ObjectRef) -> str:
     return f"ingest-{tenant_digest}-b{bucket_digest}-k{key_digest}-v{version_digest}-s{sequencer_digest}"
 
 
+def _build_cleanup_execution_name(source: S3ObjectRef, cleanup_target: dict[str, object]) -> str:
+    """
+    EN: Generate a deterministic Step Functions execution name for a delete cleanup target.
+    CN: 涓哄垹闄ゆ竻鐞嗙洰鏍囩敓鎴愬畾鍒剁殑 Step Functions 鎵ц鍚嶇О銆?
+    """
+    base_name = _build_execution_name(source)
+    profile_id = str(cleanup_target.get("profile_id") or "profile")
+    vector_index_name = str(cleanup_target.get("vector_index_name") or "index")
+    profile_digest = hashlib.sha1(profile_id.encode("utf-8")).hexdigest()[:8]
+    index_digest = hashlib.sha1(vector_index_name.encode("utf-8")).hexdigest()[:8]
+    return f"{base_name}-cleanup-p{profile_digest}-i{index_digest}"
+
+
 def _normalize_sequencer_value(sequencer: str | None) -> str | None:
     """
     EN: Normalize sequencer text so in-memory stale checks match repository ordering semantics.
@@ -319,7 +349,6 @@ def build_ingest_workflow_starter(
     delete_lifecycle_manager = None
     write_profiles = get_write_profiles(active_settings)
     if active_settings.manifest_bucket and active_settings.manifest_index_table and write_profiles:
-        projection_state_repo = repositories.projection_state_repo
         manifest_repo = repositories.manifest_repo
         if manifest_repo is None:
             raise ValueError("MANIFEST_BUCKET and MANIFEST_INDEX_TABLE are required for ingest worker cleanup")
@@ -328,7 +357,6 @@ def build_ingest_workflow_starter(
             execution_state_repo=execution_state_repo,
             manifest_repo=manifest_repo,
             profiles=write_profiles,
-            projection_state_repo=projection_state_repo,
         )
 
     return IngestWorkflowStarter(

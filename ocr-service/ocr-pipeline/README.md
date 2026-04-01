@@ -32,7 +32,7 @@
 - `serverless_mcp.entrypoints.backfill.lambda_handler`
 - `serverless_mcp.entrypoints.job_status.lambda_handler`
 
-删除标记的处理现在只会产出清理计划并更新投影状态，不再在 ingest 路径里直接调用 S3 Vectors 做写删操作；真正的向量清理需要由后续 workflow 统一编排。
+删除标记的处理现在会产出清理计划，并由 ingest 直接启动 cleanup Step Functions execution；S3 Vectors 的删操作由 workflow 编排，不再在 ingest 路径里直接执行。
 
 其中 `remote_mcp.lambda_handler` 现在只是查询侧 MCP gateway 的薄 wrapper，实际协议处理由 `serverless_mcp.mcp_gateway.handler.lambda_handler` 和 AWS Labs `mcp-lambda-handler` 负责。
 
