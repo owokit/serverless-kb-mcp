@@ -22,7 +22,7 @@
     "gemini_api_base_url": "https://generativelanguage.googleapis.com/",
     "gemini_embedding_model": "gemini-embedding-2-preview",
     "openai_embedding_model": "text-embedding-3-small",
-    "allow_unauthenticated_query": true,
+    "allow_unauthenticated_query": false,
     "query_tenant_claim": "tenant_id",
     "remote_mcp_default_tenant_id": "lookup",
     "query_max_top_k": 20,
@@ -43,6 +43,7 @@
     "manifest_index_table": "mcp-doc-pipeline-prod-ddb-manifest-index",
     "embedding_projection_state_table": "mcp-doc-pipeline-prod-ddb-emb-proj-state",
     "state_machine": "mcp-doc-pipeline-prod-sfn-extract",
+    "cleanup_state_machine": "mcp-doc-pipeline-prod-sfn-vector-cleanup",
     "ingest_lambda": "mcp-doc-pipeline-prod-ingest",
     "extract_prepare_lambda": "mcp-doc-pipeline-prod-ext-prepare",
     "extract_sync_lambda": "mcp-doc-pipeline-prod-ext-sync",
@@ -60,7 +61,9 @@
     "embedding_dependency_layer": "mcp-doc-pipeline-prod-layer-embed",
     "lambda_role": "mcp-doc-pipeline-prod-role",
     "state_machine_role": "mcp-doc-pipeline-prod-sfn-role",
-    "state_machine_log_group": "/aws/vendedlogs/states/mcp-doc-pipeline-prod-sfn-extract"
+    "cleanup_state_machine_role": "mcp-doc-pipeline-prod-sfn-role-cleanup",
+    "state_machine_log_group": "/aws/vendedlogs/states/mcp-doc-pipeline-prod-sfn-extract",
+    "cleanup_state_machine_log_group": "/aws/vendedlogs/states/mcp-doc-pipeline-prod-sfn-vector-cleanup"
   },
   "embedding_profiles": [
     {

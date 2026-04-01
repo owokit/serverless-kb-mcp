@@ -7,7 +7,7 @@ import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
 import type { Construct } from 'constructs';
 import { buildLayerZipPath, buildLambdaZipPath, LAYER_KEYS, type LayerKey, type LambdaFunctionKey } from '../artifacts';
 import type { DeploymentInputs, PipelineConfig } from '../config';
-import { defaultRuntimeSettings, pascal, renderStateMachineDefinition, resolveAssetPath } from './helpers';
+import { defaultRuntimeSettings, pascal, renderStateMachineDefinition, renderVectorCleanupStateMachineDefinition, resolveAssetPath } from './helpers';
 import { createPipelineRoles, type LambdaRoleBundle, type LambdaRoleKey } from './roles';
 import type { PipelineResourceBindings } from './bindings';
 
@@ -21,6 +21,7 @@ export interface LambdaDefinition {
 export interface PipelineComputeResources {
   lambdaFunctions: Map<LambdaFunctionKey, lambda.Function>;
   stateMachine: sfn.StateMachine;
+  cleanupStateMachine: sfn.StateMachine;
   remoteMcpLambda: lambda.Function;
 }
 
@@ -128,6 +129,28 @@ export function createPipelineCompute(params: PipelineComputeParams): PipelineCo
   });
   stateMachine.applyRemovalPolicy(RemovalPolicy.DESTROY);
 
+  // EN: Keep vector cleanup in its own state machine so the delete path can evolve independently from extraction.
+  // CN: 灏?vector cleanup 鍒嗗埌鐙珛 state machine锛岃鍒犻櫎璺緞鑳藉拰鎻愬彇閾炬潯鐙珛婕旇繘銆?
+  const cleanupStateMachineLogGroup = new logs.LogGroup(stack, 'CleanupStateMachineLogGroup', {
+    logGroupName: names.cleanup_state_machine_log_group,
+    retention: logs.RetentionDays.ONE_MONTH,
+    removalPolicy: RemovalPolicy.DESTROY,
+  });
+  const cleanupDefinition = renderVectorCleanupStateMachineDefinition();
+  const cleanupStateMachine = new sfn.StateMachine(stack, 'CleanupStateMachine', {
+    stateMachineName: names.cleanup_state_machine,
+    definitionBody: sfn.DefinitionBody.fromString(cleanupDefinition),
+    stateMachineType: sfn.StateMachineType.STANDARD,
+    role: roles.cleanupStateMachineRole,
+    logs: {
+      destination: cleanupStateMachineLogGroup,
+      level: sfn.LogLevel.ERROR,
+      includeExecutionData: false,
+    },
+    tracingEnabled: true,
+  });
+  cleanupStateMachine.applyRemovalPolicy(RemovalPolicy.DESTROY);
+
   // EN: Grant the state machine only the invoke/logging permissions it needs for extract orchestration.
   // CN: 只给状态机授予 extract 编排所需的 invoke 和日志权限。
   for (const arn of [
@@ -168,10 +191,40 @@ export function createPipelineCompute(params: PipelineComputeParams): PipelineCo
       resources: ['*'],
     }),
   );
+  roles.cleanupStateMachineRole.addToPrincipalPolicy(
+    new iam.PolicyStatement({
+      actions: ['s3vectors:DeleteVectors'],
+      resources: bindings.vectorIndexArns,
+    }),
+  );
+  roles.cleanupStateMachineRole.addToPrincipalPolicy(
+    new iam.PolicyStatement({
+      actions: [
+        'logs:CreateLogDelivery',
+        'logs:CreateLogStream',
+        'logs:GetLogDelivery',
+        'logs:PutLogEvents',
+        'logs:UpdateLogDelivery',
+        'logs:DeleteLogDelivery',
+        'logs:ListLogDeliveries',
+        'logs:PutResourcePolicy',
+        'logs:DescribeResourcePolicies',
+        'logs:DescribeLogGroups',
+      ],
+      resources: [cleanupStateMachineLogGroup.logGroupArn],
+    }),
+  );
+  roles.cleanupStateMachineRole.addToPrincipalPolicy(
+    new iam.PolicyStatement({
+      actions: ['xray:PutTraceSegments', 'xray:PutTelemetryRecords'],
+      resources: ['*'],
+    }),
+  );
 
   return {
     lambdaFunctions,
     stateMachine,
+    cleanupStateMachine,
     remoteMcpLambda: lambdaFunctions.get('remote_mcp')!,
   };
 }
@@ -233,6 +286,9 @@ function buildLambdaEnvironment(params: {
     CLOUDFRONT_URL_TTL_SECONDS: String(defaultSettings.cloudfront_url_ttl_seconds),
     ALLOW_UNAUTHENTICATED_QUERY: String(defaultSettings.allow_unauthenticated_query),
   };
+  if (functionKey === 'embed') {
+    env.VECTOR_CLEANUP_STATE_MACHINE_ARN = bindings.cleanupStateMachineArn;
+  }
 
   const geminiEnabled = pipelineConfig.embedding_profiles.some(
     (profile) => profile.provider === 'gemini' && profile.enabled !== false && (profile.enable_query !== false || profile.enable_write !== false),

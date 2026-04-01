@@ -10,7 +10,10 @@ import json
 import pytest
 
 from serverless_mcp.extract.contracts import validate_extract_state_machine_contract
-from serverless_mcp.runtime.state_machine_definition import load_extract_state_machine_definition
+from serverless_mcp.runtime.state_machine_definition import (
+    load_extract_state_machine_definition,
+    load_vector_cleanup_state_machine_definition,
+)
 
 
 def test_load_extract_state_machine_definition_renders_lambda_arn() -> None:
@@ -60,3 +63,19 @@ def test_validate_extract_state_machine_contract_rejects_missing_contract_state(
     """
     with pytest.raises(ValueError, match="must start at RouteWorkflow"):
         validate_extract_state_machine_contract({"States": {}})
+
+
+def test_load_vector_cleanup_state_machine_definition_renders_delete_vectors_task() -> None:
+    """
+    EN: Load vector cleanup state machine definition renders DeleteVectors task.
+    CN: 鍔犺浇 vector cleanup state machine 瀹氫箟骞惰兘鍙纭湅鍒?DeleteVectors 浠诲姟銆?
+    """
+    definition = load_vector_cleanup_state_machine_definition()
+
+    parsed = json.loads(definition)
+
+    assert parsed["StartAt"] == "DeleteVectors"
+    assert parsed["States"]["DeleteVectors"]["Resource"] == "arn:aws:states:::aws-sdk:s3vectors:deleteVectors"
+    assert parsed["States"]["DeleteVectors"]["Parameters"]["vectorBucketName.$"] == "$.cleanup_target.vector_bucket_name"
+    assert parsed["States"]["DeleteVectors"]["Parameters"]["indexName.$"] == "$.cleanup_target.vector_index_name"
+    assert parsed["States"]["DeleteVectors"]["Parameters"]["keys.$"] == "$.cleanup_target.keys"

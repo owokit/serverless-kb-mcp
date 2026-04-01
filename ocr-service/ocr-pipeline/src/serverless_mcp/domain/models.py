@@ -280,6 +280,7 @@ class ChunkManifestRecord:
     slide_no: int | None = None
     section_path: tuple[str, ...] = ()
     token_estimate: int | None = None
+    text_preview: str | None = None
     manifest_s3_uri: str | None = None
     created_at: str = field(default_factory=utc_now_iso)
 
@@ -305,6 +306,24 @@ class VectorRecord:
     key: str
     data: list[float]
     metadata: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class VectorCleanupPlan:
+    """
+    EN: Cleanup plan for deleting previous-version vectors in a dedicated Step Functions workflow.
+    CN: 用于独立 Step Functions 工作流删除旧版本向量的清理计划。
+    """
+
+    vector_bucket_name: str
+    vector_index_name: str
+    keys: tuple[str, ...]
+    object_pk: str
+    previous_version_id: str
+    profile_id: str
+    manifest_s3_uri: str
+    previous_manifest_s3_uri: str | None = None
+    requested_at: str = field(default_factory=utc_now_iso)
 
 
 @dataclass(slots=True)

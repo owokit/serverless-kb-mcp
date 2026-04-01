@@ -3,6 +3,8 @@ EN: Tests for EmbedWorker covering vector writing, timeout tracing, projection s
 CN: 鍚屼笂銆?
 """
 
+import json
+
 import pytest
 
 from serverless_mcp.embed import application as embed_application_module
@@ -48,6 +50,25 @@ class _FailingGeminiClient:
 
     def embed_bytes(self, *, payload, mime_type, request):
         raise RuntimeError("timed out")
+
+
+class _FakeStepFunctionsClient:
+    # EN: In-memory stand-in for Step Functions start_execution calls.
+    # CN: Step Functions start_execution 鐨勫唴瀛樻浛韬€?
+    def __init__(self):
+        self.executions = []
+
+    def start_execution(self, **kwargs):
+        self.executions.append(kwargs)
+        return {"executionArn": f"arn:aws:states:ap-southeast-1:123:execution:{kwargs['name']}"}
+
+
+class _FailingStepFunctionsClient(_FakeStepFunctionsClient):
+    # EN: Step Functions client that fails when a cleanup execution is started.
+    # CN: 鍦ㄥ惎鍔?cleanup execution 鏃跺け璐ョ殑 Step Functions 瀹㈡埛绔€?
+    def start_execution(self, **kwargs):
+        self.executions.append(kwargs)
+        raise RuntimeError("cleanup dispatch failed")
 
 
 def _manifest_root(source: S3ObjectRef, version_id: str) -> str:
@@ -309,6 +330,8 @@ def _build_single_profile_worker(
     manifest_repo,
     projection_state_repo=None,
     embedding_client=None,
+    stepfunctions_client=None,
+    cleanup_state_machine_arn="arn:aws:states:ap-southeast-1:123:stateMachine:vector-cleanup",
 ):
     return EmbedWorker(
         embedding_clients={"gemini-default": embedding_client or _FakeGeminiClient()},
@@ -327,6 +350,8 @@ def _build_single_profile_worker(
         vector_repo=vector_repo,
         object_state_repo=object_state_repo,
         manifest_repo=manifest_repo,
+        stepfunctions_client=stepfunctions_client or _FakeStepFunctionsClient(),
+        cleanup_state_machine_arn=cleanup_state_machine_arn,
         projection_state_repo=projection_state_repo,
     )
 
@@ -341,10 +366,12 @@ def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cle
     vector_repo = _FakeVectorRepo()
     object_state_repo = _FakeObjectStateRepo()
     manifest_repo = _FakeManifestRepo()
+    stepfunctions_client = _FakeStepFunctionsClient()
     worker = _build_single_profile_worker(
         object_state_repo=object_state_repo,
         vector_repo=vector_repo,
         manifest_repo=manifest_repo,
+        stepfunctions_client=stepfunctions_client,
     )
 
     outcome = worker.process(
@@ -383,6 +410,16 @@ def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cle
     assert outcome.profile_id == "gemini-default"
     assert len(vector_repo.vectors) == 2
     assert all(vector.metadata["is_latest"] is True for vector in vector_repo.vectors)
+    assert len(stepfunctions_client.executions) == 1
+    cleanup_execution = stepfunctions_client.executions[0]
+    assert cleanup_execution["stateMachineArn"] == "arn:aws:states:ap-southeast-1:123:stateMachine:vector-cleanup"
+    cleanup_payload = json.loads(cleanup_execution["input"])
+    assert cleanup_execution["name"].startswith("cleanup-")
+    assert cleanup_payload["cleanup_target"]["previous_version_id"] == "v0"
+    assert cleanup_payload["cleanup_target"]["keys"] == [
+        "gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v0#chunk#000001",
+        "gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v0#asset#000001",
+    ]
     assert manifest_repo.delete_calls == [(source.document_uri, "v0", "s3://manifest-bucket/manifests/v0.json")]
 
 
@@ -728,6 +765,7 @@ def test_embed_worker_defers_previous_manifest_cleanup_until_all_write_profiles_
     )
     projection_state_repo = _FakeProjectionStateRepo()
     manifest_repo = _FakeManifestRepo()
+    stepfunctions_client = _FakeStepFunctionsClient()
     worker = EmbedWorker(
         embedding_clients={
             "gemini-default": _FakeGeminiClient(),
@@ -757,6 +795,8 @@ def test_embed_worker_defers_previous_manifest_cleanup_until_all_write_profiles_
         vector_repo=vector_repo,
         object_state_repo=object_state_repo,
         manifest_repo=manifest_repo,
+        stepfunctions_client=stepfunctions_client,
+        cleanup_state_machine_arn="arn:aws:states:ap-southeast-1:123:stateMachine:vector-cleanup",
         projection_state_repo=projection_state_repo,
     )
 
@@ -780,6 +820,7 @@ def test_embed_worker_defers_previous_manifest_cleanup_until_all_write_profiles_
         )
     )
 
+    assert len(stepfunctions_client.executions) == 1
     assert manifest_repo.delete_calls == []
 
     worker.process(
@@ -802,6 +843,7 @@ def test_embed_worker_defers_previous_manifest_cleanup_until_all_write_profiles_
         )
     )
 
+    assert len(stepfunctions_client.executions) == 2
     assert manifest_repo.delete_calls == [(source.document_uri, "v0", "s3://manifest-bucket/manifests/v0.json")]
 
 
@@ -855,16 +897,14 @@ def test_embed_worker_keeps_success_when_previous_version_cleanup_fails() -> Non
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
 
-    class _FailingCleanupManifestRepo(_FakeManifestRepo):
-        def delete_previous_version_artifacts(self, *, source, previous_version_id=None, previous_manifest_s3_uri=None):
-            raise RuntimeError("cleanup failed")
-
     object_state_repo = _FakeObjectStateRepo()
-    manifest_repo = _FailingCleanupManifestRepo()
+    manifest_repo = _FakeManifestRepo()
+    stepfunctions_client = _FailingStepFunctionsClient()
     worker = _build_single_profile_worker(
         object_state_repo=object_state_repo,
         vector_repo=_FakeVectorRepo(),
         manifest_repo=manifest_repo,
+        stepfunctions_client=stepfunctions_client,
     )
 
     outcome = worker.process(
@@ -889,4 +929,5 @@ def test_embed_worker_keeps_success_when_previous_version_cleanup_fails() -> Non
 
     assert outcome.object_state.embed_status == "INDEXED"
     assert object_state_repo.done == [source.document_uri]
-    assert object_state_repo.cleanup_failed == [(source.document_uri, "cleanup failed")]
+    assert object_state_repo.cleanup_failed == [(source.document_uri, "cleanup dispatch failed")]
+    assert len(stepfunctions_client.executions) == 1

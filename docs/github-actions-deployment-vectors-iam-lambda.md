@@ -69,6 +69,14 @@
 - 不把部署账户权限扩展给运行时代码。
 - 不把管理面权限混到查询面或抽取面。
 
+### 2.6 向量清理工作流
+
+- Embed Lambda 现在不直接执行旧版本向量删除，而是先生成 cleanup plan，再启动独立的 `vector cleanup` Step Functions。
+- 部署时要同时准备 cleanup state machine 的执行角色、日志组和 ARN 输出。
+- Embed 运行时必须注入 `VECTOR_CLEANUP_STATE_MACHINE_ARN`，否则旧版本清理无法落到独立工作流。
+- cleanup 工作流只需要最小删除权限：`s3vectors:DeleteVectors` 和对应的日志权限。
+- 不要把 cleanup 权限合并进抽取工作流的角色里，避免提取面和向量治理面耦合过深。
+
 ## 3. 产物打包与发布
 
 ### 3.1 Lambda ZIP 与 Layer ZIP

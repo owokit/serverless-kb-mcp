@@ -112,6 +112,7 @@ class AWSSettings:
     vector_bucket_name: str | None = None
     vector_index_name: str | None = None
     step_functions_state_machine_arn: str | None = None
+    vector_cleanup_state_machine_arn: str | None = None
     embed_queue_url: str | None = None
 
 
@@ -210,6 +211,7 @@ class Settings:
     embedding_projection_state_table: str | None = None
     vector_bucket_name: str | None = None
     vector_index_name: str | None = None
+    vector_cleanup_state_machine_arn: str | None = None
 
     # EN: Embedding provider settings.
     # CN: Embedding provider 设置。
@@ -280,6 +282,7 @@ class Settings:
             embedding_projection_state_table=os.environ.get("EMBEDDING_PROJECTION_STATE_TABLE"),
             vector_bucket_name=os.environ.get("VECTOR_BUCKET_NAME"),
             vector_index_name=os.environ.get("VECTOR_INDEX_NAME"),
+            vector_cleanup_state_machine_arn=_optional_env("VECTOR_CLEANUP_STATE_MACHINE_ARN"),
             gemini_api_key=os.environ.get("GEMINI_API_KEY"),
             gemini_api_base_url=_env_or_default(
                 "GEMINI_API_BASE_URL",
@@ -398,6 +401,7 @@ class Settings:
             vector_bucket_name=self.vector_bucket_name,
             vector_index_name=self.vector_index_name,
             step_functions_state_machine_arn=self.step_functions_state_machine_arn,
+            vector_cleanup_state_machine_arn=self.vector_cleanup_state_machine_arn,
             embed_queue_url=self.embed_queue_url,
         )
 

@@ -9,6 +9,7 @@ export type LambdaRoleKey = 'query' | 'status' | 'backfill' | 'ingest' | 'extrac
 export interface LambdaRoleBundle {
   lambdaRoles: Map<LambdaRoleKey, iam.Role>;
   stateMachineRole: iam.Role;
+  cleanupStateMachineRole: iam.Role;
 }
 
 export interface PipelineRoleParams {
@@ -50,7 +51,13 @@ export function createPipelineRoles(params: PipelineRoleParams): LambdaRoleBundl
     description: 'Execution role for the extract Step Functions state machine',
   });
 
-  return { lambdaRoles, stateMachineRole };
+  const cleanupStateMachineRole = new iam.Role(params.stack, 'CleanupStateMachineRole', {
+    roleName: params.names.cleanup_state_machine_role,
+    assumedBy: new iam.ServicePrincipal('states.amazonaws.com'),
+    description: 'Execution role for the vector cleanup Step Functions state machine',
+  });
+
+  return { lambdaRoles, stateMachineRole, cleanupStateMachineRole };
 }
 
 // EN: Keep data-plane permissions role-specific so each Lambda only gets the queue and table access it actually needs.
@@ -235,6 +242,10 @@ function attachLambdaDataPlanePolicy(
       new iam.PolicyStatement({
         actions: ['sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:GetQueueAttributes', 'sqs:ChangeMessageVisibility'],
         resources: [params.bindings.embedQueueArn],
+      }),
+      new iam.PolicyStatement({
+        actions: ['states:StartExecution'],
+        resources: [params.bindings.cleanupStateMachineArn],
       }),
     );
   }

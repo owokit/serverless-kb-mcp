@@ -67,3 +67,12 @@ export function renderStateMachineDefinition(lambdaFunctions: Map<LambdaFunction
   JSON.parse(template);
   return template;
 }
+
+// EN: Render the dedicated vector cleanup workflow definition and verify it is valid JSON before synthesis.
+// CN: 渲染鐙珛鐨?vector cleanup workflow 瀹氫箟锛屽苟鍦ㄧ患鍚堝墠楠岃瘉 JSON 鏄惁鍚堟硶銆?
+export function renderVectorCleanupStateMachineDefinition(): string {
+  const templatePath = path.resolve(process.cwd(), '../../ocr-service/ocr-pipeline/src/serverless_mcp/workflows/vector_cleanup_state_machine.asl.json');
+  const template = fs.readFileSync(templatePath, 'utf8');
+  JSON.parse(template);
+  return template;
+}

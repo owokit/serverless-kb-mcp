@@ -7,7 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from serverless_mcp.domain.models import QueryResultContext, S3ObjectRef
+from serverless_mcp.domain.models import ChunkManifestRecord, QueryResultContext, S3ObjectRef
 from serverless_mcp.embed.vector_repository import VectorQueryMatch
 
 
@@ -128,6 +128,33 @@ def resolve_context(manifest: Any, chunk_id: str, neighbor_expand: int) -> dict[
     return None
 
 
+def resolve_context_from_records(
+    records: list[ChunkManifestRecord],
+    chunk_id: str,
+    neighbor_expand: int,
+) -> dict[str, QueryResultContext | list[QueryResultContext]] | None:
+    """
+    EN: Resolve query context from manifest index projection records without loading the full manifest.
+    CN: 不加载完整 manifest，直接通过 manifest 索引投影记录解析查询上下文。
+    """
+    for index, record in enumerate(records):
+        if record.chunk_id != chunk_id:
+            continue
+        bounded_expand = min(neighbor_expand, MAX_CONTEXT_NEIGHBOR_EXPAND)
+        start = max(0, index - bounded_expand)
+        end = min(len(records), index + bounded_expand + 1)
+        neighbors = [
+            _record_to_context(records[position])
+            for position in range(start, end)
+            if position != index
+        ]
+        return {
+            "match": _record_to_context(record),
+            "neighbors": neighbors,
+        }
+    return None
+
+
 def chunk_to_context(chunk: Any) -> QueryResultContext:
     """
     EN: Convert a manifest chunk record into a QueryResultContext for client consumption.
@@ -141,4 +168,20 @@ def chunk_to_context(chunk: Any) -> QueryResultContext:
         page_span=chunk.page_span,
         slide_no=chunk.slide_no,
         section_path=chunk.section_path,
+    )
+
+
+def _record_to_context(record: ChunkManifestRecord) -> QueryResultContext:
+    """
+    EN: Convert a projection record into a QueryResultContext using the stored preview text.
+    CN: 使用索引层保存的预览文本将投影记录转换为 QueryResultContext。
+    """
+    return QueryResultContext(
+        chunk_id=record.chunk_id,
+        chunk_type=record.chunk_type,
+        text=record.text_preview,
+        page_no=record.page_no,
+        page_span=record.page_span,
+        slide_no=record.slide_no,
+        section_path=record.section_path,
     )

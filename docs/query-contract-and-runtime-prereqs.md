@@ -28,3 +28,10 @@
 - 如果查询结果出现 `degraded_profiles`，先检查 manifest 是否缺失，再检查 object state 和 projection state 是否一致。
 - 如果看到 `tenant_id is required`，说明请求没有带 tenant 上下文，也没有可用的认证声明或匿名配置。
 - 如果 PaddleOCR 状态轮询连续失败，优先区分网络抖动和配置错误，再决定是否重试。
+
+## 2026-04 运行时补充
+
+- 生产默认已经收紧为 `allow_unauthenticated_query=false`，匿名查询不再作为默认入口。
+- 如果业务确实需要匿名访问，必须显式开启 `allow_unauthenticated_query=true`，并把 `remote_mcp_default_tenant_id` 配成明确的公开 tenant，不要继续依赖 `lookup` 作为默认回退。
+- Embed 侧旧版本向量清理由独立的 Step Functions cleanup workflow 负责，运行时需要显式注入 `VECTOR_CLEANUP_STATE_MACHINE_ARN`。
+- 查询侧优先走 chunk projection 读取，只有投影缺失或回源失败时才读取完整 manifest。
