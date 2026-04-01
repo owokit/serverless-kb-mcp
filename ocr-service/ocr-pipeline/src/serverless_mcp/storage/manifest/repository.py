@@ -31,6 +31,7 @@ from serverless_mcp.storage.paths import build_asset_key, build_manifest_key, bu
 
 
 _MANIFEST_PERSIST_FAILURE_TYPES = (ClientError, KeyError, OSError, RuntimeError, TypeError, ValueError)
+_TEXT_PREVIEW_LIMIT = 512
 
 
 class ManifestRepository:
@@ -269,6 +270,13 @@ class ManifestRepository:
                 return record.manifest_s3_uri
         return None
 
+    def list_version_records(self, *, source: S3ObjectRef, version_id: str) -> list[ChunkManifestRecord]:
+        """
+        EN: Return all manifest index records for one source version.
+        CN: 返回某个源版本的全部 manifest 索引记录。
+        """
+        return self._load_version_records(source=source, version_id=version_id)
+
     def delete_previous_version_artifacts(
         self,
         *,
@@ -503,6 +511,7 @@ class ManifestRepository:
                     slide_no=chunk.slide_no,
                     section_path=chunk.section_path,
                     token_estimate=chunk.token_estimate,
+                    text_preview=_build_text_preview(chunk.text),
                     manifest_s3_uri=manifest_s3_uri,
                 )
             )
@@ -679,6 +688,8 @@ def _serialize_manifest_record(record: ChunkManifestRecord) -> dict[str, dict[st
         item["section_path"] = {"S": json.dumps(record.section_path, ensure_ascii=False)}
     if record.token_estimate is not None:
         item["token_estimate"] = {"N": str(record.token_estimate)}
+    if record.text_preview:
+        item["text_preview"] = {"S": record.text_preview}
     if record.security_scope:
         item["security_scope"] = {"S": json.dumps(record.security_scope, ensure_ascii=False)}
     if record.manifest_s3_uri:
@@ -718,6 +729,7 @@ def _deserialize_manifest_record(item: dict[str, dict[str, str | bool]]) -> Chun
         slide_no=int(item["slide_no"]["N"]) if "slide_no" in item else None,  # type: ignore[index]
         section_path=tuple(json.loads(item["section_path"]["S"])) if "section_path" in item else (),  # type: ignore[index]
         token_estimate=int(item["token_estimate"]["N"]) if "token_estimate" in item else None,  # type: ignore[index]
+        text_preview=item.get("text_preview", {}).get("S"),  # type: ignore[union-attr]
         manifest_s3_uri=item.get("manifest_s3_uri", {}).get("S"),  # type: ignore[union-attr]
         created_at=item.get("created_at", {}).get("S", ""),  # type: ignore[union-attr]
     )
@@ -727,6 +739,17 @@ def _chunked(items: list[ChunkManifestRecord], size: int) -> list[list[ChunkMani
     # EN: Split a list into fixed-size batches for DynamoDB batch_write_item calls.
     # CN: 灏嗗垪琛ㄦ媶鍒嗕负鍥哄畾澶у皬鐨勬壒娆★紝鐢ㄤ簬 DynamoDB batch_write_item 璋冪敤銆?
     return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def _build_text_preview(text: str) -> str:
+    """
+    EN: Build a bounded text preview for query-time projection reads.
+    CN: 为查询投影层构建有上限的文本预览。
+    """
+    preview = text.strip()
+    if len(preview) <= _TEXT_PREVIEW_LIMIT:
+        return preview
+    return preview[: _TEXT_PREVIEW_LIMIT - 1].rstrip() + "…"
 
 
 def _is_missing_object_error(exc: ClientError) -> bool:

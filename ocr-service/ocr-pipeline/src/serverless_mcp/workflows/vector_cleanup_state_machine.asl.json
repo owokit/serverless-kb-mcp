@@ -1,0 +1,16 @@
+{
+  "Comment": "Delete previous-version vectors after the replacement version has been indexed.",
+  "StartAt": "DeleteVectors",
+  "States": {
+    "DeleteVectors": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:s3vectors:deleteVectors",
+      "Parameters": {
+        "vectorBucketName.$": "$.cleanup_target.vector_bucket_name",
+        "indexName.$": "$.cleanup_target.vector_index_name",
+        "keys.$": "$.cleanup_target.keys"
+      },
+      "End": true
+    }
+  }
+}

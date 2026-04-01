@@ -76,6 +76,7 @@ def test_settings_use_pipeline_config_defaults(monkeypatch: pytest.MonkeyPatch) 
     assert settings.query_max_neighbor_expand == defaults["query_max_neighbor_expand"]
     assert settings.cloudfront_url_ttl_seconds == defaults["cloudfront_url_ttl_seconds"]
     assert settings.remote_mcp_default_tenant_id == defaults["remote_mcp_default_tenant_id"]
+    assert settings.vector_cleanup_state_machine_arn is None
     assert settings.embedding_profiles[0].model == defaults["openai_embedding_model"]
     assert settings.embedding_profiles[1].model == defaults["gemini_embedding_model"]
 
@@ -302,6 +303,22 @@ def test_settings_parse_security_controls(monkeypatch: pytest.MonkeyPatch) -> No
     assert settings.allow_unauthenticated_query is False
     assert settings.query_max_top_k == 15
     assert settings.query_max_neighbor_expand == 3
+
+
+def test_settings_parse_vector_cleanup_state_machine_arn(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    EN: Verify VECTOR_CLEANUP_STATE_MACHINE_ARN is loaded into Settings.
+    CN: 楠岃瘉 VECTOR_CLEANUP_STATE_MACHINE_ARN 浼氳鍔犺浇鍒癝ettings 涓€?
+    """
+    monkeypatch.setenv("OBJECT_STATE_TABLE", "object-state")
+    monkeypatch.setenv(
+        "VECTOR_CLEANUP_STATE_MACHINE_ARN",
+        "arn:aws:states:ap-southeast-1:123456789012:stateMachine:vector-cleanup",
+    )
+
+    settings = Settings.from_env()
+
+    assert settings.vector_cleanup_state_machine_arn == "arn:aws:states:ap-southeast-1:123456789012:stateMachine:vector-cleanup"
 
 
 def test_settings_parse_paddle_allowlist_hosts(monkeypatch: pytest.MonkeyPatch) -> None:

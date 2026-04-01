@@ -33,6 +33,8 @@ def build_embed_worker(settings: Settings | None = None) -> EmbedWorker:
         raise ValueError("MANIFEST_BUCKET and MANIFEST_INDEX_TABLE are required for embed worker")
     if not active_settings.execution_state_table:
         raise ValueError("EXECUTION_STATE_TABLE is required for embed worker")
+    if not active_settings.vector_cleanup_state_machine_arn:
+        raise ValueError("VECTOR_CLEANUP_STATE_MACHINE_ARN is required for embed worker")
     clients = runtime_context.clients
     repositories = build_runtime_repositories(settings=active_settings, clients=clients)
     projection_state_repo = repositories.projection_state_repo
@@ -49,6 +51,8 @@ def build_embed_worker(settings: Settings | None = None) -> EmbedWorker:
         vector_repo=S3VectorRepository(s3vectors_client=clients.s3vectors),
         manifest_repo=manifest_repo,
         object_state_repo=object_state_repo,
+        stepfunctions_client=clients.stepfunctions,
+        cleanup_state_machine_arn=active_settings.vector_cleanup_state_machine_arn,
         execution_state_repo=execution_state_repo,
         projection_state_repo=projection_state_repo,
     )

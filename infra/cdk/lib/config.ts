@@ -43,6 +43,7 @@ export interface ResourceNames {
   manifest_index_table: string;
   embedding_projection_state_table: string;
   state_machine: string;
+  cleanup_state_machine: string;
   ingest_lambda: string;
   extract_prepare_lambda: string;
   extract_sync_lambda: string;
@@ -60,7 +61,9 @@ export interface ResourceNames {
   embedding_dependency_layer: string;
   lambda_role: string;
   state_machine_role: string;
+  cleanup_state_machine_role: string;
   state_machine_log_group: string;
+  cleanup_state_machine_log_group: string;
 }
 
 export interface EmbeddingProfileConfig {
@@ -162,6 +165,7 @@ const NAME_LENGTH_LIMITS: Record<string, number> = {
   manifest_index_table: 255,
   embedding_projection_state_table: 255,
   state_machine: 80,
+  cleanup_state_machine: 80,
   ingest_lambda: 64,
   extract_prepare_lambda: 64,
   extract_sync_lambda: 64,
@@ -179,7 +183,9 @@ const NAME_LENGTH_LIMITS: Record<string, number> = {
   embedding_dependency_layer: 140,
   lambda_role: 64,
   state_machine_role: 64,
+  cleanup_state_machine_role: 64,
   state_machine_log_group: 512,
+  cleanup_state_machine_log_group: 512,
 };
 
 // EN: Mutate pipelineConfig.resource_names and embedding_profiles in-place so every downstream consumer sees the suffixed names.

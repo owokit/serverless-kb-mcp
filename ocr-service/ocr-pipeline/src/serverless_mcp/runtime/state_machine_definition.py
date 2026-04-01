@@ -56,3 +56,14 @@ CN: 当缺少必需的 Lambda ARN 键，或其值为空时抛出 ValueError。
     parsed = json.loads(rendered)
     validate_extract_state_machine_contract(parsed)
     return rendered
+
+
+def load_vector_cleanup_state_machine_definition() -> str:
+    """
+    EN: Load the dedicated cleanup workflow ASL for previous-version vector deletion.
+    CN: 鍔犺浇鐢ㄤ簬鏃х増鏈悜閲忓垹闄ょ殑鐙珛 cleanup workflow ASL銆?
+    """
+    template = resources.files("serverless_mcp").joinpath("workflows/vector_cleanup_state_machine.asl.json")
+    rendered = template.read_text(encoding="utf-8")
+    json.loads(rendered)
+    return rendered

@@ -17,6 +17,7 @@ export interface PipelineResourceBindings {
   manifestIndexTableArn: string;
   embeddingProjectionStateTableArn: string;
   stateMachineArn: string;
+  cleanupStateMachineArn: string;
   ingestLambdaArn: string;
   embedLambdaArn: string;
   remoteMcpLambdaArn: string;
@@ -46,6 +47,7 @@ export function buildPipelineResourceBindings(scope: cdk.Stack, pipelineConfig: 
     manifestIndexTableArn: `arn:aws:dynamodb:${region}:${account}:table/${names.manifest_index_table}`,
     embeddingProjectionStateTableArn: `arn:aws:dynamodb:${region}:${account}:table/${names.embedding_projection_state_table}`,
     stateMachineArn: `arn:aws:states:${region}:${account}:stateMachine:${names.state_machine}`,
+    cleanupStateMachineArn: `arn:aws:states:${region}:${account}:stateMachine:${names.cleanup_state_machine}`,
     ingestLambdaArn: `arn:aws:lambda:${region}:${account}:function:${names.ingest_lambda}`,
     embedLambdaArn: `arn:aws:lambda:${region}:${account}:function:${names.embed_lambda}`,
     remoteMcpLambdaArn: `arn:aws:lambda:${region}:${account}:function:${names.remote_mcp_lambda}`,

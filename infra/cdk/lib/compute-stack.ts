@@ -31,6 +31,9 @@ export class ComputeStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'StateMachineArn', {
       value: compute.stateMachine.stateMachineArn,
     });
+    new cdk.CfnOutput(this, 'CleanupStateMachineArn', {
+      value: compute.cleanupStateMachine.stateMachineArn,
+    });
     new cdk.CfnOutput(this, 'RemoteMcpLambdaArn', {
       value: compute.remoteMcpLambda.functionArn,
     });

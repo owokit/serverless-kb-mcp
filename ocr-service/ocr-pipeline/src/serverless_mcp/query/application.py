@@ -14,6 +14,7 @@ from botocore.exceptions import ClientError
 
 from serverless_mcp.embed.vector_repository import S3VectorRepository, VectorQueryMatch
 from serverless_mcp.domain.models import (
+    ChunkManifestRecord,
     EmbeddingProfile,
     EmbeddingRequest,
     QueryDegradedProfile,
@@ -36,7 +37,13 @@ from serverless_mcp.query.access import (
     sanitize_result_metadata,
     security_scope_allows_access,
 )
-from serverless_mcp.query.fusion import RankedCandidate, build_metadata_filter, resolve_context, source_from_metadata
+from serverless_mcp.query.fusion import (
+    RankedCandidate,
+    build_metadata_filter,
+    resolve_context,
+    resolve_context_from_records,
+    source_from_metadata,
+)
 from serverless_mcp.query.retry import retry_read
 
 
@@ -183,6 +190,7 @@ class QueryService:
             )
 
         manifest_cache: dict[str, object] = {}
+        projection_records_cache: dict[tuple[str, str], list[ChunkManifestRecord]] = {}
         state_cache: dict[str, ObjectStateRecord | None] = {}
         projection_cache: dict[tuple[str, str, str], EmbeddingProjectionStateRecord | None] = {}
         manifest_failures: set[str] = set()
@@ -245,33 +253,48 @@ class QueryService:
                     continue
 
             manifest_s3_uri = candidate.match.manifest_s3_uri
-            manifest = manifest_cache.get(manifest_s3_uri)
-            if manifest is None:
-                if manifest_s3_uri in manifest_failures:
-                    continue
-                try:
-                    logger.info("search_documents.load_manifest start uri=%s", manifest_s3_uri)
-                    manifest = retry_read(
-                        lambda: self._manifest_repo.load_manifest(manifest_s3_uri),
-                        label="manifest",
-                        resource_id=manifest_s3_uri,
-                    )
-                except _MANIFEST_LOAD_FAILURE_TYPES as exc:
-                    logger.warning("search_documents.load_manifest failed uri=%s error=%s", manifest_s3_uri, exc)
-                    manifest_failures.add(manifest_s3_uri)
-                    record_degraded_profile(
-                        degraded_profiles,
-                        degraded_keys,
-                        profile_id=candidate.match.profile_id,
-                        stage="manifest_load",
-                        error=str(exc),
-                        manifest_s3_uri=manifest_s3_uri,
-                    )
-                    continue
-                manifest_cache[manifest_s3_uri] = manifest
-                logger.info("search_documents.load_manifest success uri=%s", manifest_s3_uri)
+            context = None
+            projection_loader = getattr(self._manifest_repo, "list_version_records", None)
+            if callable(projection_loader):
+                projection_key = (source.object_pk, source.version_id)
+                projection_records = projection_records_cache.get(projection_key)
+                if projection_records is None:
+                    try:
+                        projection_records = projection_loader(source=source, version_id=source.version_id)
+                    except _MANIFEST_LOAD_FAILURE_TYPES as exc:
+                        logger.warning("search_documents.load_projection failed source=%s error=%s", projection_key, exc)
+                        projection_records = []
+                    projection_records_cache[projection_key] = projection_records
+                if projection_records:
+                    context = resolve_context_from_records(projection_records, candidate.match.chunk_id, neighbor_expand)
 
-            context = resolve_context(manifest, candidate.match.chunk_id, neighbor_expand)
+            if context is None:
+                manifest = manifest_cache.get(manifest_s3_uri)
+                if manifest is None:
+                    if manifest_s3_uri in manifest_failures:
+                        continue
+                    try:
+                        logger.info("search_documents.load_manifest start uri=%s", manifest_s3_uri)
+                        manifest = retry_read(
+                            lambda: self._manifest_repo.load_manifest(manifest_s3_uri),
+                            label="manifest",
+                            resource_id=manifest_s3_uri,
+                        )
+                    except _MANIFEST_LOAD_FAILURE_TYPES as exc:
+                        logger.warning("search_documents.load_manifest failed uri=%s error=%s", manifest_s3_uri, exc)
+                        manifest_failures.add(manifest_s3_uri)
+                        record_degraded_profile(
+                            degraded_profiles,
+                            degraded_keys,
+                            profile_id=candidate.match.profile_id,
+                            stage="manifest_load",
+                            error=str(exc),
+                            manifest_s3_uri=manifest_s3_uri,
+                        )
+                        continue
+                    manifest_cache[manifest_s3_uri] = manifest
+                    logger.info("search_documents.load_manifest success uri=%s", manifest_s3_uri)
+                context = resolve_context(manifest, candidate.match.chunk_id, neighbor_expand)
             if context is None:
                 continue
 

@@ -176,6 +176,47 @@ def test_manifest_repository_persists_versioned_assets_before_manifest() -> None
     assert dynamodb_client.items
 
 
+def test_manifest_repository_persists_text_preview_for_projection_reads() -> None:
+    """
+    EN: Manifest repository persists text preview for projection reads.
+    CN: 楠岃瘉 ManifestRepository 浼氫负 projection 璇诲彇淇濆瓨 text preview銆?
+    """
+    s3_client = _FakeS3Client()
+    dynamodb_client = _FakeDynamoClient()
+    repo = _build_repo(s3_client=s3_client, dynamodb_client=dynamodb_client)
+    source = _source()
+
+    repo.persist_manifest(
+        ChunkManifest(
+            source=source,
+            doc_type="pdf",
+            chunks=[
+                ExtractedChunk(
+                    chunk_id="chunk#000001",
+                    chunk_type="page_text_chunk",
+                    text="  hello projection  ",
+                    doc_type="pdf",
+                    token_estimate=1,
+                    page_no=1,
+                    page_span=(1, 1),
+                    metadata={"source_format": "pdf"},
+                )
+            ],
+            metadata={
+                "source_format": "pdf",
+                "page_count": 1,
+                "page_image_asset_count": 0,
+                "visual_page_numbers": [],
+            },
+        ),
+    )
+
+    records = repo.list_version_records(source=source, version_id=source.version_id)
+
+    assert len(records) == 1
+    assert records[0].text_preview == "hello projection"
+
+
 def test_manifest_repository_batches_s3_rollbacks_for_matching_buckets() -> None:
     """
     EN: Manifest repository batches S3 delete calls when rollback objects share the same bucket.

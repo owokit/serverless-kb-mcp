@@ -10,6 +10,7 @@ from serverless_mcp.query import application as query_application_module
 from serverless_mcp.query.application import QueryService
 from serverless_mcp.domain.models import (
     ChunkManifest,
+    ChunkManifestRecord,
     EmbeddingProfile,
     ExtractedAsset,
     ExtractedChunk,
@@ -231,6 +232,55 @@ class _FakeManifestRepo:
         )
 
 
+class _ProjectionManifestRepo(_FakeManifestRepo):
+    # EN: Manifest repo that serves projection records without needing the full manifest.
+    # CN: 鐢ㄤ簬 projection records 鐨勬柊 manifest repo 鏇胯韓銆?
+    def __init__(self) -> None:
+        self.projection_calls: list[tuple[str, str]] = []
+
+    def list_version_records(self, *, source, version_id):
+        self.projection_calls.append((source.object_pk, version_id))
+        return [
+            ChunkManifestRecord(
+                pk=f"{source.object_pk}#{version_id}",
+                sk="chunk#000001",
+                tenant_id=source.tenant_id,
+                bucket=source.bucket,
+                key=source.key,
+                version_id=version_id,
+                chunk_id="chunk#000001",
+                chunk_type="section_text_chunk",
+                doc_type="md",
+                is_latest=True,
+                security_scope=(),
+                language="zh",
+                page_no=1,
+                text_preview="projection first",
+                manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+            ),
+            ChunkManifestRecord(
+                pk=f"{source.object_pk}#{version_id}",
+                sk="chunk#000002",
+                tenant_id=source.tenant_id,
+                bucket=source.bucket,
+                key=source.key,
+                version_id=version_id,
+                chunk_id="chunk#000002",
+                chunk_type="section_text_chunk",
+                doc_type="md",
+                is_latest=True,
+                security_scope=(),
+                language="zh",
+                page_no=2,
+                text_preview="projection second",
+                manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+            ),
+        ]
+
+    def load_manifest(self, manifest_s3_uri):
+        raise AssertionError("full manifest load should not be needed when projection records are available")
+
+
 class _RetryingManifestRepo:
     # EN: Manifest repo that fails once before returning a valid manifest.
     # CN: 先失败一次然后返回有效 manifest 的仓储替身。
@@ -435,6 +485,34 @@ def test_query_service_filters_stale_versions_and_expands_neighbors() -> None:
     assert "bucket" not in hit.metadata
     assert "key" not in hit.metadata
     assert "security_scope" not in hit.metadata
+
+
+def test_query_service_prefers_projection_records_over_full_manifest_load() -> None:
+    """
+    EN: Query service should use manifest projection records before loading the full manifest.
+    CN: QueryService 搭閿熸枻鎷峰垯浼氬厛鐢?projection records锛屽啀璇诲彇瀹屾暣 manifest銆?
+    """
+    manifest_repo = _ProjectionManifestRepo()
+    service = QueryService(
+        embedding_clients={"gemini-default": _FakeGeminiClient()},
+        query_profiles=(_build_profiles()[0],),
+        vector_repo=_FakeVectorRepo(),
+        manifest_repo=manifest_repo,
+        object_state_repo=_FakeObjectStateRepo(),
+        projection_state_repo=_FakeProjectionStateRepo(),
+    )
+
+    result = service.search(
+        query="hello",
+        tenant_id="tenant-a",
+        top_k=5,
+        neighbor_expand=1,
+    )
+
+    assert len(result.results) == 1
+    assert result.results[0].match.text == "projection second"
+    assert [neighbor.text for neighbor in result.results[0].neighbors] == ["projection first"]
+    assert manifest_repo.projection_calls == [("tenant-a#bucket-a#docs%2Fguide.md", "v2")]
 
 
 def test_query_service_filters_restricted_vectors_by_security_scope() -> None:

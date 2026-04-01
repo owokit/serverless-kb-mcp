@@ -3,6 +3,9 @@ EN: Tests for S3VectorRepository covering put/query serialization and metadata n
 CN: S3VectorRepository ? put/query ???? metadata ??????
 """
 
+from botocore.exceptions import ClientError
+
+import serverless_mcp.embed.vector_repository as vector_repository_module
 from serverless_mcp.embed.vector_repository import S3VectorRepository
 from serverless_mcp.domain.models import EmbeddingProfile, VectorRecord
 
@@ -23,6 +26,31 @@ class _FakeS3VectorsClient:
     def query_vectors(self, **kwargs):
         self.query_calls.append(kwargs)
         return {"vectors": []}
+
+
+class _ThrottlingS3VectorsClient(_FakeS3VectorsClient):
+    """
+    EN: Fake client that throttles the first PutVectors call.
+    CN: 会在首次 PutVectors 调用时返回限流错误的假客户端。
+    """
+
+    def __init__(self, failures: int = 1):
+        super().__init__()
+        self.failures_remaining = failures
+
+    def put_vectors(self, **kwargs):
+        self.put_calls.append(kwargs)
+        if self.failures_remaining > 0:
+            self.failures_remaining -= 1
+            raise ClientError(
+                {
+                    "Error": {
+                        "Code": "TooManyRequestsException",
+                        "Message": "throttled",
+                    }
+                },
+                "PutVectors",
+            )
 
 
 def test_put_vectors_serializes_float32_payload() -> None:
@@ -66,6 +94,80 @@ def test_put_vectors_serializes_float32_payload() -> None:
             "metadata": {"tenant_id": "tenant-a", "is_latest": True},
         }
     ]
+
+
+def test_put_vectors_batches_by_count_and_retries_throttle(monkeypatch) -> None:
+    """
+    EN: Put vectors splits batches by count and retries throttled requests.
+    CN: put_vectors 会按数量拆批，并在限流时重试。
+    """
+    monkeypatch.setattr(vector_repository_module, "sleep", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(vector_repository_module.random, "uniform", lambda *_args, **_kwargs: 0.0)
+
+    client = _ThrottlingS3VectorsClient(failures=1)
+    repo = S3VectorRepository(s3vectors_client=client)
+    profile = EmbeddingProfile(
+        profile_id="openai-text-small",
+        provider="openai",
+        model="text-embedding-3-small",
+        dimension=1536,
+        vector_bucket_name="vector-bucket",
+        vector_index_name="index-openai",
+        supported_content_kinds=("text",),
+    )
+    vectors = [
+        VectorRecord(
+            key=f"openai-text-small#tenant-a#bucket-a#docs/guide.pdf#v1#chunk#{index:06d}",
+            data=[float(index), float(index) + 0.5],
+            metadata={"tenant_id": "tenant-a", "chunk_id": f"chunk#{index:06d}"},
+        )
+        for index in range(501)
+    ]
+
+    repo.put_vectors(job=None, profile=profile, vectors=vectors)
+
+    assert len(client.put_calls) == 3
+    assert len(client.put_calls[0]["vectors"]) == 500
+    assert len(client.put_calls[1]["vectors"]) == 500
+    assert len(client.put_calls[2]["vectors"]) == 1
+
+
+def test_put_vectors_batches_by_payload_bytes(monkeypatch) -> None:
+    """
+    EN: Put vectors splits batches when the estimated request body exceeds the budget.
+    CN: 当估算请求体超过预算时，put_vectors 会拆分批次。
+    """
+    monkeypatch.setattr(vector_repository_module, "_MAX_PUT_VECTORS_REQUEST_BYTES", 200)
+
+    client = _FakeS3VectorsClient()
+    repo = S3VectorRepository(s3vectors_client=client)
+    profile = EmbeddingProfile(
+        profile_id="openai-text-small",
+        provider="openai",
+        model="text-embedding-3-small",
+        dimension=1536,
+        vector_bucket_name="vector-bucket",
+        vector_index_name="index-openai",
+        supported_content_kinds=("text",),
+    )
+    vectors = [
+        VectorRecord(
+            key=f"openai-text-small#tenant-a#bucket-a#docs/guide.pdf#v1#chunk#{index:06d}",
+            data=[1.0, 2.0],
+            metadata={
+                "tenant_id": "tenant-a",
+                "chunk_id": f"chunk#{index:06d}",
+                "long_text": "x" * 120,
+            },
+        )
+        for index in range(2)
+    ]
+
+    repo.put_vectors(job=None, profile=profile, vectors=vectors)
+
+    assert len(client.put_calls) == 2
+    assert len(client.put_calls[0]["vectors"]) == 1
+    assert len(client.put_calls[1]["vectors"]) == 1
 
 
 def test_query_vectors_serializes_float32_payload() -> None:

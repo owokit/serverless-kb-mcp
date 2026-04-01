@@ -226,6 +226,14 @@ arn:aws:lambda:ap-southeast-1:123456789012:function:mcp-doc-pipeline-prod-lambda
 - 如果是非 PDF，执行图上能看到 `SyncExtract`
 - `PrepareJob` 的输出里能看到 `poll_interval_seconds` 和 `max_poll_attempts`
 
+### 1.5 旧版本向量清理工作流
+
+- 除了 `mcp-doc-pipeline-prod-sfn-extract` 之外，仓库现在还会部署独立的向量清理状态机。
+- 这个状态机只负责删除旧版本向量，不承担 OCR 提取，也不承担 manifest 生成。
+- 如果你在控制台里手工检查，名称通常会类似 `mcp-doc-pipeline-prod-sfn-vector-cleanup`。
+- 运行时输入会带 `cleanup_target`，里面至少要有 vector bucket、index、keys 和旧版本标识。
+- 如果 embed 侧没有配置 `VECTOR_CLEANUP_STATE_MACHINE_ARN`，旧版本向量清理不会被启动。
+
 ---
 
 ## 2. S3 事件通知
