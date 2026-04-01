@@ -1,5 +1,5 @@
 ---
-description: ??? GitHub PR ??????? review comments?status checks ???????
+description: 组织级 GitHub PR 检查技能，覆盖 review comments、status checks 和描述完整性。
 name: organization-check-pr
 ---
 
