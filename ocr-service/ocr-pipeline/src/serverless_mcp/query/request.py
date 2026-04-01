@@ -66,7 +66,7 @@ def build_remote_query_request(
 def _resolve_tenant_id(tenant_id: str | None, *, request_tenant_id: str | None, settings: Settings) -> str:
     """
     EN: Bind the query tenant to the authenticated claim when present and only permit matching caller overrides.
-    CN: 当认证声明存在时，将查询租户绑定到认证租户，并且只允许一致的调用方覆盖值。
+    CN: 当认证声明存在时，将查询租户绑定到认证租户，并且只允许相同的调用方覆盖值。
 
     EN: Anonymous fallback is only honored when unauthenticated queries are explicitly enabled and the configured default is not the shared lookup tenant.
     CN: 只有在显式启用匿名查询且配置的默认值不是共享 lookup tenant 时，才接受匿名回退。

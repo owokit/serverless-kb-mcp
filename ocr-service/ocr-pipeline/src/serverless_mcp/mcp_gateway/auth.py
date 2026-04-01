@@ -82,7 +82,7 @@ def resolve_effective_tenant_id(
 def _extract_authorizer_claims(event: dict[str, Any]) -> dict[str, Any]:
     """
     EN: Extract authorizer claims from API Gateway REST or HTTP API payloads.
-    CN: 从 API Gateway REST 或 HTTP API 载荷中提取 authorizer claims。
+    CN: 从 API Gateway REST 或 HTTP API 负载中提取 authorizer claims。
     """
     if not isinstance(event, dict):
         return {}
@@ -107,4 +107,3 @@ def _extract_authorizer_claims(event: dict[str, Any]) -> dict[str, Any]:
     for source in claims_sources:
         merged.update(source)
     return merged
-

@@ -75,7 +75,6 @@
       ],
       "Next": "FailCleanup"
     },
-    },
     "FailCleanup": {
       "Type": "Fail",
       "Error": "VectorCleanupFailed",

@@ -92,7 +92,7 @@ def record_degraded_profile(
 ) -> None:
     """
     EN: Record a degraded profile entry with deduplication by (profile_id, stage, manifest_s3_uri).
-    CN: 按 (profile_id, stage, manifest_s3_uri) 去重后记录一条 degraded profile 条目。
+    CN: 按 (profile_id, stage, manifest_s3_uri) 去重后记录一条 degraded profile。
     """
     key = (profile_id, stage, manifest_s3_uri)
     if key in degraded_keys:

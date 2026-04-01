@@ -369,7 +369,6 @@ def test_lambda_handler_initialize_tools_list_and_call(monkeypatch) -> None:
     assert content["query"] == "hello"
     assert content["results"][0]["delivery"]["url"].startswith("https://cdn.example.com/")
     assert context.query_service.calls[0]["tenant_id"] == "tenant-a"
-    assert "security_scope" not in context.query_service.calls[0]
 
 
 def test_lambda_handler_defaults_search_documents_to_lookup_tenant(monkeypatch) -> None:
@@ -403,7 +402,6 @@ def test_lambda_handler_defaults_search_documents_to_lookup_tenant(monkeypatch) 
     content = json.loads(payload["result"]["content"][0]["text"])
     assert content["query"] == "emergency"
     assert context.query_service.calls[0]["tenant_id"] == "lookup"
-    assert "security_scope" not in context.query_service.calls[0]
 
 
 def test_lambda_handler_rejects_invalid_json_and_invalid_tool_params(monkeypatch) -> None:

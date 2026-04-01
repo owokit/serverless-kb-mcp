@@ -14,7 +14,7 @@ from urllib.parse import quote
 from botocore.exceptions import ClientError
 
 from serverless_mcp.embed.asset_source import EmbedAssetSource
-from serverless_mcp.runtime.observability import emit_trace
+from serverless_mcp.runtime.observability import emit_metric, emit_trace
 from serverless_mcp.domain.embedding_schema import validate_embedding_job_message
 from serverless_mcp.domain.models import (
     ChunkManifest,
@@ -341,6 +341,13 @@ class EmbedWorker:
                 error_type=type(exc).__name__,
                 error_message=str(exc),
             )
+            emit_metric(
+                "embed.cleanup.dispatch",
+                status="failed",
+                profile_id=job.profile_id,
+                previous_version_id=job.previous_version_id or "",
+                error_type=type(exc).__name__,
+            )
             self._object_state_repo.mark_embed_cleanup_failed(job.source, str(exc))
 
     def _start_cleanup_execution(self, cleanup_plan: VectorCleanupPlan) -> None:
@@ -359,10 +366,22 @@ class EmbedWorker:
             "profile_id": cleanup_plan.profile_id,
         }
         execution_name = self._build_cleanup_execution_name(payload)
+        emit_metric(
+            "embed.cleanup.dispatch",
+            status="started",
+            profile_id=cleanup_plan.profile_id,
+            previous_version_id=cleanup_plan.previous_version_id,
+        )
         self._stepfunctions_client.start_execution(
             stateMachineArn=self._cleanup_state_machine_arn,
             name=execution_name,
             input=json.dumps(payload, ensure_ascii=False, sort_keys=True),
+        )
+        emit_metric(
+            "embed.cleanup.dispatch",
+            status="succeeded",
+            profile_id=cleanup_plan.profile_id,
+            previous_version_id=cleanup_plan.previous_version_id,
         )
 
     def _build_cleanup_execution_name(self, payload: dict[str, object]) -> str:

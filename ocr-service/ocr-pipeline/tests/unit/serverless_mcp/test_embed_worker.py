@@ -4,6 +4,7 @@ CN: 鍚屼笂銆?
 """
 
 import json
+from dataclasses import asdict
 
 import pytest
 
@@ -19,6 +20,7 @@ from serverless_mcp.domain.models import (
     ExtractedChunk,
     ObjectStateRecord,
     S3ObjectRef,
+    VectorCleanupPlan,
 )
 from serverless_mcp.storage.paths import optimize_source_file_name
 
@@ -283,6 +285,8 @@ class _FakeProjectionStateRepo:
 
 
 class _FakeManifestRepo:
+    # EN: In-memory stand-in for ManifestRepository.
+    # CN: 鍚屼笂銆?
     def __init__(self):
         self.loaded_uris = []
         self.delete_calls = []
@@ -293,32 +297,6 @@ class _FakeManifestRepo:
 
     def find_manifest_s3_uri(self, *, source, version_id):
         return f"{_manifest_root(source, version_id)}/manifest.json"
-
-    def load_manifest(self, manifest_s3_uri):
-        self.loaded_uris.append(manifest_s3_uri)
-        version_id = "v0" if manifest_s3_uri.endswith("v0.json") else "v2"
-        source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id=version_id)
-        return ChunkManifest(
-            source=source,
-            doc_type="pdf",
-            chunks=[
-                ExtractedChunk(
-                    chunk_id="chunk#000001" if version_id == "v0" else "chunk#current-001",
-                    chunk_type="page_text_chunk",
-                    text="hello-old" if version_id == "v0" else "hello-current",
-                    doc_type="pdf",
-                    token_estimate=2,
-                )
-            ],
-            assets=[
-                ExtractedAsset(
-                    asset_id="asset#000001" if version_id == "v0" else "asset#current-001",
-                    chunk_type="page_image_chunk",
-                    mime_type="image/png",
-                    asset_s3_uri=_manifest_root(source, version_id) + "/assets/asset-000001.png",
-                )
-            ],
-        )
 
     def list_version_records(self, *, source, version_id):
         self.version_record_calls.append((source.document_uri, version_id))
@@ -337,10 +315,34 @@ class _FakeManifestRepo:
                 security_scope=tuple(source.security_scope),
                 language=source.language,
                 page_no=1,
-                text_preview="hello-old",
-                manifest_s3_uri=f"s3://manifest-bucket/manifests/{version_id}.json",
+                token_estimate=2,
             )
         ]
+
+    def load_manifest(self, manifest_s3_uri):
+        self.loaded_uris.append(manifest_s3_uri)
+        source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v0")
+        return ChunkManifest(
+            source=source,
+            doc_type="pdf",
+            chunks=[
+                ExtractedChunk(
+                    chunk_id="chunk#000001",
+                    chunk_type="page_text_chunk",
+                    text="hello-old",
+                    doc_type="pdf",
+                    token_estimate=2,
+                )
+            ],
+            assets=[
+                ExtractedAsset(
+                    asset_id="asset#000001",
+                    chunk_type="page_image_chunk",
+                    mime_type="image/png",
+                    asset_s3_uri=_manifest_root(source, "v0") + "/assets/asset-000001.png",
+                )
+            ],
+        )
 
     def delete_previous_version_artifacts(self, *, source, previous_version_id=None, previous_manifest_s3_uri=None):
         self.delete_calls.append((source.document_uri, previous_version_id, previous_manifest_s3_uri))
@@ -379,10 +381,10 @@ def _build_single_profile_worker(
     )
 
 
-def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cleanup() -> None:
+def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cleanup(monkeypatch) -> None:
     """
     EN: Embed worker writes vectors marks done and cleans previous version artifacts.
-    CN: 濡ょ姴鐭侀惁?embed worker writes vectors marks done and cleans previous version artifacts闁?
+    CN: 妤犲矁鐦?embed worker writes vectors marks done and cleans previous version artifacts閵?
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
     previous_manifest_root = _manifest_root(source, "v0")
@@ -390,6 +392,12 @@ def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cle
     object_state_repo = _FakeObjectStateRepo()
     manifest_repo = _FakeManifestRepo()
     stepfunctions_client = _FakeStepFunctionsClient()
+    metrics = []
+    monkeypatch.setattr(
+        embed_application_module,
+        "emit_metric",
+        lambda metric_name, value=1, **dimensions: metrics.append((metric_name, value, dimensions)),
+    )
     worker = _build_single_profile_worker(
         object_state_repo=object_state_repo,
         vector_repo=vector_repo,
@@ -407,17 +415,17 @@ def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cle
             previous_manifest_s3_uri="s3://manifest-bucket/manifests/v0.json",
             requests=[
                 EmbeddingRequest(
-                    chunk_id="chunk#999999",
+                    chunk_id="chunk#000001",
                     chunk_type="page_text_chunk",
                     content_kind="text",
                     text="hello",
                     metadata=_request_metadata(source, manifest_s3_uri="s3://manifest-bucket/manifests/example.json"),
                 ),
                 EmbeddingRequest(
-                    chunk_id="asset#999999",
+                    chunk_id="asset#000001",
                     chunk_type="page_image_chunk",
                     content_kind="image",
-                    asset_id="asset#999999",
+                    asset_id="asset#000001",
                     asset_s3_uri=f"{previous_manifest_root}/assets/asset-000001.png",
                     mime_type="image/png",
                     metadata=_request_metadata(source, manifest_s3_uri="s3://manifest-bucket/manifests/example.json"),
@@ -443,8 +451,21 @@ def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cle
         "gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v0#chunk#000001",
         "gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v0#asset#000001",
     ]
-    assert manifest_repo.version_record_calls == [(source.document_uri, "v0")]
+    assert metrics == [
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {"status": "started", "profile_id": "gemini-default", "previous_version_id": "v0"},
+        ),
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {"status": "succeeded", "profile_id": "gemini-default", "previous_version_id": "v0"},
+        ),
+    ]
+
     assert manifest_repo.delete_calls == [(source.document_uri, "v0", "s3://manifest-bucket/manifests/v0.json")]
+
 
 def test_embed_worker_emits_request_context_on_text_timeout(monkeypatch) -> None:
     """
@@ -913,7 +934,7 @@ def test_embed_worker_requires_projection_state_for_multiple_profiles() -> None:
         raise AssertionError("multiple write profiles should require projection state governance")
 
 
-def test_embed_worker_keeps_success_when_previous_version_cleanup_fails() -> None:
+def test_embed_worker_keeps_success_when_previous_version_cleanup_fails(monkeypatch) -> None:
     """
     EN: Embed worker keeps success when previous version cleanup fails.
     CN: 妤犲矁鐦?embed worker keeps success when previous version cleanup fails閵?
@@ -923,6 +944,12 @@ def test_embed_worker_keeps_success_when_previous_version_cleanup_fails() -> Non
     object_state_repo = _FakeObjectStateRepo()
     manifest_repo = _FakeManifestRepo()
     stepfunctions_client = _FailingStepFunctionsClient()
+    metrics = []
+    monkeypatch.setattr(
+        embed_application_module,
+        "emit_metric",
+        lambda metric_name, value=1, **dimensions: metrics.append((metric_name, value, dimensions)),
+    )
     worker = _build_single_profile_worker(
         object_state_repo=object_state_repo,
         vector_repo=_FakeVectorRepo(),
@@ -954,3 +981,87 @@ def test_embed_worker_keeps_success_when_previous_version_cleanup_fails() -> Non
     assert object_state_repo.done == [source.document_uri]
     assert object_state_repo.cleanup_failed == [(source.document_uri, "cleanup dispatch failed")]
     assert len(stepfunctions_client.executions) == 1
+    assert metrics == [
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {"status": "started", "profile_id": "gemini-default", "previous_version_id": "v0"},
+        ),
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {
+                "status": "failed",
+                "profile_id": "gemini-default",
+                "previous_version_id": "v0",
+                "error_type": "RuntimeError",
+            },
+        ),
+    ]
+
+
+def test_embed_cleanup_dispatch_is_deterministic_for_identical_plans(monkeypatch) -> None:
+    """
+    EN: Cleanup dispatch uses a deterministic execution name for identical cleanup plans.
+    CN: 相同 cleanup plan 使用确定性的 execution name。
+    """
+    worker = _build_single_profile_worker(
+        object_state_repo=_FakeObjectStateRepo(),
+        vector_repo=_FakeVectorRepo(),
+        manifest_repo=_FakeManifestRepo(),
+        stepfunctions_client=_FakeStepFunctionsClient(),
+    )
+    cleanup_plan = VectorCleanupPlan(
+        vector_bucket_name="vector-bucket",
+        vector_index_name="index-gemini",
+        keys=("gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v0#chunk#000001",),
+        object_pk="tenant-a#bucket-a#docs/guide.pdf",
+        previous_version_id="v0",
+        profile_id="gemini-default",
+        manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+        previous_manifest_s3_uri="s3://manifest-bucket/manifests/v0.json",
+        requested_at="2026-04-01T00:00:00Z",
+    )
+
+    metrics = []
+    monkeypatch.setattr(
+        embed_application_module,
+        "emit_metric",
+        lambda metric_name, value=1, **dimensions: metrics.append((metric_name, value, dimensions)),
+    )
+
+    worker._start_cleanup_execution(cleanup_plan)  # noqa: SLF001
+    worker._start_cleanup_execution(cleanup_plan)  # noqa: SLF001
+
+    first_execution, second_execution = worker._stepfunctions_client.executions  # noqa: SLF001
+    assert first_execution["name"] == second_execution["name"]
+    assert first_execution["input"] == second_execution["input"]
+    assert json.loads(first_execution["input"]) == {
+        "cleanup_target": {**asdict(cleanup_plan), "keys": list(cleanup_plan.keys)},
+        "requested_at": cleanup_plan.requested_at,
+        "object_pk": cleanup_plan.object_pk,
+        "previous_version_id": cleanup_plan.previous_version_id,
+        "profile_id": cleanup_plan.profile_id,
+    }
+    assert metrics == [
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {"status": "started", "profile_id": "gemini-default", "previous_version_id": "v0"},
+        ),
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {"status": "succeeded", "profile_id": "gemini-default", "previous_version_id": "v0"},
+        ),
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {"status": "started", "profile_id": "gemini-default", "previous_version_id": "v0"},
+        ),
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {"status": "succeeded", "profile_id": "gemini-default", "previous_version_id": "v0"},
+        ),
+    ]
