@@ -4,6 +4,7 @@ CN: 鍚屼笂銆?
 """
 
 import json
+from dataclasses import asdict
 
 import pytest
 
@@ -18,6 +19,7 @@ from serverless_mcp.domain.models import (
     ExtractedChunk,
     ObjectStateRecord,
     S3ObjectRef,
+    VectorCleanupPlan,
 )
 from serverless_mcp.storage.paths import optimize_source_file_name
 
@@ -356,7 +358,7 @@ def _build_single_profile_worker(
     )
 
 
-def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cleanup() -> None:
+def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cleanup(monkeypatch) -> None:
     """
     EN: Embed worker writes vectors marks done and cleans previous version artifacts.
     CN: 妤犲矁鐦?embed worker writes vectors marks done and cleans previous version artifacts閵?
@@ -367,6 +369,12 @@ def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cle
     object_state_repo = _FakeObjectStateRepo()
     manifest_repo = _FakeManifestRepo()
     stepfunctions_client = _FakeStepFunctionsClient()
+    metrics = []
+    monkeypatch.setattr(
+        embed_application_module,
+        "emit_metric",
+        lambda metric_name, value=1, **dimensions: metrics.append((metric_name, value, dimensions)),
+    )
     worker = _build_single_profile_worker(
         object_state_repo=object_state_repo,
         vector_repo=vector_repo,
@@ -420,6 +428,19 @@ def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cle
         "gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v0#chunk#000001",
         "gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v0#asset#000001",
     ]
+    assert metrics == [
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {"status": "started", "profile_id": "gemini-default", "previous_version_id": "v0"},
+        ),
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {"status": "succeeded", "profile_id": "gemini-default", "previous_version_id": "v0"},
+        ),
+    ]
+
     assert manifest_repo.delete_calls == [(source.document_uri, "v0", "s3://manifest-bucket/manifests/v0.json")]
 
 
@@ -890,7 +911,7 @@ def test_embed_worker_requires_projection_state_for_multiple_profiles() -> None:
         raise AssertionError("multiple write profiles should require projection state governance")
 
 
-def test_embed_worker_keeps_success_when_previous_version_cleanup_fails() -> None:
+def test_embed_worker_keeps_success_when_previous_version_cleanup_fails(monkeypatch) -> None:
     """
     EN: Embed worker keeps success when previous version cleanup fails.
     CN: 妤犲矁鐦?embed worker keeps success when previous version cleanup fails閵?
@@ -900,6 +921,12 @@ def test_embed_worker_keeps_success_when_previous_version_cleanup_fails() -> Non
     object_state_repo = _FakeObjectStateRepo()
     manifest_repo = _FakeManifestRepo()
     stepfunctions_client = _FailingStepFunctionsClient()
+    metrics = []
+    monkeypatch.setattr(
+        embed_application_module,
+        "emit_metric",
+        lambda metric_name, value=1, **dimensions: metrics.append((metric_name, value, dimensions)),
+    )
     worker = _build_single_profile_worker(
         object_state_repo=object_state_repo,
         vector_repo=_FakeVectorRepo(),
@@ -931,3 +958,85 @@ def test_embed_worker_keeps_success_when_previous_version_cleanup_fails() -> Non
     assert object_state_repo.done == [source.document_uri]
     assert object_state_repo.cleanup_failed == [(source.document_uri, "cleanup dispatch failed")]
     assert len(stepfunctions_client.executions) == 1
+    assert metrics == [
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {"status": "started", "profile_id": "gemini-default", "previous_version_id": "v0"},
+        ),
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {
+                "status": "failed",
+                "profile_id": "gemini-default",
+                "previous_version_id": "v0",
+                "error_type": "RuntimeError",
+            },
+        ),
+    ]
+def test_embed_cleanup_dispatch_is_deterministic_for_identical_plans(monkeypatch) -> None:
+    """
+    EN: Cleanup dispatch uses a deterministic execution name for identical cleanup plans.
+    CN: 相同 cleanup plan 使用确定性的 execution name。
+    """
+    worker = _build_single_profile_worker(
+        object_state_repo=_FakeObjectStateRepo(),
+        vector_repo=_FakeVectorRepo(),
+        manifest_repo=_FakeManifestRepo(),
+        stepfunctions_client=_FakeStepFunctionsClient(),
+    )
+    cleanup_plan = VectorCleanupPlan(
+        vector_bucket_name="vector-bucket",
+        vector_index_name="index-gemini",
+        keys=("gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v0#chunk#000001",),
+        object_pk="tenant-a#bucket-a#docs/guide.pdf",
+        previous_version_id="v0",
+        profile_id="gemini-default",
+        manifest_s3_uri="s3://manifest-bucket/manifests/example.json",
+        previous_manifest_s3_uri="s3://manifest-bucket/manifests/v0.json",
+        requested_at="2026-04-01T00:00:00Z",
+    )
+
+    metrics = []
+    monkeypatch.setattr(
+        embed_application_module,
+        "emit_metric",
+        lambda metric_name, value=1, **dimensions: metrics.append((metric_name, value, dimensions)),
+    )
+
+    worker._start_cleanup_execution(cleanup_plan)  # noqa: SLF001
+    worker._start_cleanup_execution(cleanup_plan)  # noqa: SLF001
+
+    first_execution, second_execution = worker._stepfunctions_client.executions  # noqa: SLF001
+    assert first_execution["name"] == second_execution["name"]
+    assert first_execution["input"] == second_execution["input"]
+    assert json.loads(first_execution["input"]) == {
+        "cleanup_target": {**asdict(cleanup_plan), "keys": list(cleanup_plan.keys)},
+        "requested_at": cleanup_plan.requested_at,
+        "object_pk": cleanup_plan.object_pk,
+        "previous_version_id": cleanup_plan.previous_version_id,
+        "profile_id": cleanup_plan.profile_id,
+    }
+    assert metrics == [
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {"status": "started", "profile_id": "gemini-default", "previous_version_id": "v0"},
+        ),
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {"status": "succeeded", "profile_id": "gemini-default", "previous_version_id": "v0"},
+        ),
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {"status": "started", "profile_id": "gemini-default", "previous_version_id": "v0"},
+        ),
+        (
+            "embed.cleanup.dispatch",
+            1,
+            {"status": "succeeded", "profile_id": "gemini-default", "previous_version_id": "v0"},
+        ),
+    ]
