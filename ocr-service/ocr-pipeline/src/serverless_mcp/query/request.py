@@ -21,7 +21,7 @@ class TenantIdConflictError(PermissionError):
 class RemoteQueryRequest:
     """
     EN: Normalized query request resolved from MCP parameters and application settings.
-    CN: 由 MCP 参数和应用配置解析得到的规范化查询请求。
+    CN: 由 MCP 参数和应用设置解析得到的规范化查询请求。
     """
 
     query: str
@@ -69,7 +69,7 @@ def _resolve_tenant_id(tenant_id: str | None, *, request_tenant_id: str | None, 
     CN: 当认证声明存在时，将查询租户绑定到认证租户，并且只允许相同的调用方覆盖值。
 
     EN: Anonymous fallback is only honored when unauthenticated queries are explicitly enabled and the configured default is not the shared lookup tenant.
-    CN: 只有在显式启用匿名查询且配置默认值不是共享 lookup tenant 时，才接受匿名回退。
+    CN: 只有在显式启用匿名查询且配置的默认值不是共享 lookup tenant 时，才接受匿名回退。
     """
     explicit_tenant_id = tenant_id.strip() if isinstance(tenant_id, str) and tenant_id.strip() else None
     authenticated_tenant_id = (

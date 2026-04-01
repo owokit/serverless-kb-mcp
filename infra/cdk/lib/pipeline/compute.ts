@@ -136,7 +136,7 @@ export function createPipelineCompute(params: PipelineComputeParams): PipelineCo
     retention: logs.RetentionDays.ONE_MONTH,
     removalPolicy: RemovalPolicy.DESTROY,
   });
-  const cleanupDefinition = renderVectorCleanupStateMachineDefinition();
+  const cleanupDefinition = renderVectorCleanupStateMachineDefinition(names.object_state_table);
   const cleanupStateMachine = new sfn.StateMachine(stack, 'CleanupStateMachine', {
     stateMachineName: names.cleanup_state_machine,
     definitionBody: sfn.DefinitionBody.fromString(cleanupDefinition),
@@ -195,6 +195,12 @@ export function createPipelineCompute(params: PipelineComputeParams): PipelineCo
     new iam.PolicyStatement({
       actions: ['s3vectors:DeleteVectors'],
       resources: bindings.vectorIndexArns,
+    }),
+  );
+  roles.cleanupStateMachineRole.addToPrincipalPolicy(
+    new iam.PolicyStatement({
+      actions: ['dynamodb:UpdateItem'],
+      resources: [bindings.objectStateTableArn],
     }),
   );
   roles.cleanupStateMachineRole.addToPrincipalPolicy(

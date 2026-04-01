@@ -12,6 +12,7 @@ from serverless_mcp.embed import application as embed_application_module
 from serverless_mcp.embed.application import EmbedWorker
 from serverless_mcp.domain.models import (
     ChunkManifest,
+    ChunkManifestRecord,
     EmbeddingJobMessage,
     EmbeddingProfile,
     EmbeddingRequest,
@@ -289,12 +290,34 @@ class _FakeManifestRepo:
     def __init__(self):
         self.loaded_uris = []
         self.delete_calls = []
+        self.version_record_calls = []
 
     def build_manifest_s3_uri(self, *, source, version_id):
         return f"{_manifest_root(source, version_id)}/manifest.json"
 
     def find_manifest_s3_uri(self, *, source, version_id):
         return f"{_manifest_root(source, version_id)}/manifest.json"
+
+    def list_version_records(self, *, source, version_id):
+        self.version_record_calls.append((source.document_uri, version_id))
+        return [
+            ChunkManifestRecord(
+                pk=f"{source.object_pk}#{version_id}",
+                sk="chunk#000001",
+                tenant_id=source.tenant_id,
+                bucket=source.bucket,
+                key=source.key,
+                version_id=version_id,
+                chunk_id="chunk#000001",
+                chunk_type="page_text_chunk",
+                doc_type="pdf",
+                is_latest=False,
+                security_scope=tuple(source.security_scope),
+                language=source.language,
+                page_no=1,
+                token_estimate=2,
+            )
+        ]
 
     def load_manifest(self, manifest_s3_uri):
         self.loaded_uris.append(manifest_s3_uri)
@@ -975,6 +998,8 @@ def test_embed_worker_keeps_success_when_previous_version_cleanup_fails(monkeypa
             },
         ),
     ]
+
+
 def test_embed_cleanup_dispatch_is_deterministic_for_identical_plans(monkeypatch) -> None:
     """
     EN: Cleanup dispatch uses a deterministic execution name for identical cleanup plans.
