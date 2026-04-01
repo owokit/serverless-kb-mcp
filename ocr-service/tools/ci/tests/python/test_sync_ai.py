@@ -43,5 +43,5 @@ def test_sync_skills_recurses_into_nested_skill_trees(tmp_path: Path) -> None:
 
     assert plain_output.exists()
     assert nested_output.exists()
-    assert "name: nested-skill" in nested_output.read_text(encoding="utf-8")
+    assert "name: organization-nested-skill" in nested_output.read_text(encoding="utf-8")
     assert "description: nested description" in nested_output.read_text(encoding="utf-8")

@@ -78,7 +78,11 @@ def generate_skill(skill_path: Path, output_dir: Path) -> None:
     output_file = output_dir / skill_name / "SKILL.md"
     output_file.parent.mkdir(parents=True, exist_ok=True)
     output_file.write_text(new_content, encoding="utf-8")
-    print(f"  Generated: {output_file.relative_to(Path.cwd())}")
+    try:
+        display_path = output_file.relative_to(Path.cwd())
+    except ValueError:
+        display_path = output_file
+    print(f"  Generated: {display_path}")
 
 
 def sync_skills(src_dir: Path, dst_dir: Path) -> None:

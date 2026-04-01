@@ -75,19 +75,19 @@
 > Skills 唯一事实源在 `ai/skills-src/`，通过 `ai/scripts/sync-ai.py` 生成到 `.agents/skills/`（Codex）和 `.claude/skills/`（Claude Code）。
 
 - github-issue-workflow
-  - [ai/skills-src/github-issue-workflow/SKILL.md](ai/skills-src/github-issue-workflow/SKILL.md)
+  - [ai/skills-src/organization/organization-github-issue-workflow/SKILL.md](ai/skills-src/organization/organization-github-issue-workflow/SKILL.md)
   - 面向 Codex 的 GitHub issue 优先工作流：先建 issue，再改代码；在技能入口提供简要说明、流程规则、评论规范和 PR 关联要求。
 - github-cli
-  - [ai/skills-src/github-cli/SKILL.md](ai/skills-src/github-cli/SKILL.md)
+  - [ai/skills-src/organization/organization-github-cli/SKILL.md](ai/skills-src/organization/organization-github-cli/SKILL.md)
   - 面向 `gh` CLI 的通用 GitHub 操作入口，覆盖 issue、PR、分支、workflow/run 读取与评论写入。
 - mainline-worktree
-  - [ai/skills-src/mainline-worktree/SKILL.md](ai/skills-src/mainline-worktree/SKILL.md)
+  - [ai/skills-src/organization/organization-mainline-worktree/SKILL.md](ai/skills-src/organization/organization-mainline-worktree/SKILL.md)
   - 适用于新建 worktree 前先同步本地 `main` 与 `origin/main`、创建任务分支和语义化命名。
 - versioned-s3-ingest
   - [ai/skills-src/versioned-s3-ingest/SKILL.md](ai/skills-src/versioned-s3-ingest/SKILL.md)
   - 适用于 `S3 Versioning`、`S3 Event Notification`、`SQS ingest queue`、幂等、`object_state`、版本推进与旧版本治理。
 - check-pr
-  - [ai/skills-src/check-pr/SKILL.md](ai/skills-src/check-pr/SKILL.md)
+  - [ai/skills-src/organization/organization-check-pr/SKILL.md](ai/skills-src/organization/organization-check-pr/SKILL.md)
   - 适用于 GitHub PR 的未解决评论、状态检查、描述完整性和回评修复。
 - multimodal-extract-chunking
   - [ai/skills-src/multimodal-extract-chunking/SKILL.md](ai/skills-src/multimodal-extract-chunking/SKILL.md)
@@ -108,10 +108,10 @@
   - [ai/skills-src/python-bilingual-comments/SKILL.md](ai/skills-src/python-bilingual-comments/SKILL.md)
   - 适用于当前 Python 项目的模块 docstring、类注释、函数注释、方法注释、块注释和行内注释双语规范，要求英文一行、中文一行逐行对应。
 - docs-mcp-router
-  - [ai/skills-src/docs-mcp-router/SKILL.md](ai/skills-src/docs-mcp-router/SKILL.md)
+  - [ai/skills-src/organization/organization-docs-mcp-router/SKILL.md](ai/skills-src/organization/organization-docs-mcp-router/SKILL.md)
   - 将 AWS、Azure、Google、GitHub、Cloudflare、OpenAI 和 Anthropic 的文档问题路由到对应的官方 MCP 或第一方文档来源。
 - bilingual-programming
-  - [ai/skills-src/bilingual-programming/SKILL.md](ai/skills-src/bilingual-programming/SKILL.md)
+  - [ai/skills-src/organization/organization-bilingual-programming/SKILL.md](ai/skills-src/organization/organization-bilingual-programming/SKILL.md)
   - 适用于跨语言代码注释、脚本注释、workflow 注释、UTF-8 编码、`@param`/`@return` 完整性与性能意识；默认要求英文一行、中文一行逐行对应，禁止单行中英混写。
 
 ## 当前已定结论
