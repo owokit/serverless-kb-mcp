@@ -10,7 +10,62 @@
         "indexName.$": "$.cleanup_target.vector_index_name",
         "keys.$": "$.cleanup_target.keys"
       },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "S3Vectors.TooManyRequestsException",
+            "S3Vectors.InternalServerException",
+            "S3Vectors.ServiceUnavailableException",
+            "TooManyRequestsException",
+            "ThrottlingException",
+            "States.TaskFailed"
+          ],
+          "IntervalSeconds": 2,
+          "BackoffRate": 2.0,
+          "MaxAttempts": 6,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.cleanup_failure",
+          "Next": "RecordCleanupFailure"
+        }
+      ],
       "End": true
+    },
+    "RecordCleanupFailure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:updateItem",
+      "Parameters": {
+        "TableName": "${OBJECT_STATE_TABLE_NAME}",
+        "Key": {
+          "pk": {
+            "S.$": "$.cleanup_target.object_pk"
+          }
+        },
+        "UpdateExpression": "SET last_error = :last_error, #updated_at = :updated_at",
+        "ExpressionAttributeNames": {
+          "#updated_at": "updated_at"
+        },
+        "ExpressionAttributeValues": {
+          ":last_error": {
+            "S.$": "States.Format('vector cleanup failed: {} - {}', $.cleanup_failure.Error, $.cleanup_failure.Cause)"
+          },
+          ":updated_at": {
+            "S.$": "$.cleanup_target.requested_at"
+          }
+        }
+      },
+      "Next": "FailCleanup"
+    },
+    "FailCleanup": {
+      "Type": "Fail",
+      "Error": "VectorCleanupFailed",
+      "Cause": "Previous-version vector cleanup failed."
     }
   }
 }

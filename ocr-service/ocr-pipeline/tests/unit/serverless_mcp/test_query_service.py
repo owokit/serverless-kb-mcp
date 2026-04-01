@@ -515,10 +515,10 @@ def test_query_service_prefers_projection_records_over_full_manifest_load() -> N
     assert manifest_repo.projection_calls == [("tenant-a#bucket-a#docs%2Fguide.md", "v2")]
 
 
-def test_query_service_filters_restricted_vectors_by_security_scope() -> None:
+def test_query_service_does_not_filter_restricted_vectors_by_security_scope() -> None:
     """
-    EN: Query service filters restricted vectors unless the request carries a matching security scope.
-    CN: QueryService 会过滤受限向量，除非请求携带匹配的 security scope。
+    EN: Query service should no longer gate vector access on security scope metadata.
+    CN: QueryService 不再应该用 security scope 元数据控制向量访问。
     """
     service = QueryService(
         embedding_clients={"gemini-default": _FakeGeminiClient()},
@@ -529,24 +529,14 @@ def test_query_service_filters_restricted_vectors_by_security_scope() -> None:
         projection_state_repo=_FakeProjectionStateRepo(),
     )
 
-    denied = service.search(
+    result = service.search(
         query="hello",
         tenant_id="tenant-a",
         top_k=5,
         neighbor_expand=0,
-    )
-    allowed = service.search(
-        query="hello",
-        tenant_id="tenant-a",
-        top_k=5,
-        neighbor_expand=0,
-        security_scope=("team-a",),
     )
 
-    assert [result.key for result in denied.results] == [
-        "gemini-default#tenant-a#bucket-a#docs/public.md#v2#chunk#000003",
-    ]
-    assert [result.key for result in allowed.results] == [
+    assert [hit.key for hit in result.results] == [
         "gemini-default#tenant-a#bucket-a#docs/secret.md#v2#chunk#000002",
         "gemini-default#tenant-a#bucket-a#docs/public.md#v2#chunk#000003",
     ]

@@ -28,7 +28,6 @@ class RemoteQueryRequest:
     tenant_id: str
     top_k: int
     neighbor_expand: int
-    security_scope: tuple[str, ...] = ()
     doc_type: str | None = None
     key: str | None = None
 
@@ -43,7 +42,6 @@ def build_remote_query_request(
     doc_type: str | None,
     key: str | None,
     settings: Settings | None = None,
-    request_security_scope: tuple[str, ...] | None = None,
 ) -> RemoteQueryRequest:
     """
     EN: Validate the public query contract before the remote MCP handler calls the core service.
@@ -60,7 +58,6 @@ def build_remote_query_request(
             minimum=0,
             maximum=active_settings.query_max_neighbor_expand,
         ),
-        security_scope=_normalize_security_scope(request_security_scope),
         doc_type=doc_type.strip() if isinstance(doc_type, str) and doc_type.strip() else None,
         key=key.strip() if isinstance(key, str) and key.strip() else None,
     )
@@ -69,7 +66,7 @@ def build_remote_query_request(
 def _resolve_tenant_id(tenant_id: str | None, *, request_tenant_id: str | None, settings: Settings) -> str:
     """
     EN: Bind the query tenant to the authenticated claim when present and only permit matching caller overrides.
-    CN: 当认证声明存在时，将查询租户绑定到认证租户，并且只允许与之相同的调用方覆盖值。
+    CN: 当认证声明存在时，将查询租户绑定到认证租户，并且只允许一致的调用方覆盖值。
 
     EN: Anonymous fallback is only honored when unauthenticated queries are explicitly enabled and the configured default is not the shared lookup tenant.
     CN: 只有在显式启用匿名查询且配置的默认值不是共享 lookup tenant 时，才接受匿名回退。
@@ -94,21 +91,3 @@ def _resolve_tenant_id(tenant_id: str | None, *, request_tenant_id: str | None, 
         if default_tenant_id and default_tenant_id != "lookup":
             return default_tenant_id
     raise ValueError("tenant_id is required")
-
-
-def _normalize_security_scope(security_scope: tuple[str, ...] | None) -> tuple[str, ...]:
-    """
-    EN: Normalize security scope values into a stable tuple for query-time authorization.
-    CN: 将 security scope 规范化为稳定元组，用于查询时授权。
-    """
-    if not security_scope:
-        return ()
-    normalized: list[str] = []
-    for item in security_scope:
-        if not isinstance(item, str):
-            continue
-        value = item.strip()
-        if not value or value in normalized:
-            continue
-        normalized.append(value)
-    return tuple(normalized)

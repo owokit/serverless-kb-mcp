@@ -17,6 +17,8 @@ from serverless_mcp.embed.asset_source import EmbedAssetSource
 from serverless_mcp.runtime.observability import emit_trace
 from serverless_mcp.domain.embedding_schema import validate_embedding_job_message
 from serverless_mcp.domain.models import (
+    ChunkManifest,
+    ChunkManifestRecord,
     EmbeddingJobMessage,
     EmbeddingOutcome,
     EmbeddingProfile,
@@ -87,12 +89,17 @@ class VersionCleanupService:
             return None
         if job.previous_version_id == job.source.version_id:
             return None
-        if not job.requests:
-            return None
 
         profile = self._embedding_profiles.get(job.profile_id)
         if profile is None:
             return None
+
+        previous_records: list[ChunkManifestRecord] = []
+        if self._manifest_repo is not None:
+            previous_records = self._manifest_repo.list_version_records(
+                source=job.source,
+                version_id=job.previous_version_id,
+            )
 
         previous_manifest_s3_uri = job.previous_manifest_s3_uri
         if previous_manifest_s3_uri is None and self._manifest_repo is not None:
@@ -100,11 +107,22 @@ class VersionCleanupService:
                 source=job.source,
                 version_id=job.previous_version_id,
             )
+        previous_manifest = None
+        if previous_manifest_s3_uri is not None and self._manifest_repo is not None:
+            previous_manifest = self._manifest_repo.load_manifest(previous_manifest_s3_uri)
+        if previous_manifest is None and not previous_records:
+            return None
 
         return VectorCleanupPlan(
             vector_bucket_name=profile.vector_bucket_name,
             vector_index_name=profile.vector_index_name,
-            keys=self._build_cleanup_vector_keys(job),
+            keys=self._build_cleanup_vector_keys(
+                source=job.source,
+                profile_id=job.profile_id,
+                previous_version_id=job.previous_version_id,
+                previous_records=previous_records,
+                previous_manifest=previous_manifest,
+            ),
             object_pk=job.source.object_pk,
             previous_version_id=job.previous_version_id,
             profile_id=job.profile_id,
@@ -162,16 +180,28 @@ class VersionCleanupService:
                 return False
         return True
 
-    def _build_cleanup_vector_keys(self, job: EmbeddingJobMessage) -> tuple[str, ...]:
+    def _build_cleanup_vector_keys(
+        self,
+        *,
+        source: S3ObjectRef,
+        profile_id: str,
+        previous_version_id: str,
+        previous_records: list[ChunkManifestRecord],
+        previous_manifest: ChunkManifest | None = None,
+    ) -> tuple[str, ...]:
         """
-        EN: Derive the exact previous-version vector keys that should be deleted for this embed job.
-        CN: 灏嗘棫鐗堟湰鍚戦噺鍦ㄤ唬鐮佸眰姊搁噺涓虹‘瀹氬彲鍒犻櫎 key 銆?
+        EN: Derive the exact previous-version vector keys from the previous manifest records.
+        CN: 源自上一版本 manifest/index 记录，生成需要删除的旧向量键。
         """
-        previous_version_pk = f"{job.source.object_pk}#{quote(job.previous_version_id or '', safe='')}"
-        return tuple(
-            f"{job.profile_id}#{previous_version_pk}#{request.chunk_id}"
-            for request in job.requests
-        )
+        previous_version_pk = f"{source.object_pk}#{quote(previous_version_id, safe='')}"
+        keys: list[str] = [
+            f"{profile_id}#{previous_version_pk}#{record.chunk_id}"
+            for record in sorted(previous_records, key=lambda record: record.sk)
+        ]
+        if previous_manifest is not None:
+            keys.extend(f"{profile_id}#{previous_version_pk}#{chunk.chunk_id}" for chunk in previous_manifest.chunks)
+            keys.extend(f"{profile_id}#{previous_version_pk}#{asset.asset_id}" for asset in previous_manifest.assets)
+        return tuple(dict.fromkeys(keys))
 
 
 class EmbedWorker:

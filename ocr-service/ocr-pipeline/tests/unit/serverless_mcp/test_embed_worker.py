@@ -11,6 +11,7 @@ from serverless_mcp.embed import application as embed_application_module
 from serverless_mcp.embed.application import EmbedWorker
 from serverless_mcp.domain.models import (
     ChunkManifest,
+    ChunkManifestRecord,
     EmbeddingJobMessage,
     EmbeddingProfile,
     EmbeddingRequest,
@@ -282,11 +283,10 @@ class _FakeProjectionStateRepo:
 
 
 class _FakeManifestRepo:
-    # EN: In-memory stand-in for ManifestRepository.
-    # CN: 鍚屼笂銆?
     def __init__(self):
         self.loaded_uris = []
         self.delete_calls = []
+        self.version_record_calls = []
 
     def build_manifest_s3_uri(self, *, source, version_id):
         return f"{_manifest_root(source, version_id)}/manifest.json"
@@ -296,28 +296,51 @@ class _FakeManifestRepo:
 
     def load_manifest(self, manifest_s3_uri):
         self.loaded_uris.append(manifest_s3_uri)
-        source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v0")
+        version_id = "v0" if manifest_s3_uri.endswith("v0.json") else "v2"
+        source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id=version_id)
         return ChunkManifest(
             source=source,
             doc_type="pdf",
             chunks=[
                 ExtractedChunk(
-                    chunk_id="chunk#000001",
+                    chunk_id="chunk#000001" if version_id == "v0" else "chunk#current-001",
                     chunk_type="page_text_chunk",
-                    text="hello-old",
+                    text="hello-old" if version_id == "v0" else "hello-current",
                     doc_type="pdf",
                     token_estimate=2,
                 )
             ],
             assets=[
                 ExtractedAsset(
-                    asset_id="asset#000001",
+                    asset_id="asset#000001" if version_id == "v0" else "asset#current-001",
                     chunk_type="page_image_chunk",
                     mime_type="image/png",
-                    asset_s3_uri=_manifest_root(source, "v0") + "/assets/asset-000001.png",
+                    asset_s3_uri=_manifest_root(source, version_id) + "/assets/asset-000001.png",
                 )
             ],
         )
+
+    def list_version_records(self, *, source, version_id):
+        self.version_record_calls.append((source.document_uri, version_id))
+        return [
+            ChunkManifestRecord(
+                pk=f"{source.object_pk}#{version_id}",
+                sk="chunk#000001",
+                tenant_id=source.tenant_id,
+                bucket=source.bucket,
+                key=source.key,
+                version_id=version_id,
+                chunk_id="chunk#000001",
+                chunk_type="page_text_chunk",
+                doc_type="pdf",
+                is_latest=False,
+                security_scope=tuple(source.security_scope),
+                language=source.language,
+                page_no=1,
+                text_preview="hello-old",
+                manifest_s3_uri=f"s3://manifest-bucket/manifests/{version_id}.json",
+            )
+        ]
 
     def delete_previous_version_artifacts(self, *, source, previous_version_id=None, previous_manifest_s3_uri=None):
         self.delete_calls.append((source.document_uri, previous_version_id, previous_manifest_s3_uri))
@@ -359,7 +382,7 @@ def _build_single_profile_worker(
 def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cleanup() -> None:
     """
     EN: Embed worker writes vectors marks done and cleans previous version artifacts.
-    CN: 妤犲矁鐦?embed worker writes vectors marks done and cleans previous version artifacts閵?
+    CN: 濡ょ姴鐭侀惁?embed worker writes vectors marks done and cleans previous version artifacts闁?
     """
     source = S3ObjectRef(tenant_id="tenant-a", bucket="bucket-a", key="docs/guide.pdf", version_id="v1")
     previous_manifest_root = _manifest_root(source, "v0")
@@ -384,17 +407,17 @@ def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cle
             previous_manifest_s3_uri="s3://manifest-bucket/manifests/v0.json",
             requests=[
                 EmbeddingRequest(
-                    chunk_id="chunk#000001",
+                    chunk_id="chunk#999999",
                     chunk_type="page_text_chunk",
                     content_kind="text",
                     text="hello",
                     metadata=_request_metadata(source, manifest_s3_uri="s3://manifest-bucket/manifests/example.json"),
                 ),
                 EmbeddingRequest(
-                    chunk_id="asset#000001",
+                    chunk_id="asset#999999",
                     chunk_type="page_image_chunk",
                     content_kind="image",
-                    asset_id="asset#000001",
+                    asset_id="asset#999999",
                     asset_s3_uri=f"{previous_manifest_root}/assets/asset-000001.png",
                     mime_type="image/png",
                     metadata=_request_metadata(source, manifest_s3_uri="s3://manifest-bucket/manifests/example.json"),
@@ -420,8 +443,8 @@ def test_embed_worker_writes_vectors_marks_done_and_records_previous_version_cle
         "gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v0#chunk#000001",
         "gemini-default#tenant-a#bucket-a#docs%2Fguide.pdf#v0#asset#000001",
     ]
+    assert manifest_repo.version_record_calls == [(source.document_uri, "v0")]
     assert manifest_repo.delete_calls == [(source.document_uri, "v0", "s3://manifest-bucket/manifests/v0.json")]
-
 
 def test_embed_worker_emits_request_context_on_text_timeout(monkeypatch) -> None:
     """
