@@ -20,10 +20,6 @@
     {
       "source": ".github/pull_request_template.md",
       "target": ".github/pull_request_template.md"
-    },
-    {
-      "source": "skills-src/organization/ORGANIZATION.SKILLS.md",
-      "target": "skills-src/organization/ORGANIZATION.SKILLS.md"
     }
   ]
 }
