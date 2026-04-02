@@ -1,0 +1,29 @@
+{
+  "originRepo": "owokit/organization-subtree",
+  "mappings": [
+    {
+      "source": "skills-src",
+      "target": "skills-src"
+    },
+    {
+      "source": ".agents",
+      "target": ".agents"
+    },
+    {
+      "source": ".claude",
+      "target": ".claude"
+    },
+    {
+      "source": ".github/ISSUE_TEMPLATE",
+      "target": ".github/ISSUE_TEMPLATE"
+    },
+    {
+      "source": ".github/pull_request_template.md",
+      "target": ".github/pull_request_template.md"
+    },
+    {
+      "source": "skills-src/organization/ORGANIZATION.SKILLS.md",
+      "target": "skills-src/organization/ORGANIZATION.SKILLS.md"
+    }
+  ]
+}
