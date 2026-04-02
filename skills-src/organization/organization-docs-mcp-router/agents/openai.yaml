@@ -1,0 +1,7 @@
+interface:
+  display_name: "文档 MCP 路由"
+  short_description: "把厂商文档问题路由到正确的官方来源"
+  default_prompt: "使用 $docs-mcp-router 先通过对应的官方 MCP 或第一方文档来源查询厂商文档，再回答。"
+
+policy:
+  allow_implicit_invocation: true
