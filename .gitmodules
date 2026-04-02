@@ -1,0 +1,4 @@
+[submodule ".github/pull_request_template.md"]
+	path = .github/pull_request_template.md
+	url = https://github.com/owokit/organization-pr-template
+	branch = main
