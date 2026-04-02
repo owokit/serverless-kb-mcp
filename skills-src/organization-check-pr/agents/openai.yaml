@@ -1,0 +1,15 @@
+interface:
+  display_name: "Check PR"
+  short_description: "检查 PR 未解决评论、状态检查和描述完整性"
+  default_prompt: "Use $check-pr to inspect a PR for unresolved comments, failing checks, and incomplete descriptions, then fix actionable issues and resolve addressed threads."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "github"
+      description: "GitHub MCP server"
+      transport: "streamable_http"
+      url: "https://api.githubcopilot.com/mcp/"
+
+policy:
+  allow_implicit_invocation: true
