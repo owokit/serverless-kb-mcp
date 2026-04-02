@@ -56,6 +56,8 @@ gh api repos/{owner}/{repo}/pulls/<PR_NUMBER>/comments
 - 是否在正文前部以普通文本写明 `Closes #123` / `Fixes #123` / `Resolves #123`，而不是放进反引号、代码块或引用块
 - 是否在提交后重新查看过 GitHub 上实际显示的标题、正文和模板字段，确认没有乱码、错码、字符丢失或明显编码异常
 - 如果是多 issue PR，是否逐条区分“已被本 PR 完全覆盖”与“仅部分覆盖、仍需继续保持打开”的 issue；凡是没有明确分层的描述，都视为可能掩盖实际关闭范围的可操作问题
+- 如果 PR 改到了 `skills-src/organization/`，是否已经同步生成 `.agents/skills/` 和 `.claude/skills/`，并且在 PR 描述里说明同步脚本是否已运行
+- 如果 PR 改到了 `.github/`，是否同时检查了 issue 模板索引、PR 模板和当前仓库标签体系是否仍然一致
 
 #### C. Review Comments
 
@@ -149,4 +151,5 @@ mutation {
 - 需要处理的事项
 - 可以忽略的事项
 - 需要继续保持打开的兄弟 issue
+- 如果涉及 skills 或模板，还要总结同步状态和模板一致性
 - 下一步建议

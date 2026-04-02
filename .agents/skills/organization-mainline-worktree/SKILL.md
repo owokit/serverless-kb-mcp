@@ -1,13 +1,13 @@
 ---
 name: organization-mainline-worktree
-description: 组织级 mainline/worktree 流程，先同步本地 main 再派生任务分支和 worktree。
+description: 组织级 mainline/worktree 流程，面向组织级共享仓库的模板与 skills 源，先同步本地 main 再派生任务分支和 worktree。
 ---
 
 # Mainline Worktree
 
 ## 目标
 
-默认以 `origin/main` 作为基线直接派生任务分支和 worktree。但在任何 worktree 创建动作之前，必须先把本地 `main` 切到最新并与 `origin/main` 对齐，确保当前基线是最新的。除非用户明确要求维护本地 `main`，否则不要把 `switch main` + `pull` 之外的步骤作为默认流程。
+默认以 `origin/main` 作为基线直接派生任务分支和 worktree。当前组织级共享仓库主要承载模板、流程约束和 skills 源文件，所以在任何 worktree 创建动作之前，必须先把本地 `main` 切到最新并与 `origin/main` 对齐，确保当前基线是最新的。除非用户明确要求维护本地 `main`，否则不要把 `switch main` + `pull` 之外的步骤作为默认流程。
 
 ## 执行顺序
 
@@ -23,6 +23,7 @@ description: 组织级 mainline/worktree 流程，先同步本地 main 再派生
    - 优先使用 `git worktree add <path> -b <branch> origin/main`
    - 如果使用其他基线，把最后一个参数替换成对应的 `origin/<branch>`
    - 不要为了创建 worktree 再去切换本地 `main`
+   - 创建完 worktree 后，如果仓库有 submodule，立即执行 `git submodule update --init --recursive`
 4. 创建后回显
    - 回显基线、分支名、worktree 路径
    - 简要说明命名为什么能表达任务内容
@@ -36,6 +37,7 @@ description: 组织级 mainline/worktree 流程，先同步本地 main 再派生
 - `slug` 统一写成：`<domain>[-<issue>]-<action>-<object>[-<constraint>]`
 - 有 issue 时优先带上编号
 - 同一任务的分支和路径必须共享同一个 `slug`
+- 对于当前组织级共享仓库，常见任务域应尽量体现 `docs`、`chore`、`infra`、`skill`、`template` 或 `sync`，不要用和实际工作无关的空泛名字。
 
 ## 示例
 
