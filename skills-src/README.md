@@ -17,7 +17,7 @@
 - 每个 skill 独立一个目录。
 - skill 目录内保留 `SKILL.md`、`references/`、`agents/`、`scripts/` 等配套文件。
 - 组织级源文件通过下游仓库的同步脚本或 subtree 引用消费。
-- 下游生成视图必须由 `skills-src/organization-skill-sync-policy/scripts/sync-ai.py` 从这里生成，不得手工编辑 `.agents/skills/` 或 `.claude/skills/`。
+- 下游生成视图必须由 `skills-src/organization/organization-skill-sync-policy/scripts/sync-ai.py` 从这里生成，不得手工编辑 `.agents/skills/` 或 `.claude/skills/`。
 
 ## 说明
 
