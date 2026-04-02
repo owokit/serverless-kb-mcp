@@ -10,6 +10,7 @@
 - `organization-check-pr`
 - `organization-docs-mcp-router`
 - `organization-bilingual-programming`
+- `organization-skill-sync-policy`
 
 ## 说明
 

@@ -1,7 +1,8 @@
 ---
-name: organization-skill-sync-policy
 description: 说明 skills-src 到 .agents/.claude 的生成约束，以及 `skills-src/organization-skill-sync-policy/scripts/sync-ai.py` 的标准用法。
+name: organization-skill-sync-policy
 ---
+
 
 # Skill Sync Policy
 

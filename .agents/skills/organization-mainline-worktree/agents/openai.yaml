@@ -1,4 +1,0 @@
-interface:
-  display_name: "Mainline Worktree 规范"
-  short_description: "默认从 origin/main 直接创建语义化 worktree"
-  default_prompt: "Use $mainline-worktree to create a semantic worktree and branch directly from origin/main, while handling name and path conflicts explicitly."
