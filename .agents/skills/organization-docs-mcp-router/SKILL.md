@@ -7,7 +7,7 @@ description: 组织级官方文档路由器，面向 AWS、Azure、Google、GitH
 
 ## 目的
 
-当用户询问某个受支持厂商的官方文档、API 行为、SDK 用法、示例、故障排查或发布说明时，使用这个 skill。优先使用第一方来源，不要凭记忆回答。
+当用户询问某个受支持厂商的官方文档、API 行为、SDK 用法、示例、故障排查或发布说明时，使用这个 skill。优先使用第一方来源，不要凭记忆回答。对于当前仓库自身的 issue / PR 模板、skills 源、同步策略和 `AGENTS.md`，先读仓库内源文件，再决定是否需要外部官方文档。
 
 ## 路由规则
 
@@ -15,6 +15,7 @@ description: 组织级官方文档路由器，面向 AWS、Azure、Google、GitH
 - Azure：先用 `mcp__microsoft_docs_mcp__microsoft_docs_search`，再用 `mcp__microsoft_docs_mcp__microsoft_docs_fetch`；需要代码示例时用 `mcp__microsoft_docs_mcp__microsoft_code_sample_search`。
 - Google：先用 `mcp__google_developer_knowledge__search_documents`，再用 `mcp__google_developer_knowledge__get_documents`。
 - GitHub：针对产品文档，使用 `mcp__github__search_code` 在官方 `github/docs` 仓库中检索，再用 `mcp__github__get_file_contents` 读取匹配页面。`issue/PR` 工具只用于仓库工作流问题。
+- GitHub：针对产品文档，使用 `mcp__github__search_code` 在官方 `github/docs` 仓库中检索，再用 `mcp__github__get_file_contents` 读取匹配页面。`issue/PR` 工具只用于仓库工作流问题；如果问题是当前仓库的模板或同步规则，先看本仓库源文件。
 - Cloudflare：使用 `mcp__cloudflare_docs_mcp__search_cloudflare_documentation`；进行 Pages 到 Workers 迁移时使用 `mcp__cloudflare_docs_mcp__migrate_pages_to_workers_guide`。
 - OpenAI：先用 `mcp__openaiDeveloperDocs__search_openai_docs`，再用 `mcp__openaiDeveloperDocs__fetch_openai_doc`；需要时再用 `mcp__openaiDeveloperDocs__list_openai_docs` 和 `mcp__openaiDeveloperDocs__get_openapi_spec`。
 - Anthropic：如果当前环境里存在专门的 Anthropic 文档 MCP，就优先使用；否则不要猜测，只能在允许浏览器回退时使用官方 Anthropic 文档站点。
