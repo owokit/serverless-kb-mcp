@@ -1,4 +1,4 @@
-# skills-organization
+# organization-skills
 
 这个仓库是组织级技能包的独立源仓库，保存完整的技能目录树，而不是只存 `SKILL.md`。
 
