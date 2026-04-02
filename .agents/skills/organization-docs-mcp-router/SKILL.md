@@ -1,8 +1,7 @@
 ---
-description: 组织级官方文档路由器，面向 AWS、Azure、Google、GitHub、Cloudflare、OpenAI 和 Anthropic。
 name: organization-docs-mcp-router
+description: 组织级官方文档路由器，面向 AWS、Azure、Google、GitHub、Cloudflare、OpenAI 和 Anthropic。
 ---
-
 
 # 文档 MCP 路由
 

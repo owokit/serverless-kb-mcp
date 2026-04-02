@@ -1,8 +1,7 @@
 ---
-description: 组织级 GitHub issue 优先工作流，先建 issue 再改代码，并强制使用仓库内模板。
 name: organization-github-issue-workflow
+description: 组织级 GitHub issue 优先工作流，先建 issue 再改代码，并强制使用仓库内模板。
 ---
-
 
 # GitHub Issue 工作流
 
