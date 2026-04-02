@@ -1,8 +1,7 @@
 ---
-description: 组织级 mainline/worktree 流程，先同步本地 main 再派生任务分支和 worktree。
 name: organization-mainline-worktree
+description: 组织级 mainline/worktree 流程，先同步本地 main 再派生任务分支和 worktree。
 ---
-
 
 # Mainline Worktree
 

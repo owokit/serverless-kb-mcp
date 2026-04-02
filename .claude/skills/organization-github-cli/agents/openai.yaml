@@ -1,0 +1,4 @@
+interface:
+  display_name: "GitHub CLI"
+  short_description: "gh CLI workflows for issues, PRs, branches, and runs"
+  default_prompt: "Use this skill when a task involves GitHub issues, PRs, branches, workflow runs, or gh commands."
