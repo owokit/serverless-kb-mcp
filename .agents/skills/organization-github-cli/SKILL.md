@@ -1,7 +1,8 @@
 ---
-name: organization-github-cli
 description: 组织级 GitHub CLI 通用操作技能，覆盖 issue、PR、分支、workflow/run 读取与评论写入。
+name: organization-github-cli
 ---
+
 
 # GitHub CLI
 

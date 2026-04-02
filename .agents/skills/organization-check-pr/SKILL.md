@@ -1,13 +1,8 @@
 ---
-name: organization-check-pr
 description: 组织级 GitHub PR 检查技能，覆盖 review comments、status checks 和描述完整性。
-license: MIT
-compatibility: Requires git and gh (GitHub CLI) installed and authenticated.
-metadata:
-  author: owokit
-  version: "1.0"
-allowed-tools: Bash(gh:*) Bash(git:*)
+name: organization-check-pr
 ---
+
 
 # Check PR
 

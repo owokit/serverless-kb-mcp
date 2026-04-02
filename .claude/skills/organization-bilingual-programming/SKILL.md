@@ -1,7 +1,8 @@
 ---
-name: organization-bilingual-programming
 description: 组织级双语编程规范，提供中英文交叉注释、UTF-8 编码和日志最优实践。
+name: organization-bilingual-programming
 ---
+
 
 # 双语编程技能
 

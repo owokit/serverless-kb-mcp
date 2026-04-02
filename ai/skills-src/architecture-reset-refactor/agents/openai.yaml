@@ -1,4 +1,4 @@
-interface:
+﻿interface:
   display_name: "Architecture Reset Refactor"
-  short_description: "Inspect architecture first, then refactor boldly."
-  default_prompt: "Use $architecture-reset-refactor to inspect the current architecture before coding and refactor aggressively when the existing structure is no longer suitable."
+  short_description: "Inspect architecture first, refactor aggressively, and apply Python bilingual comment rules when rewriting code."
+  default_prompt: "Use $architecture-reset-refactor to inspect the current architecture, remove old compatibility, and apply bilingual Python comment rules when editing Python files."

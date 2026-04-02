@@ -1,3 +1,10 @@
+﻿# AGENTS.md instructions for G:\GitProject\serverless-kb-mcp
+
+<INSTRUCTIONS>
+任何问题先拉最新的main分支到本地，使用worktree和github issue的skills，使用gh创建问题/提交PR等（简体中文描述），创建worktree后要拉取最新的main分支、git sub modules到本地。问题描述如下：
+
+--- project-doc ---
+
 # AGENTS.md
 
 本仓库把主要项目规则拆分到独立 skill，`AGENTS.md` 只保留总纲、结论和导航。
@@ -85,7 +92,7 @@
   - 适用于新建 worktree 前先同步本地 `main` 与 `origin/main`、创建任务分支和语义化命名。
 - versioned-s3-ingest
   - [ai/skills-src/versioned-s3-ingest/SKILL.md](ai/skills-src/versioned-s3-ingest/SKILL.md)
-  - 适用于 `S3 Versioning`、`S3 Event Notification`、`SQS ingest queue`、幂等、`object_state`、版本推进与旧版本治理。
+  - 适用于 `S3 Versioning`、`S3 Event Notification`、`SQS ingest queue`、对象版本身份、幂等、`object_state` 和入口治理。
 - check-pr
   - [ai/skills-src/organization/organization-check-pr/SKILL.md](ai/skills-src/organization/organization-check-pr/SKILL.md)
   - 适用于 GitHub PR 的未解决评论、状态检查、描述完整性和回评修复。
@@ -100,13 +107,10 @@
   - 适用于设计或修改代码前先梳理仓库结构、职责边界、文件落位和实施顺序，避免实现发散。
 - architecture-reset-refactor
   - [ai/skills-src/architecture-reset-refactor/SKILL.md](ai/skills-src/architecture-reset-refactor/SKILL.md)
-  - 适用于用户明确允许不考虑旧兼容性时，先审视当前架构，再按当前最优结构做大规模重构与目录重排。
+  - 适用于先审视架构、再做强重构，并在 Python 文件中同步执行双语注释与 docstring 规范；已合并 `python-bilingual-comments` 的规则，不再单独保留。
 - durable-s3-embed-pipeline
   - [ai/skills-src/durable-s3-embed-pipeline/SKILL.md](ai/skills-src/durable-s3-embed-pipeline/SKILL.md)
   - 适用于最小可用的 `S3 Event Notification -> SQS -> Ingest Lambda -> Step Functions Standard -> SQS -> Embed Lambda` 架构设计、资源拆分、职责边界和带序号时序图说明。
-- python-bilingual-comments
-  - [ai/skills-src/python-bilingual-comments/SKILL.md](ai/skills-src/python-bilingual-comments/SKILL.md)
-  - 适用于当前 Python 项目的模块 docstring、类注释、函数注释、方法注释、块注释和行内注释双语规范，要求英文一行、中文一行逐行对应。
 - docs-mcp-router
   - [ai/skills-src/organization/organization-docs-mcp-router/SKILL.md](ai/skills-src/organization/organization-docs-mcp-router/SKILL.md)
   - 将 AWS、Azure、Google、GitHub、Cloudflare、OpenAI 和 Anthropic 的文档问题路由到对应的官方 MCP 或第一方文档来源。
@@ -124,15 +128,6 @@
 - 当前推荐形态是“一个对外入口 Lambda + 内部多职责运行时”：对外入口固定为 `Ingest Lambda`，内部仍拆分为 `ingest lambda`、`extract workflow lambdas` 和 `embed lambda`。
 - Ingest 阶段负责承接 `S3` 事件、解析 `bucket/key/version_id/sequencer`、执行幂等与乱序拦截预检查，并启动 `Step Functions Standard`。
 - `Step Functions Standard` 负责提交 `PaddleOCR` job、`Wait`、查询 job 状态、拉取 `resultUrl/jsonUrl`、生成 manifest/chunks/assets、写入 manifest bucket、推进 `object_state`/`manifest_index` 并投递 embed job。
-- `PaddleOCR` 当前公开异步接口不按 callback token 或 webhook 建模，默认采用 `submit -> Wait -> query -> done -> fetch resultUrl/jsonUrl`。
-- Embed 阶段负责消费 `EMBED_QUEUE_URL`、调用 embedding provider、写入 `S3 Vectors`，并在多次失败后进入 `DLQ`。
-- 多模型 embedding 当前推荐形态是“共享 manifest、按 profile 扇出 embedding job、按 profile 写入独立 vector index、查询层做融合召回”。
-- `embedding profile` 至少绑定 `provider`、`model`、`dimension`、`supported_content_kinds`、`vector_bucket/index` 和 query/write 开关。
-- 同一个 `S3 Vectors index` 只允许承载同一 `embedding profile` 的向量，不允许混存不同 provider、model、dimension 或 embedding space。
-- 查询层如同时使用多个 profile，必须先分 profile 召回，再在应用层做融合排序；不得直接比较不同 profile 的原始 distance。
-- `object_state` 继续负责对象版本主状态；多 profile 的 embedding 就绪与失败状态应拆分到独立 projection/profile 状态，不要继续复用单一 `embed_status` 表达全部 profile。
-- 当前查询闭环仍然是 `S3 Vectors -> manifest_s3_uri -> chunk neighbors` 做结果反查。
-- 当前 query service 必须再校验 `object_state.latest_version_id`，作为向量层治理之外的兜底校验。
 - `PaddleOCR` 使用 API。
 - `OpenAI Embedding` 是当前默认 embedding 模式，该仓库默认使用 `Azure OpenAI` 兼容 API。
 - `DynamoDB` 当前属于必需基础设施，用于幂等、版本隔离、状态推进、失败补偿和 chunk 反查。
