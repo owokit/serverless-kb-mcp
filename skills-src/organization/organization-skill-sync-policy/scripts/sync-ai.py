@@ -2,7 +2,7 @@
 """
 Synchronize organization skill source trees into tool-specific generated views.
 
-This repository keeps the authoritative skill sources under `skills-src/`.
+This repository keeps the authoritative skill sources under `skills-src/organization/`.
 The generated views are committed so Codex and Claude Code can consume them
 without knowing about the source layout:
 
@@ -25,12 +25,12 @@ ORG_PREFIX = "organization"
 
 
 def find_repo_root(start_dir: Path) -> Path:
-    """Find the repository root by walking upward until `skills-src/` exists."""
+    """Find the repository root by walking upward until `skills-src/organization/` exists."""
     for candidate in [start_dir, *start_dir.parents]:
-        if (candidate / "skills-src").is_dir():
+        if (candidate / "skills-src" / "organization").is_dir():
             return candidate
     raise FileNotFoundError(
-        f"Unable to locate repository root from {start_dir}; expected a parent containing skills-src/"
+        f"Unable to locate repository root from {start_dir}; expected a parent containing skills-src/organization/"
     )
 
 
@@ -62,7 +62,7 @@ def clear_generated_dir(dst_dir: Path) -> None:
 
 def copy_skill_tree(src_root: Path, dst_root: Path, repo_root: Path) -> None:
     """Copy one skill tree from the source root into a generated view."""
-    relative_root = src_root.relative_to(repo_root / "skills-src")
+    relative_root = src_root.relative_to(repo_root / "skills-src" / "organization")
     destination = dst_root / relative_root
     shutil.copytree(src_root, destination, dirs_exist_ok=True)
     print(f"Copied {relative_root.as_posix()} -> {destination.relative_to(repo_root)}")
@@ -93,7 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repo-root",
         default=None,
-        help="Repository root. Defaults to the nearest parent that contains skills-src/.",
+        help="Repository root. Defaults to the nearest parent that contains skills-src/organization/.",
     )
     return parser
 
@@ -104,7 +104,7 @@ def main() -> int:
     script_root = Path(__file__).resolve().parent
     repo_root = Path(args.repo_root).resolve() if args.repo_root else find_repo_root(script_root)
 
-    src_dir = repo_root / "skills-src"
+    src_dir = repo_root / "skills-src" / "organization"
     agents_dir = repo_root / ".agents" / "skills"
     claude_dir = repo_root / ".claude" / "skills"
 
