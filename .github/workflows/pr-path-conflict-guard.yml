@@ -37,7 +37,7 @@ jobs:
       # CN: 直接解析目标 PR，不检出任何不可信分支内容。
       - name: Inspect open PR paths
         id: scan
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
