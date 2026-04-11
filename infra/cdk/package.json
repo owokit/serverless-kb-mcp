@@ -5,7 +5,8 @@
     "synth": "cdk --app \"npx ts-node bin/app.ts\" synth",
     "diff": "cdk --app \"npx ts-node bin/app.ts\" diff",
     "deploy": "cdk --app \"npx ts-node bin/app.ts\" deploy --all --method direct --concurrency 3 --require-approval never --progress events",
-    "destroy": "cdk --app \"npx ts-node bin/app.ts\" destroy --all --force --progress events"
+    "destroy": "cdk --app \"npx ts-node bin/app.ts\" destroy --all --force --progress events",
+    "test": "node --require ts-node/register/transpile-only --test test/app.synth.test.ts test/compute-stack.contract.test.ts"
   },
   "dependencies": {
     "aws-cdk": "^2.1113.0",

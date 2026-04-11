@@ -1,0 +1,199 @@
+# EN: Nightly and manual AWS smoke that validates OIDC-based deployment, discovery, and ingest start boundaries.
+# CN: 通过 OIDC 部署、discovery 和 ingest 启动边界进行夜间与手动 AWS smoke 验证。
+name: AWS Smoke
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  release:
+    types:
+      - published
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-smoke-${{ github.event.release.id || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    # EN: Deploy the minimal stack set, exercise the public discovery endpoint, and start one ingest execution.
+    # CN: 部署最小栈集合，验证公开 discovery endpoint，并启动一次 ingest 执行。
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_SMOKE_ROLE_ARN: ${{ vars.AWS_SMOKE_ROLE_ARN }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up runtime
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-node: 'true'
+          setup-python: 'true'
+
+      - name: Sync Python tooling
+        run: |
+          set -euo pipefail
+          uv sync --locked --project ocr-service
+
+      - name: Install CDK dependencies
+        working-directory: infra/cdk
+        run: |
+          set -euo pipefail
+          npm ci
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_SMOKE_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Capture AWS account id
+        run: |
+          set -euo pipefail
+          AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          echo "AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID" >> "$GITHUB_ENV"
+
+      - name: Export CDK bootstrap account
+        run: |
+          set -euo pipefail
+          echo "CDK_DEFAULT_ACCOUNT=$AWS_ACCOUNT_ID" >> "$GITHUB_ENV"
+
+      - name: Deploy smoke baseline stacks
+        working-directory: infra/cdk
+        run: |
+          set -euo pipefail
+          npm run deploy -- --outputs-file ../../aws-smoke-outputs.json
+
+      - name: Resolve smoke outputs and derive ingest lambda name
+        id: smoke-outputs
+        run: |
+          set -euo pipefail
+          uv run --project ocr-service python <<'PY'
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+
+          repo_root = Path.cwd()
+          config = json.loads((repo_root / 'infra' / 'pipeline-config.json').read_text(encoding='utf-8'))
+          outputs = json.loads((repo_root / 'aws-smoke-outputs.json').read_text(encoding='utf-8'))
+          account = os.environ.get('AWS_ACCOUNT_ID') or ''
+          region = os.environ.get('AWS_REGION') or ''
+          suffix = f'{account}-{region}' if config.get('name_suffix') == 'auto' else str(config.get('name_suffix') or '')
+          ingest_name = config['resource_names']['ingest_lambda']
+          if suffix:
+              ingest_name = f'{ingest_name}-{suffix}'
+          foundation_key = next(key for key in outputs if key.endswith('-foundation'))
+          api_key = next(key for key in outputs if key.endswith('-api'))
+          foundation = outputs[foundation_key]
+          api = outputs[api_key]
+          smoke = {
+              'source_bucket': foundation['SourceBucketName'],
+              'remote_mcp_api_url': api['RemoteMcpApiUrl'],
+              'ingest_lambda_name': ingest_name,
+          }
+          (repo_root / 'aws-smoke-resolved.json').write_text(json.dumps(smoke, ensure_ascii=False, indent=2), encoding='utf-8')
+          print(json.dumps(smoke, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload a minimal smoke document
+        run: |
+          set -euo pipefail
+          uv run --project ocr-service python <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+          import subprocess
+          
+          repo_root = Path.cwd()
+          smoke = json.loads((repo_root / 'aws-smoke-resolved.json').read_text(encoding='utf-8'))
+          smoke_doc = repo_root / 'aws-smoke-minimal.md'
+          smoke_doc.write_text('# Smoke document\n\nThis document verifies the live ingest upload boundary.\n', encoding='utf-8')
+          subprocess.run([
+              'aws', 's3', 'cp', str(smoke_doc), f"s3://{smoke['source_bucket']}/smoke/aws-smoke-minimal.md"
+          ], check=True)
+          print(smoke['source_bucket'])
+          PY
+
+      - name: Invoke ingest lambda and verify execution start
+        run: |
+          set -euo pipefail
+          uv run --project ocr-service python <<'PY'
+          from __future__ import annotations
+
+          import json
+          import subprocess
+          from pathlib import Path
+
+          repo_root = Path.cwd()
+          smoke = json.loads((repo_root / 'aws-smoke-resolved.json').read_text(encoding='utf-8'))
+          event = {
+              'Records': [
+                  {
+                      'eventVersion': '2.1',
+                      'eventSource': 'aws:s3',
+                      'eventName': 'ObjectCreated:Put',
+                      's3': {
+                          'bucket': {'name': smoke['source_bucket']},
+                          'object': {
+                              'key': 'smoke/aws-smoke-minimal.md',
+                              'versionId': 'live-smoke-v1',
+                              'sequencer': '001',
+                          },
+                      },
+                  }
+              ]
+          }
+          payload = repo_root / 'aws-smoke-event.json'
+          response = repo_root / 'aws-smoke-response.json'
+          payload.write_text(json.dumps(event, ensure_ascii=False), encoding='utf-8')
+          subprocess.run([
+              'aws', 'lambda', 'invoke',
+              '--function-name', smoke['ingest_lambda_name'],
+              '--payload', f'file://{payload}',
+              str(response),
+          ], check=True)
+          result = json.loads(response.read_text(encoding='utf-8'))
+          if result.get('started_count', 0) < 1:
+              raise SystemExit(f'Ingest lambda did not start an execution: {result!r}')
+          if result.get('batchItemFailures'):
+              raise SystemExit(f'Ingest lambda reported failures for the smoke document: {result!r}')
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Probe the remote MCP discovery endpoint
+        run: |
+          set -euo pipefail
+          uv run --project ocr-service python <<'PY'
+          from __future__ import annotations
+
+          import json
+          import subprocess
+          from pathlib import Path
+
+          repo_root = Path.cwd()
+          smoke = json.loads((repo_root / 'aws-smoke-resolved.json').read_text(encoding='utf-8'))
+          discovery_url = smoke['remote_mcp_api_url'].rstrip('/') + '/mcp'
+          response = subprocess.run(['curl', '-fsS', discovery_url], check=True, capture_output=True, text=True)
+          document = json.loads(response.stdout)
+          if document.get('endpoint') != '/mcp':
+              raise SystemExit(f'Unexpected discovery document: {document!r}')
+          if document.get('protocolVersion') != '2024-11-05':
+              raise SystemExit(f'Unexpected protocolVersion: {document!r}')
+          print(json.dumps(document, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Cleanup smoke resources
+        if: always()
+        working-directory: infra/cdk
+        run: |
+          set -euo pipefail
+          npm run destroy
