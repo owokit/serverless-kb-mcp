@@ -75,6 +75,8 @@ class _FakeFactory:
 def test_ingest_local_integration_starts_create_execution_and_cleanup_execution(monkeypatch) -> None:
     repo = _ObjectStateRepo()
     stepfunctions = _StepFunctions()
+    create_event = deep_copy_event(S3_CREATE_EVENT)
+    create_event["Records"][0]["s3"]["object"]["sequencer"] = "010"
     delete_plan = {
         "document_uri": "s3://source-bucket/docs/guide.pdf?versionId=delete-v1",
         "object_pk": repo.lookup.object_pk,
@@ -98,7 +100,7 @@ def test_ingest_local_integration_starts_create_execution_and_cleanup_execution(
     monkeypatch.setattr(ingest_entrypoint, "build_ingest_workflow_starter", factory)
     monkeypatch.setattr(ingest_entrypoint, "emit_trace", lambda *args, **kwargs: None)
 
-    create_result = ingest_entrypoint.lambda_handler(deep_copy_event(S3_CREATE_EVENT), make_lambda_context())
+    create_result = ingest_entrypoint.lambda_handler(create_event, make_lambda_context())
     delete_result = ingest_entrypoint.lambda_handler(deep_copy_event(S3_DELETE_EVENT), make_lambda_context())
 
     assert factory.calls and factory.calls[0] is not None

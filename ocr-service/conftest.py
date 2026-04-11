@@ -56,6 +56,26 @@ if "awslabs.mcp_lambda_handler" not in sys.modules:
     sys.modules["awslabs.mcp_lambda_handler.session"] = session_module
 
 
+def _clear_packaging_staging_cache() -> None:
+    """EN: Clear the shared Lambda packaging staging cache between tests.
+    CN: 在测试之间清空共享的 Lambda packaging staging 缓存。"""
+    try:
+        package_lambda = __import__("package_lambda")
+    except Exception:
+        return
+
+    cache = getattr(package_lambda, "_SHARED_STAGING_CACHE", None)
+    if not isinstance(cache, dict):
+        return
+
+    for shared in cache.values():
+        tempdir = getattr(shared, "tempdir", None)
+        cleanup = getattr(tempdir, "cleanup", None)
+        if callable(cleanup):
+            cleanup()
+    cache.clear()
+
+
 collect_ignore_glob = [
     "ocr-pipeline/tests/integration/*.py",
     "ocr-pipeline/tests/unit/runtime/*.py",
@@ -94,6 +114,8 @@ def _runtime_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AWS_ENDPOINT_URL_S3_VECTORS", raising=False)
     monkeypatch.delenv("EMBEDDING_PROFILES_JSON", raising=False)
 
+    _clear_packaging_staging_cache()
+
     for module_path, attribute in (
         ("serverless_mcp.runtime.config", "load_settings"),
         ("serverless_mcp.runtime.config", "_pipeline_defaults_for_path"),
@@ -108,4 +130,8 @@ def _runtime_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
         cache_clear = getattr(target, "cache_clear", None)
         if callable(cache_clear):
             cache_clear()
+
+    yield
+
+    _clear_packaging_staging_cache()
 
