@@ -28,12 +28,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - scenario: storage_roundtrip
-            report: local-integration-storage-roundtrip-report.json
-          - scenario: aws_roundtrip
-            report: local-integration-aws-roundtrip-report.json
+          - scenario: ingest_stubbed_aws
+            report: local-integration-ingest-stubbed-aws-report.json
+          - scenario: emulator_roundtrip
+            report: local-integration-emulator-roundtrip-report.json
           - scenario: sam_job_status
             report: local-integration-sam-job-status-report.json
+          - scenario: remote_mcp_frontdoor
+            report: local-integration-remote-mcp-report.json
           - scenario: stepfunctions_local
             report: local-integration-stepfunctions-report.json
           - scenario: vector_backend
@@ -73,7 +75,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -283,15 +285,99 @@ jobs:
             -e SFN_MOCK_CONFIG=/home/StepFunctionsLocal/MockConfigFile.json \
             amazon/aws-stepfunctions-local
 
-      - name: Run storage roundtrip scenario
-        id: storage_roundtrip
-        if: matrix.scenario == 'storage_roundtrip'
-        run: uv run --project ocr-service python -m pytest -q ocr-service/ocr-pipeline/tests/integration/test_hosted_runner_storage_roundtrip.py --maxfail=1
+      - name: Run ingest stubbed AWS scenario
+        id: ingest_stubbed_aws
+        if: matrix.scenario == 'ingest_stubbed_aws'
+        run: uv run --project ocr-service python -m pytest -q ocr-service/ocr-pipeline/tests/local_integration/test_ingest_with_stubbed_aws.py --maxfail=1
 
-      - name: Run AWS roundtrip scenario
-        id: aws_roundtrip
-        if: matrix.scenario == 'aws_roundtrip'
-        run: uv run --project ocr-service python -m pytest -q ocr-service/ocr-pipeline/tests/integration/test_hosted_runner_aws_roundtrip.py --maxfail=1
+      - name: Run emulator roundtrip scenario
+        id: emulator_roundtrip
+        if: matrix.scenario == 'emulator_roundtrip'
+        run: |
+          set -euo pipefail
+          uv run --project ocr-service python <<'PY'
+          from __future__ import annotations
+
+          import os
+          import uuid
+
+          from botocore.exceptions import ClientError
+
+          from serverless_mcp.runtime.aws_clients import build_aws_client
+
+          region = os.environ.get('TEST_AWS_REGION', 'us-east-1')
+          s3_bucket = os.environ['TEST_S3_BUCKET']
+          object_state_table = os.environ['TEST_OBJECT_STATE_TABLE']
+          manifest_index_table = os.environ['TEST_MANIFEST_INDEX_TABLE']
+          queue_name = os.environ.get('TEST_SQS_QUEUE_NAME', 'local-roundtrip-queue')
+
+          s3_client = build_aws_client('s3', region_name=region)
+          dynamodb_client = build_aws_client('dynamodb', region_name=region)
+          sqs_client = build_aws_client('sqs', region_name=region)
+
+          try:
+              s3_client.create_bucket(Bucket=s3_bucket)
+          except ClientError as exc:
+              code = str(exc.response.get('Error', {}).get('Code') or '')
+              if code not in {'BucketAlreadyOwnedByYou', 'BucketAlreadyExists'}:
+                  raise
+          try:
+              s3_client.put_bucket_versioning(
+                  Bucket=s3_bucket,
+                  VersioningConfiguration={'Status': 'Enabled'},
+              )
+          except ClientError:
+              pass
+
+          s3_client.put_object(Bucket=s3_bucket, Key='checks/local-roundtrip.txt', Body=b'local roundtrip', ContentType='text/plain')
+          roundtrip_object = s3_client.get_object(Bucket=s3_bucket, Key='checks/local-roundtrip.txt')
+          if roundtrip_object['Body'].read() != b'local roundtrip':
+              raise SystemExit('S3 emulator roundtrip failed')
+
+          existing_tables = set(dynamodb_client.list_tables().get('TableNames') or [])
+          if object_state_table not in existing_tables:
+              dynamodb_client.create_table(
+                  TableName=object_state_table,
+                  KeySchema=[{'AttributeName': 'pk', 'KeyType': 'HASH'}],
+                  AttributeDefinitions=[
+                      {'AttributeName': 'pk', 'AttributeType': 'S'},
+                      {'AttributeName': 'record_type', 'AttributeType': 'S'},
+                  ],
+                  GlobalSecondaryIndexes=[
+                      {
+                          'IndexName': 'lookup-record-type-index',
+                          'KeySchema': [{'AttributeName': 'record_type', 'KeyType': 'HASH'}],
+                          'Projection': {'ProjectionType': 'ALL'},
+                      }
+                  ],
+                  BillingMode='PAY_PER_REQUEST',
+              )
+          if manifest_index_table not in existing_tables:
+              dynamodb_client.create_table(
+                  TableName=manifest_index_table,
+                  KeySchema=[
+                      {'AttributeName': 'pk', 'KeyType': 'HASH'},
+                      {'AttributeName': 'sk', 'KeyType': 'RANGE'},
+                  ],
+                  AttributeDefinitions=[
+                      {'AttributeName': 'pk', 'AttributeType': 'S'},
+                      {'AttributeName': 'sk', 'AttributeType': 'S'},
+                  ],
+                  BillingMode='PAY_PER_REQUEST',
+              )
+          dynamodb_client.put_item(TableName=object_state_table, Item={'pk': {'S': 'local#item'}, 'latest_version_id': {'S': 'v1'}})
+          stored = dynamodb_client.get_item(TableName=object_state_table, Key={'pk': {'S': 'local#item'}})
+          if stored.get('Item', {}).get('latest_version_id', {}).get('S') != 'v1':
+              raise SystemExit('DynamoDB emulator roundtrip failed')
+
+          queue_url = sqs_client.create_queue(QueueName=f"{queue_name}-{uuid.uuid4().hex[:8]}")["QueueUrl"]
+          sqs_client.send_message(QueueUrl=queue_url, MessageBody='local message')
+          message_response = sqs_client.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=1)
+          messages = message_response.get('Messages') or []
+          if len(messages) != 1 or messages[0]['Body'] != 'local message':
+              raise SystemExit('SQS emulator roundtrip failed')
+          sqs_client.delete_message(QueueUrl=queue_url, ReceiptHandle=messages[0]['ReceiptHandle'])
+          PY
 
       - name: Run SAM job status smoke
         id: sam_job_status
@@ -557,7 +643,7 @@ jobs:
         if: always()
         env:
           SCENARIO_NAME: ${{ matrix.scenario }}
-          SCENARIO_OUTCOME: ${{ steps.storage_roundtrip.outcome || steps.aws_roundtrip.outcome || steps.sam_job_status.outcome || steps.remote_mcp_frontdoor.outcome || steps.stepfunctions_local.outcome || steps.vector_backend.outcome }}
+          SCENARIO_OUTCOME: ${{ steps.ingest_stubbed_aws.outcome || steps.emulator_roundtrip.outcome || steps.sam_job_status.outcome || steps.remote_mcp_frontdoor.outcome || steps.stepfunctions_local.outcome || steps.vector_backend.outcome }}
           REPORT_PATH: ${{ matrix.report }}
         run: |
           set -euo pipefail
@@ -572,8 +658,10 @@ jobs:
           outcome = os.environ.get("SCENARIO_OUTCOME", "success")
           report_path = Path(os.environ["REPORT_PATH"])
           artifacts_by_scenario = {
-              "storage_roundtrip": [],
-              "aws_roundtrip": [],
+              "ingest_stubbed_aws": [
+                  "ocr-service/ocr-pipeline/tests/local_integration/test_ingest_with_stubbed_aws.py",
+              ],
+              "emulator_roundtrip": [],
               "sam_job_status": [
                   ".github/ci/sam-local-staging",
                   ".github/ci/sam-job-status-template.yaml",

@@ -1,0 +1,154 @@
+# EN: Fast PR validation for tests, packaging smoke, CDK synth contract, and workflow hygiene.
+# CN: 用于测试、打包冒烟、CDK synth 契约和 workflow 卫生检查的快速 PR 校验。
+name: PR Validate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-validate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  workflow-lint:
+    # EN: Verify workflow inventory, shared runtime wiring, and basic shell safety before running heavier checks.
+    # CN: 在运行更重的检查之前，先验证 workflow 清单、共享 runtime 绑定和基础 shell 安全。
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up runtime
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-python: 'true'
+
+      - name: Sync Python tooling
+        run: |
+          set -euo pipefail
+          uv sync --locked --project ocr-service
+
+      - name: Validate workflow inventory and runtime wiring
+        run: |
+          set -euo pipefail
+          uv run --project ocr-service python ocr-service/tools/ci/validate_workflows.py
+
+      - name: Check workflow shell safety patterns
+        run: |
+          set -euo pipefail
+          uv run --project ocr-service python <<'PY'
+          from __future__ import annotations
+
+          from pathlib import Path
+          import re
+
+          workflows = Path('.github/workflows')
+          forbidden = {
+              r'curl\s+[^\n]*\|\s*bash': 'curl | bash',
+              r'wget\s+[^\n]*\|\s*bash': 'wget | bash',
+              r'rm\s+-rf\s+/': 'rm -rf /',
+              r'\beval\s+': 'eval',
+          }
+          violations: list[str] = []
+          for path in sorted(workflows.glob('*.yml')):
+              text = path.read_text(encoding='utf-8')
+              for pattern, label in forbidden.items():
+                  if re.search(pattern, text):
+                      violations.append(f'{path.name}: {label}')
+          if violations:
+              raise SystemExit('Unsafe workflow shell pattern(s) found:\n' + '\n'.join(violations))
+          print('Workflow shell safety scan passed')
+          PY
+
+  python-boundary-tests:
+    # EN: Run the new Python unit, contract, and local integration layers without live AWS or network access.
+    # CN: 在不接触真实 AWS 和网络的情况下运行新的 Python unit、contract 和 local integration 分层。
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up runtime
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-python: 'true'
+
+      - name: Sync Python tooling
+        run: |
+          set -euo pipefail
+          uv sync --locked --project ocr-service
+
+      - name: Run boundary-driven Python tests
+        run: |
+          set -euo pipefail
+          uv run --project ocr-service python -m pytest -q \
+            ocr-service/ocr-pipeline/tests/unit/test_runtime_config.py \
+            ocr-service/ocr-pipeline/tests/unit/test_runtime_aws_clients.py \
+            ocr-service/ocr-pipeline/tests/unit/test_runtime_bootstrap.py \
+            ocr-service/ocr-pipeline/tests/unit/test_entrypoint_ingest.py \
+            ocr-service/ocr-pipeline/tests/unit/test_runtime_ingest.py \
+            ocr-service/ocr-pipeline/tests/unit/test_mcp_gateway_handler.py \
+            ocr-service/ocr-pipeline/tests/unit/test_lambda_wrappers_registry.py \
+            ocr-service/ocr-pipeline/tests/unit/test_package_lambda_unit.py \
+            ocr-service/ocr-pipeline/tests/contract/test_public_entrypoints_contract.py \
+            ocr-service/ocr-pipeline/tests/contract/test_lambda_package_smoke.py \
+            ocr-service/ocr-pipeline/tests/contract/test_remote_mcp_discovery_contract.py \
+            ocr-service/ocr-pipeline/tests/contract/test_environment_contract.py \
+            ocr-service/ocr-pipeline/tests/local_integration/test_ingest_with_stubbed_aws.py \
+            -m 'not requires_network and not requires_aws' \
+            --maxfail=1
+
+  lambda-packaging-smoke:
+    # EN: Run a narrow packaging smoke lane so ZIP composition failures are isolated from broader test failures.
+    # CN: 运行窄范围的打包冒烟泳道，把 ZIP 组成失败与更广泛的测试失败隔离开来。
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up runtime
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-python: 'true'
+
+      - name: Sync Python tooling
+        run: |
+          set -euo pipefail
+          uv sync --locked --project ocr-service
+
+      - name: Run packaging smoke tests
+        run: |
+          set -euo pipefail
+          uv run --project ocr-service python -m pytest -q \
+            ocr-service/ocr-pipeline/tests/unit/test_package_lambda_unit.py \
+            ocr-service/ocr-pipeline/tests/contract/test_lambda_package_smoke.py \
+            --maxfail=1
+
+  cdk-synth-contract:
+    # EN: Verify the CDK app can synthesize and that the key stack outputs remain stable.
+    # CN: 验证 CDK app 能够 synth，并且关键 stack 输出保持稳定。
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up runtime
+        uses: ./.github/actions/setup-runtime
+        with:
+          setup-node: 'true'
+
+      - name: Install CDK dependencies
+        working-directory: infra/cdk
+        run: |
+          set -euo pipefail
+          npm ci
+
+      - name: Run CDK contract tests
+        working-directory: infra/cdk
+        run: |
+          set -euo pipefail
+          npm test

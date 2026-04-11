@@ -52,6 +52,8 @@ EXPECTED_WORKFLOWS = {
     "docs-ci.yml",
     "security-ci.yml",
     "package-release.yml",
+    "pr-validate.yml",
+    "aws-smoke.yml",
     "prod-deploy.yml",
     "destroy.yml",
     "ai-skills-sync.yml",
@@ -77,6 +79,8 @@ EXPECTED_NAMES = {
     "docs-ci.yml": "Docs CI",
     "security-ci.yml": "Security CI",
     "package-release.yml": "Package Release",
+    "pr-validate.yml": "PR Validate",
+    "aws-smoke.yml": "AWS Smoke",
     "prod-deploy.yml": "Prod Deploy",
     "destroy.yml": "Destroy",
     "ai-skills-sync.yml": "AI Skills Sync",
@@ -120,6 +124,8 @@ EXPECTED_TRIGGER_REQUIREMENTS = {
     "docs-ci.yml": {"pull_request", "workflow_dispatch"},
     "security-ci.yml": {"workflow_run", "workflow_dispatch"},
     "package-release.yml": {"workflow_run", "workflow_dispatch"},
+    "pr-validate.yml": {"pull_request", "workflow_dispatch"},
+    "aws-smoke.yml": {"schedule", "release", "workflow_dispatch"},
     "prod-deploy.yml": {"workflow_dispatch"},
     "destroy.yml": {"workflow_dispatch"},
     "ai-skills-sync.yml": {"pull_request"},
@@ -233,7 +239,7 @@ def main() -> int:
         pytest_ini = ""
     else:
         pytest_ini = pytest_ini_path.read_text(encoding="utf-8")
-    for marker in ("logic", "contract", "integration", "requires_network", "requires_aws"):
+    for marker in ("logic", "contract", "local_integration", "integration", "requires_network", "requires_aws", "aws_smoke"):
         if marker not in pytest_ini:
             errors.append(f"pytest.ini is missing marker {marker!r}")
 

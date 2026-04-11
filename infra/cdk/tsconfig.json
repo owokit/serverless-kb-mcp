@@ -6,7 +6,6 @@
     "strict": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
-    "types": ["node"],
     "ignoreDeprecations": "6.0",
     "skipLibCheck": true,
     "rootDir": ".",
