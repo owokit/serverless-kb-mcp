@@ -51,7 +51,7 @@ jobs:
               r'curl\s+[^\n]*\|\s+bash': 'curl-to-bash pipeline',
               r'wget\s+[^\n]*\|\s+bash': 'wget-to-bash pipeline',
               r'rm\s+-rf\s+/': 'recursive-root-delete',
-              r'\beval\s+': 'eval usage',
+              r'\beval\s+': 'expression execution usage',
           }
           violations: list[str] = []
           for path in sorted(workflows.glob('*.yml')):
