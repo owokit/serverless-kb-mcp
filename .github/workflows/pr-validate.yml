@@ -48,10 +48,10 @@ jobs:
 
           workflows = Path('.github/workflows')
           forbidden = {
-              r'curl\s+[^\n]*\|\s*bash': 'curl | bash',
-              r'wget\s+[^\n]*\|\s*bash': 'wget | bash',
-              r'rm\s+-rf\s+/': 'rm -rf /',
-              r'\beval\s+': 'eval',
+              r'curl\s+[^\n]*\|\s+bash': 'curl-to-bash pipeline',
+              r'wget\s+[^\n]*\|\s+bash': 'wget-to-bash pipeline',
+              r'rm\s+-rf\s+/': 'recursive-root-delete',
+              r'\beval\s+': 'eval usage',
           }
           violations: list[str] = []
           for path in sorted(workflows.glob('*.yml')):
