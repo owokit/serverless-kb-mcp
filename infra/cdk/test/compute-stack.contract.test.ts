@@ -51,7 +51,9 @@ test('compute stack exposes only the contract outputs needed by deploy and smoke
   assert.ok(template.Outputs.StateMachineArn.Value);
   assert.ok(template.Outputs.CleanupStateMachineArn.Value);
   assert.ok(template.Outputs.RemoteMcpLambdaArn.Value);
-  assert.equal(artifact.dependencies.length, 1);
+  const dependencyIds = artifact.dependencies.map((dependency: any) => dependency.id);
+  assert.equal(dependencyIds.length, 2);
+  assert.ok(dependencyIds.some((id: string) => id.endsWith('.assets')));
 });
 
 export {};

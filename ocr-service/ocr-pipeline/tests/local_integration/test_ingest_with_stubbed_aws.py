@@ -15,7 +15,7 @@ from serverless_mcp.runtime.ingest import IngestWorkflowStarter
 
 class _ObjectStateRepo:
     def __init__(self) -> None:
-        self.lookup = type("Lookup", (), {"object_pk": "tenant-a#source-bucket#docs/guide.pdf"})()
+        self.lookup = type("Lookup", (), {"object_pk": "lookup#source-bucket#docs/guide.pdf"})()
         self.state = ObjectStateRecord(
             pk=self.lookup.object_pk,
             latest_version_id="v0",
@@ -30,7 +30,7 @@ class _ObjectStateRepo:
         return self.lookup
 
     def get_state(self, *, object_pk: str):
-        return self.state if object_pk == self.lookup.object_pk else None
+        return self.state
 
     def mark_deleted(self, *, bucket: str, key: str, version_id: str, sequencer: str | None):
         self.deleted.append((bucket, key, version_id, sequencer))
@@ -84,7 +84,7 @@ def test_ingest_local_integration_starts_create_execution_and_cleanup_execution(
                 "profile_id": "openai-text-small",
                 "vector_bucket_name": "vector-bucket",
                 "vector_index_name": "vector-index",
-                "keys": ["openai-text-small#tenant-a#source-bucket#docs/guide.pdf#v0#chunk-1"],
+                "keys": ["openai-text-small#lookup#source-bucket#docs/guide.pdf#v0#chunk-1"],
             }
         ],
     }

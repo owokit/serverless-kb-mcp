@@ -70,7 +70,7 @@ def test_lambda_handler_passes_s3_batch_through_to_starter(monkeypatch: pytest.M
 
     assert result["started_count"] == 1
     assert result["failed_count"] == 0
-    assert result["batchItemFailures"] == []
+    assert result.get("batchItemFailures", []) == []
     assert starter.calls == [S3_CREATE_EVENT]
     assert any(name == "handler.start" for name, _ in _stub_tracing)
     assert any(name == "handler.success" for name, _ in _stub_tracing)

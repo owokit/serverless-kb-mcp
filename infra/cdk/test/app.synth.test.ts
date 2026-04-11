@@ -93,9 +93,10 @@ test('app synth emits the public stack outputs and stable stack artifact names',
   assert.ok(computeTemplate.Outputs.RemoteMcpLambdaArn.Value);
   assert.ok(apiTemplate.Outputs.RemoteMcpApiUrl.Value);
 
+  const computeDependencyIds = computeArtifact.dependencies.map((dependency: any) => dependency.id);
   assert.deepEqual(
-    computeArtifact.dependencies.map((dependency: any) => dependency.id),
-    [foundationArtifact.id],
+    computeDependencyIds,
+    [foundationArtifact.id, `${computeArtifact.id}.assets`],
   );
   assert.deepEqual(
     apiArtifact.dependencies.map((dependency: any) => dependency.id),

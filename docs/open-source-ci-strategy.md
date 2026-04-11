@@ -17,6 +17,7 @@
 
 其中：
 
+- `PR Validate` 负责 PR 上的快速边界验证，覆盖 workflow lint、Python boundary tests、Lambda packaging smoke 和 CDK synth contract。
 - `Workflow Sanity` 负责 workflow 语法、tabs、actionlint 和清单一致性。
 - `Guardrails` 负责 secret shape 和中文乱码扫描。
 - `Logic CI` 负责代码逻辑层校验。
@@ -24,6 +25,18 @@
 - `Contract CI` 负责 provider、序列化和存储契约。
 - `Local Integration CI` 负责本地编排集成验证。
 - `Package Release` 只在上游成功后发布产物。
+
+### `pr-validate.yml`
+
+- 展示名：`PR Validate`
+- 触发：`pull_request`、`workflow_dispatch`
+- 职责：快速验证 workflow lint、Python boundary tests、Lambda packaging smoke 和 CDK synth contract
+
+### `aws-smoke.yml`
+
+- 展示名：`AWS Smoke`
+- 触发：`schedule`、`release`、`workflow_dispatch`
+- 职责：在真实 AWS 上验证 OIDC 部署、应用 discovery 和 ingest 启动边界
 
 ## Workflow 清单
 
@@ -86,7 +99,7 @@
 
 - 展示名：`Local Integration CI`
 - 触发：`pull_request`、`workflow_run`、`workflow_dispatch`
-- 职责：在本地仿真环境里串联整条运行链路
+- 职责：在本地仿真环境里串联整条运行链路，验证 hosted runner 上可重复的 emulator 组合与 ingest stub roundtrip
 
 ### `codeql.yml`
 

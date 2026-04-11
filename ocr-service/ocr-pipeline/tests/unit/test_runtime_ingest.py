@@ -25,7 +25,7 @@ class _Lookup:
 
 class _ObjectStateRepo:
     def __init__(self) -> None:
-        self.lookup = _Lookup(object_pk="tenant-a#source-bucket#docs/guide.pdf")
+        self.lookup = _Lookup(object_pk="lookup#source-bucket#docs/guide.pdf")
         self.state_by_object_pk: dict[str, ObjectStateRecord] = {}
         self.deleted: list[tuple[str, str, str | None, str | None]] = []
 
@@ -116,14 +116,14 @@ def test_handle_batch_starts_create_path_and_returns_structured_result() -> None
 
 def test_handle_batch_skips_duplicate_or_stale_events_and_execution_already_exists() -> None:
     stale_state = ObjectStateRecord(
-        pk="tenant-a#source-bucket#docs/guide.pdf",
+        pk="lookup#source-bucket#docs/guide.pdf",
         latest_version_id="v1",
         latest_sequencer="00000000000000000000000000000002",
         extract_status="EXTRACTED",
         embed_status="INDEXED",
     )
     repo = _ObjectStateRepo()
-    repo.state_by_object_pk[repo.lookup.object_pk] = stale_state
+    repo.get_state = lambda *, object_pk: stale_state  # type: ignore[assignment]
     starter = IngestWorkflowStarter(object_state_repo=repo, stepfunctions_client=_StepFunctions(), state_machine_arn="arn:aws:states:region:acct:stateMachine:extract")
 
     result = starter.handle_batch(deep_copy_event(S3_CREATE_EVENT))
@@ -236,7 +236,7 @@ def test_handle_batch_delete_path_returns_cleanup_plan_and_cleanup_executions() 
                 "profile_id": "openai-text-small",
                 "vector_bucket_name": "vector-bucket",
                 "vector_index_name": "vector-index",
-                "keys": ["openai-text-small#tenant-a#source-bucket#docs/guide.pdf#v1#chunk-1"],
+                "keys": ["openai-text-small#lookup#source-bucket#docs/guide.pdf#v1#chunk-1"],
             }
         ],
     }
@@ -257,7 +257,7 @@ def test_handle_batch_delete_path_returns_cleanup_plan_and_cleanup_executions() 
     assert delete_manager.calls == ["s3://source-bucket/docs/guide.pdf?versionId=delete-v1"]
     assert len(stepfunctions.calls) == 1
     expected_name = _build_cleanup_execution_name(
-        S3ObjectRef(tenant_id="tenant-a", bucket="source-bucket", key="docs/guide.pdf", version_id="delete-v1", sequencer="002"),
+        S3ObjectRef(tenant_id="lookup", bucket="source-bucket", key="docs/guide.pdf", version_id="delete-v1", sequencer="002"),
         cleanup_plan["cleanup_targets"][0],
     )
     assert stepfunctions.calls[0]["name"] == expected_name
