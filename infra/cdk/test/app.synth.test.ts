@@ -100,7 +100,7 @@ test('app synth emits the public stack outputs and stable stack artifact names',
   );
   assert.deepEqual(
     apiArtifact.dependencies.map((dependency: any) => dependency.id),
-    [computeArtifact.id],
+    [computeArtifact.id, `${apiArtifact.id}.assets`],
   );
 });
 

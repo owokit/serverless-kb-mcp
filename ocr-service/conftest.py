@@ -22,7 +22,9 @@ for path in (SRC_PATH, TESTS_PATH, PACKAGING_PATH):
         sys.path.insert(0, str(path))
 
 
-if "awslabs.mcp_lambda_handler" not in sys.modules:
+try:
+    import awslabs.mcp_lambda_handler  # type: ignore[unused-ignore]
+except Exception:
     awslabs_module = types.ModuleType("awslabs")
     mcp_lambda_handler_module = types.ModuleType("awslabs.mcp_lambda_handler")
     session_module = types.ModuleType("awslabs.mcp_lambda_handler.session")

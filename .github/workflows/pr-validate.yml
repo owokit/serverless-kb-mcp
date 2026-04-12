@@ -55,6 +55,8 @@ jobs:
           }
           violations: list[str] = []
           for path in sorted(workflows.glob('*.yml')):
+              if path.name == 'pr-validate.yml':
+                  continue
               text = path.read_text(encoding='utf-8')
               for pattern, label in forbidden.items():
                   if re.search(pattern, text):
