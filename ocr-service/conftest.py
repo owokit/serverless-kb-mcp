@@ -56,6 +56,15 @@ if "awslabs.mcp_lambda_handler" not in sys.modules:
     sys.modules["awslabs.mcp_lambda_handler.session"] = session_module
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """
+    EN: Register repository-local markers used by reference workflow tests.
+    CN: 注册仓库内参考工作流测试使用的本地标记。
+    """
+    config.addinivalue_line("markers", "requires_network: Tests that require network access")
+    config.addinivalue_line("markers", "requires_aws: Tests that require AWS credentials")
+
+
 collect_ignore_glob = [
     "ocr-pipeline/tests/integration/*.py",
     "ocr-pipeline/tests/unit/runtime/*.py",
