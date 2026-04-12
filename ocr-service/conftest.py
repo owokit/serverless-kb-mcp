@@ -64,11 +64,16 @@ collect_ignore_glob = [
 
 
 @pytest.fixture(autouse=True)
-def _runtime_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+def _runtime_isolation(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
     """
     EN: Reset process-wide runtime caches and default environment between tests.
     CN: 在每个测试之间重置进程级运行时缓存和默认环境。
     """
+    integration_marker = request.node.get_closest_marker("integration")
+    aws_smoke_marker = request.node.get_closest_marker("aws_smoke")
+    if integration_marker or aws_smoke_marker:
+        return
+
     monkeypatch.setenv("OBJECT_STATE_TABLE", "object-state")
     monkeypatch.setenv("EXECUTION_STATE_TABLE", "execution-state")
     monkeypatch.delenv("SERVERLESS_MCP_PIPELINE_CONFIG_PATH", raising=False)
