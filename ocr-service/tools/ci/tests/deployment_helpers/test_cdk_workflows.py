@@ -19,6 +19,7 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "serverless-kb-mcp/scripts/prod-deploy.sh" in workflow_text
     assert 'bash "$ENTRYPOINT" --release-tag' in workflow_text
     assert "aws-actions/configure-aws-credentials@v6" in workflow_text
+    assert "REMOTE_MCP_API_KEY_VALUE: ${{ secrets.REMOTE_MCP_API_KEY_VALUE }}" in workflow_text
     assert "Resolve production deploy entrypoint" in workflow_text
     assert "Using deploy entrypoint" in workflow_text
     assert "Run production deploy entrypoint" in workflow_text
@@ -36,6 +37,8 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "resolve_repo_root" in script_text
     assert "MCP_CDK_ASSET_DIR" in script_text
     assert "MCP_PIPELINE_CONFIG_PATH" in script_text
+    assert "defaults.remote_mcp_api_key_protection_enabled" in script_text
+    assert "REMOTE_MCP_API_KEY_VALUE is required when remote_mcp_api_key_protection_enabled is true" in script_text
     assert 'export RELEASE_TAG="$release_tag"' in script_text
     assert "gh release download" not in script_text
     assert "gh release view" not in script_text
@@ -69,6 +72,16 @@ def test_prod_deploy_workflow_uses_cdk_deploy_from_release_assets() -> None:
     assert "download_release_assets" not in script_text
     assert "Checking release tag" not in script_text
     assert "stdbuf -oL -eL bash" not in script_text
+
+
+def test_aws_smoke_workflow_requires_api_key_for_remote_mcp_probe() -> None:
+    workflow_path = Path(__file__).resolve().parents[5] / ".github" / "workflows" / "aws-smoke.yml"
+    workflow_text = workflow_path.read_text(encoding="utf-8")
+
+    assert "REMOTE_MCP_API_KEY_VALUE: ${{ secrets.REMOTE_MCP_API_KEY_VALUE }}" in workflow_text
+    assert "Validate smoke API key prerequisite" in workflow_text
+    assert "X-API-Key" in workflow_text
+    assert "urllib.request" in workflow_text
 
 
 def test_destroy_workflow_uses_cdk_destroy_with_placeholder_assets() -> None:

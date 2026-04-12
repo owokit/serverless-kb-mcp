@@ -40,6 +40,7 @@ export class PipelineStack extends cdk.Stack {
     const apiStack = new ApiStack(scope, `${id}-api`, {
       ...stackEnvironment,
       pipelineConfig,
+      deploymentInputs,
     });
 
     computeStack.addDependency(foundationStack);

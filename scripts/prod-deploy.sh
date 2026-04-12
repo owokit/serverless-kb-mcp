@@ -47,9 +47,11 @@ import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-key = sys.argv[2]
 data = json.loads(path.read_text(encoding="utf-8"))
-value = data[key]
+key_path = sys.argv[2].split(".")
+value = data
+for key in key_path:
+    value = value[key]
 if not isinstance(value, str):
     value = str(value)
 print(value)
@@ -838,10 +840,15 @@ main() {
   log "Loading deployment metadata from $CONFIG_PATH"
   REPO_NAME="$(json_read "$CONFIG_PATH" repo_name)"
   STACK_PREFIX="$(json_read "$CONFIG_PATH" name_prefix)"
+  REMOTE_MCP_API_KEY_PROTECTION_ENABLED="$(json_read "$CONFIG_PATH" defaults.remote_mcp_api_key_protection_enabled)"
   export REPO_NAME
   export MCP_CDK_ASSET_DIR="$ASSET_DIR"
   export MCP_PIPELINE_CONFIG_PATH="$CONFIG_PATH"
   export PYTHONUNBUFFERED=1
+
+  if [[ "$REMOTE_MCP_API_KEY_PROTECTION_ENABLED" == "True" && -z "${REMOTE_MCP_API_KEY_VALUE:-}" ]]; then
+    die "REMOTE_MCP_API_KEY_VALUE is required when remote_mcp_api_key_protection_enabled is true"
+  fi
 
   log "Recovering production stacks for prefix $STACK_PREFIX"
   recover_failed_stack "$STACK_PREFIX-foundation"

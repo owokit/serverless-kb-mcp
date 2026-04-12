@@ -29,6 +29,11 @@
     "query_max_neighbor_expand": 2,
     "cloudfront_url_ttl_seconds": 900,
     "api_gateway_stage_name": "mcp",
+    "remote_mcp_api_key_protection_enabled": true,
+    "remote_mcp_api_throttle_rate_limit": 10,
+    "remote_mcp_api_throttle_burst_limit": 20,
+    "remote_mcp_api_quota_limit": 5000,
+    "remote_mcp_api_quota_period": "MONTH",
     "fail_on_job_error": true
   },
   "resource_names": {
@@ -54,6 +59,8 @@
     "embed_lambda": "mcp-doc-pipeline-prod-embed",
     "remote_mcp_lambda": "mcp-doc-pipeline-prod-mcp",
     "remote_mcp_api_gateway": "mcp-doc-pipeline-prod-api-mcp",
+    "remote_mcp_usage_plan": "mcp-doc-pipeline-prod-usage-plan-mcp",
+    "remote_mcp_api_key": "mcp-doc-pipeline-prod-api-key-mcp",
     "backfill_lambda": "mcp-doc-pipeline-prod-backfill",
     "job_status_lambda": "mcp-doc-pipeline-prod-job-status",
     "core_dependency_layer": "mcp-doc-pipeline-prod-layer-core",

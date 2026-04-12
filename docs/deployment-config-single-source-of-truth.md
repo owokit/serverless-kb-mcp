@@ -1,37 +1,45 @@
 # 部署配置单一来源
 
-`infra/pipeline-config.json` 是仓库里部署命名和默认值的唯一配置源。它现在被以下位置共同读取：
-
-- `infra/cdk/bin/app.ts`
-- `infra/cdk/lib/foundation-stack.ts`
-- `infra/cdk/lib/compute-stack.ts`
-- `infra/cdk/lib/api-stack.ts`
-- `scripts/prod-deploy.sh`
-- `ocr-service/ocr-pipeline/src/serverless_mcp/runtime/config.py`
-- `tools/packaging/serverless_mcp/build_lambda_artifacts.py`
-- `tools/packaging/serverless_mcp/build_layer_artifacts.py`
+`infra/pipeline-config.json` 是仓库里部署命名和默认值的唯一配置来源。CDK、部署脚本和验证流程都应该从这里读取同一份配置，而不是把默认值分散到 workflow 或 shell 脚本里。
 
 ## 配置分工
 
-- `name_prefix` 用于统一派生资源名前缀
-- `resource_names` 显式列出所有 AWS 资源名
-- `embedding_profiles` 显式列出每个 profile 的 `provider`、`model`、`dimension`、`vector_bucket_name`、`vector_index_name` 和开关
-- `defaults` 保存运行时默认值，例如 Lambda 超时、OCR 参数和查询阈值
-- `lambda_settings` 保存每个 Lambda 函数的内存和超时设置
-- OpenAI 兼容 base URL 的主入口是 `OPENAI_API_BASE_URL`，不再接受 `OPENAI_BASE_URL` 兼容别名；`AZURE_OPENAI_URL` 不再使用
-- 如果兼容端点本身带有自定义路径前缀，例如 OpenRouter 的 `/api/v1`，运行时必须保留该前缀，不要再强行规范化成 `/v1`
-- `.env.example` 指向 `infra/pipeline-config.json`
+- `name_prefix`：统一派生资源名前缀。
+- `name_suffix`：按账号 / 区域追加后缀，`auto` 表示自动拼接。
+- `resource_names`：显式列出所有 AWS 资源名。
+- `defaults`：保存运行时默认值、API Gateway stage 名称、API Key 保护开关、Usage Plan 配额和节流参数。
+- `embedding_profiles`：保存每个 embedding profile 的 provider / model / dimension / vector bucket / vector index / enable flags。
+- `lambda_settings`：保存每个 Lambda 的内存和超时设置。
 
-## 现在的消费方式
+## 当前与 API Key 相关的单一事实来源
 
-- CDK 直接读取 `infra/pipeline-config.json` 来合成基础设施
-- `scripts/prod-deploy.sh` 读取同一份配置来确定 `REPO_NAME`、`ASSET_DIR` 和 `CONFIG_PATH`
-- 运行时通过 `SERVERLESS_MCP_PIPELINE_CONFIG_PATH` 读取同一份配置，默认示例指向 `infra/pipeline-config.json`
-- 打包脚本使用同一份配置来生成 Lambda 和 Layer 产物
+`defaults` 里新增了以下字段：
+
+- `remote_mcp_api_key_protection_enabled`：是否对外部 MCP 前门启用 API Key 保护。
+- `remote_mcp_api_throttle_rate_limit`：API Gateway stage 和 Usage Plan 的 rate limit。
+- `remote_mcp_api_throttle_burst_limit`：API Gateway stage 和 Usage Plan 的 burst limit。
+- `remote_mcp_api_quota_limit`：Usage Plan quota 的周期内请求数上限。
+- `remote_mcp_api_quota_period`：Quota 周期，当前仅允许 `DAY`、`WEEK`、`MONTH`。
+
+`resource_names` 里新增了：
+
+- `remote_mcp_usage_plan`
+- `remote_mcp_api_key`
+
+API Key 的值不写进 `pipeline-config.json`，而是通过部署输入传入：
+
+- 本地 / 手工部署：`REMOTE_MCP_API_KEY_VALUE`
+- GitHub Actions production deploy：`secrets.REMOTE_MCP_API_KEY_VALUE`
+- GitHub Actions smoke：`secrets.REMOTE_MCP_API_KEY_VALUE`
+
+## 使用方式
+
+- `infra/cdk/bin/app.ts` 读取 `infra/pipeline-config.json`，再把 `DeploymentInputs` 传给各个 stack。
+- `scripts/prod-deploy.sh` 读取同一份配置，并在 API Key 保护开启时要求 `REMOTE_MCP_API_KEY_VALUE` 存在。
+- `aws-smoke.yml` 使用同一份 API key 去验证 `/mcp`。
 
 ## 约束
 
-- 任何会影响资源命名、默认值或 embedding profile 的改动，都必须先改 `infra/pipeline-config.json`
-- 不要在不同脚本里复制一份新的默认值
-- 删除旧 helper 之后，配置文件仍然是唯一事实来源，不要把默认值散落到 workflow 或脚本参数里
-- 如果要调整 OpenAI 兼容端点，请只更新 `OPENAI_API_BASE_URL`
+- 不要在 workflow 里再散落新的 throttle / quota magic value。
+- 如果 future upgrade 需要更强的认证方式，优先在 `defaults` 里增加新的访问控制配置，而不是把逻辑写死在 Lambda。
+- 如果以后关闭 API Key 保护，仍然保留同一份 `pipeline-config.json` 作为部署输入中心。

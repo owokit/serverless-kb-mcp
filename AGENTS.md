@@ -131,14 +131,14 @@
 - `PaddleOCR` 使用 API。
 - `OpenAI Embedding` 是当前默认 embedding 模式，该仓库默认使用 `Azure OpenAI` 兼容 API。
 - `DynamoDB` 当前属于必需基础设施，用于幂等、版本隔离、状态推进、失败补偿和 chunk 反查。
-- 查询层已具备最小闭环，公网入口改为 `API Gateway REST`，`CloudFront signed URL` 分发层仍按需启用。
+- 查询层已具备最小闭环，公网入口改为 `API Gateway REST`，并且当前个人阶段默认通过 API Key 保护 `remote_mcp` 前门；`CloudFront signed URL` 分发层仍按需启用。
 - `PPT/PPTX` 默认同时产出 `slide_text_chunk` 和 `slide_image_chunk`。
 - 推荐保留一个统一对外入口 `Lambda`，但运行时职责仍应拆分；不要把提取编排、OCR 轮询和 embedding 消费长期合并进同一个 `Lambda` 资源。
 - `object_state` 继续承载对象主状态与版本推进上下文，其中必须保留 `previous_version_id` / `previous_manifest_s3_uri` 作为旧版本清理的输入。
 - `manifest_index` 继续作为版本级 chunk 反查表，不建议靠 GSI 取代其版本隔离职责。
 - `embedding_projection_state` 继续作为按 `profile_id` 隔离的投影状态层；单写入 profile 时可按需省略，多 profile 时不要把它塞回 `object_state`。
 - DynamoDB 的二级索引只用于补充查询路径，不用于把 `object_state`、`manifest_index`、`projection_state` 三层职责压成一张通用表。
-- 当前部署口径统一为“GitHub Actions 部署”，相关说明集中维护在 `docs/`。
+- 当前部署口径统一为“GitHub Actions 部署”，相关说明集中维护在 `docs/`；当前外部 MCP 前门的部署输入与 smoke 验证都必须显式携带 `REMOTE_MCP_API_KEY_VALUE`。
 
 ## 维护规则
 

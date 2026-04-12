@@ -51,6 +51,7 @@ const computeStack = new ComputeStack(app, `${stackPrefix}-compute`, {
 const apiStack = new ApiStack(app, `${stackPrefix}-api`, {
   ...stackEnvironment,
   pipelineConfig,
+  deploymentInputs,
 });
 
 computeStack.addDependency(foundationStack);

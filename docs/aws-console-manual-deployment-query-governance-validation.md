@@ -1,6 +1,6 @@
-# 05 AWS 控制台部署：远程 MCP 公共入口校验
+# AWS 控制台手工部署：查询治理与验证
 
-本文只保留远程 MCP 公共查询入口的当前结论和校验步骤。
+本文说明远程 MCP 前门当前的访问模型、如何验证 `/mcp`、以及如何轮换 API Key。
 
 ## 1. 当前结论
 
@@ -8,53 +8,64 @@
 API Gateway REST -> remote_mcp Lambda -> mcp_gateway.handler -> AWS Labs mcp-lambda-handler -> tools
 ```
 
-- `remote_mcp` 仍是唯一对外查询入口，但它现在只是 `mcp_gateway` 的薄 wrapper。
-- 公网入口通过 `API Gateway REST` 的 `mcp` stage 访问，公开 URL 形态是 `.../mcp`。
-- `Lambda Function URL` 不作为标准入口。
-- 远程 MCP 入口现在按开放访问处理，不保留额外的 DNS rebinding 保护。
-- 协议层由 AWS Labs `mcp-lambda-handler` 统一处理，不再手写 JSON-RPC 路由。
-- 查询侧 tools 只暴露业务能力，不直接暴露 embedding、vector index 或 worker 内部接口。
+- `remote_mcp` 仍然是对外查询入口，但现在不再默认匿名开放。
+- `/mcp` 路径由 API Gateway REST API 暴露，且必须携带 `X-API-Key`。
+- API Key 不是企业级认证授权方案，它只是当前个人阶段的轻量访问门槛和流量治理手段。
+- 未来如果要升级到 Cognito、Lambda Authorizer 或 IAM/SigV4，代码结构已经保留了 API Gateway 方法级鉴权的扩展位。
 
-## 2. 运行时配置
+## 2. 访问方式
 
-远程 MCP Lambda 仍然需要这些查询相关环境变量：
+请求 `/mcp` 时需要带上 API Gateway 要求的 header：
 
-- `OBJECT_STATE_TABLE`
-- `MANIFEST_INDEX_TABLE`
-- `MANIFEST_BUCKET`
-- `MANIFEST_PREFIX`
-- `ALLOW_UNAUTHENTICATED_QUERY`
-- `QUERY_TENANT_CLAIM`
-- `QUERY_MAX_TOP_K`
-- `QUERY_MAX_NEIGHBOR_EXPAND`
-
-如果需要返回 CloudFront 签名 URL，还需要：
-
-- `CLOUDFRONT_DISTRIBUTION_DOMAIN`
-- `CLOUDFRONT_KEY_PAIR_ID`
-- `CLOUDFRONT_PRIVATE_KEY_PEM`
-- `CLOUDFRONT_URL_TTL_SECONDS`
-
-## 3. 入口校验
-
-部署后直接验证下面的地址：
-
-```text
-https://qfelbun8hl.execute-api.us-east-1.amazonaws.com/mcp
+```bash
+curl -H "X-API-Key: <your-api-key>" \
+  https://<api-id>.execute-api.<region>.amazonaws.com/mcp
 ```
 
-如果返回的是 MCP 协议响应或工具列表，说明入口可用。
-如果 GET `/mcp` 返回 discovery 文档，则说明薄 wrapper 也可访问。
+- header 名称固定是 `X-API-Key`，大小写按 HTTP 规范处理即可。
+- 访问失败时，先确认 API Key、Usage Plan 和 stage 绑定是否都已部署。
+- 如果没有带 key，API Gateway 应该返回 403，而不是 Lambda 自己做 header 校验。
 
-如果仍然出现 `403` 或 `421`，优先检查：
+## 3. Usage Plan 与 quota
 
-1. API Gateway 的 stage 和 proxy 路由是否部署正确
-2. Lambda 是否仍挂着旧的 Function URL 配置
-3. 是否还有旧的 host 校验或边缘代理缓存
-4. `mcp_gateway` 是否仍然误引用了摄取链路内部实现
+当前对外前门使用 API Gateway 原生 Usage Plan：
 
-## 4. 同步规则
+- API Key 绑定到 Usage Plan。
+- Usage Plan 再绑定到 `mcp` stage。
+- throttle 和 quota 都由 `infra/pipeline-config.json` 集中控制。
+- quota 是按周期计数的治理手段，不是强安全边界。
 
-- 如果远程 MCP 入口协议变化，必须同步更新 `docs/` 和 `infra/`
-- 如果只是入口开放策略变化，不要再把旧的 Function URL 口径写回文档
-- 如果新增任何新的访问保护，必须先更新代码，再更新说明
+建议运维时关注：
+
+- rate limit：是否过低，导致个人常用调用被限流。
+- burst limit：是否足以覆盖短时峰值。
+- quota：是否足以支持当前使用频率。
+
+## 4. 手工验证步骤
+
+1. 部署完成后，先确认 API Gateway stage 已经是 `mcp`。
+2. 确认 `REMOTE_MCP_API_KEY_VALUE` 已经通过部署输入提供。
+3. 使用带 `X-API-Key` 的请求访问 `/mcp`。
+4. 不带 key 再访问一次，预期返回 403。
+5. 如果 `/mcp` 仍然能匿名访问，优先检查 API method 的 `apiKeyRequired`，再检查 Usage Plan / ApiKey / Stage 绑定。
+
+## 5. 轮换 API Key
+
+1. 生成新的 `REMOTE_MCP_API_KEY_VALUE`。
+2. 更新 GitHub secret 或本地部署环境变量。
+3. 重新部署 API stack。
+4. 更新 smoke / 验证步骤中引用的同一 secret。
+5. 删除旧 key 或让旧 key 失效。
+
+轮换时不要把 key 直接写进日志、PR 描述或 issue 正文。
+
+## 6. 限制
+
+- API Key 只适合当前个人阶段的访问门槛和配额治理。
+- 它不提供用户级别身份绑定，也不替代签名请求。
+- 如果未来要做细粒度授权，应该切到 Cognito Authorizer、Lambda Authorizer 或 IAM/SigV4。
+
+## 7. 同步要求
+
+- 如果远程 MCP 前门的访问方式变化，必须同步更新 `docs/README.md`、`docs/deployment-config-single-source-of-truth.md` 和 workflow。
+- 如果 `X-API-Key` 的获取方式变化，必须同步更新 smoke、生产部署和验证脚本。

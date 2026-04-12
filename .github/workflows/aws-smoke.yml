@@ -26,6 +26,7 @@ jobs:
     env:
       AWS_REGION: ${{ vars.AWS_REGION }}
       AWS_SMOKE_ROLE_ARN: ${{ vars.AWS_SMOKE_ROLE_ARN }}
+      REMOTE_MCP_API_KEY_VALUE: ${{ secrets.REMOTE_MCP_API_KEY_VALUE }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -103,6 +104,14 @@ jobs:
           print(json.dumps(smoke, ensure_ascii=False, indent=2))
           PY
 
+      - name: Validate smoke API key prerequisite
+        run: |
+          set -euo pipefail
+          if [ -z "${REMOTE_MCP_API_KEY_VALUE:-}" ]; then
+            echo "::error::Set the REMOTE_MCP_API_KEY_VALUE secret before running AWS smoke against the protected MCP endpoint."
+            exit 1
+          fi
+
       - name: Upload a minimal smoke document
         run: |
           set -euo pipefail
@@ -176,14 +185,17 @@ jobs:
           from __future__ import annotations
 
           import json
-          import subprocess
+          import os
+          import urllib.request
           from pathlib import Path
 
           repo_root = Path.cwd()
           smoke = json.loads((repo_root / 'aws-smoke-resolved.json').read_text(encoding='utf-8'))
           discovery_url = smoke['remote_mcp_api_url'].rstrip('/') + '/mcp'
-          response = subprocess.run(['curl', '-fsS', discovery_url], check=True, capture_output=True, text=True)
-          document = json.loads(response.stdout)
+          api_key = os.environ['REMOTE_MCP_API_KEY_VALUE'].strip()
+          request = urllib.request.Request(discovery_url, headers={'X-API-Key': api_key})
+          with urllib.request.urlopen(request) as response:
+              document = json.loads(response.read().decode('utf-8'))
           if document.get('endpoint') != '/mcp':
               raise SystemExit(f'Unexpected discovery document: {document!r}')
           if document.get('protocolVersion') != '2024-11-05':

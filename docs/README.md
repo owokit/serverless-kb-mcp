@@ -2,13 +2,14 @@
 
 English | [简体中文](../i18n/README.zh-CN.md)
 
-This directory contains the project’s deployment notes, runtime guidance, and boundary documentation.
+This directory contains the project deployment notes, runtime guidance, and boundary documentation.
 
 ## Reading Order
 
 1. Start with the GitHub Actions deployment index to understand the overall resource layout and execution order.
 2. Review the AWS CDK deployment and destroy guide to understand the TypeScript-based deployment entry points.
-3. Return to the service-level implementation notes and boundary documents for deeper operational context.
+3. Read the query / governance / validation note before probing the remote MCP endpoint.
+4. Treat the remote MCP front door as API-Key-Protected by default; do not describe `/mcp` as anonymously open.
 
 ## Main Documents
 
@@ -19,7 +20,7 @@ This directory contains the project’s deployment notes, runtime guidance, and 
 | [AWS console manual deployment - storage and state](aws-console-manual-deployment-storage-state.md) | S3, DynamoDB, and related storage layers |
 | [GitHub Actions deployment - Vectors / IAM / Lambda](github-actions-deployment-vectors-iam-lambda.md) | Vector storage, permissions, and Lambda resources |
 | [AWS console manual deployment - Step Functions / events / triggers](aws-console-manual-deployment-stepfunctions-events-triggers.md) | Orchestration, event notifications, and trigger chains |
-| [AWS console manual deployment - query / governance / validation](aws-console-manual-deployment-query-governance-validation.md) | Retrieval flow, governance, and validation |
+| [AWS console manual deployment - query / governance / validation](aws-console-manual-deployment-query-governance-validation.md) | Remote MCP access gate, validation flow, and usage guidance |
 | [Deployment config single source of truth](deployment-config-single-source-of-truth.md) | Default values and configuration ownership |
 | [Query contract and runtime prerequisites](query-contract-and-runtime-prereqs.md) | Remote query contract, degraded semantics, and runtime prerequisites |
 | [AWS CDK deployment order and triggers](aws-cdk-deploy-order-triggers.md) | CDK deployment sequencing and trigger rules |
@@ -42,6 +43,7 @@ The repository keeps localized landing pages under `i18n/` so the root README ca
 1. Keep this index aligned with any changes to deployment flow, environment variables, IAM boundaries, or workflow assumptions.
 2. If a rule has already been captured in a skill, update the skill first and then reflect the change here.
 3. Localized landing pages use a language-suffix naming pattern (`README.<locale>.md`) and live directly under `i18n/`.
+4. Any doc that mentions the external MCP front door must state the current `X-API-Key` access gate and the Usage Plan / quota behavior.
 
 ## Python Toolchain
 

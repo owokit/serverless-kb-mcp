@@ -228,6 +228,7 @@ def main() -> int:
     _assert_reference_only(SERVICE_ROOT / "examples" / "workflows" / "workflow_reference_only" / "openai_embedding_smoke.py", errors)
     _assert_reference_only(SERVICE_ROOT / "examples" / "workflows" / "workflow_reference_only" / "s3_vectors_check.py", errors)
     _assert_prod_deploy_alignment(errors)
+    _assert_aws_smoke_alignment(errors)
     _assert_destroy_alignment(errors)
     _assert_labeler_alignment(errors)
     _assert_codeql_alignment(errors)
@@ -436,6 +437,22 @@ def _assert_prod_deploy_alignment(errors: list[str]) -> None:
         errors.append(".github/workflows/prod-deploy.yml must configure AWS credentials before deploying")
     if "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}" not in prod_text:
         errors.append(".github/workflows/prod-deploy.yml must provide GH_TOKEN to the deploy script")
+    if "REMOTE_MCP_API_KEY_VALUE: ${{ secrets.REMOTE_MCP_API_KEY_VALUE }}" not in prod_text:
+        errors.append(".github/workflows/prod-deploy.yml must pass REMOTE_MCP_API_KEY_VALUE to the deploy script")
+
+
+def _assert_aws_smoke_alignment(errors: list[str]) -> None:
+    """EN: Ensure AWS smoke explicitly sends the API key when probing the protected MCP endpoint.
+    CN: 纭繚 AWS smoke 针对受保护的 MCP 端点时显式携带 API key。"""
+    smoke_text = (REPO_ROOT / ".github" / "workflows" / "aws-smoke.yml").read_text(encoding="utf-8")
+    if "REMOTE_MCP_API_KEY_VALUE: ${{ secrets.REMOTE_MCP_API_KEY_VALUE }}" not in smoke_text:
+        errors.append(".github/workflows/aws-smoke.yml must pass REMOTE_MCP_API_KEY_VALUE to the smoke job")
+    if "Validate smoke API key prerequisite" not in smoke_text:
+        errors.append(".github/workflows/aws-smoke.yml must validate the smoke API key prerequisite")
+    if "X-API-Key" not in smoke_text:
+        errors.append(".github/workflows/aws-smoke.yml must send the X-API-Key header to /mcp")
+    if "urllib.request" not in smoke_text:
+        errors.append(".github/workflows/aws-smoke.yml should use urllib.request for the protected endpoint probe")
 
 
 def _assert_bilingual_comments(text: str, filename: str, errors: list[str]) -> None:

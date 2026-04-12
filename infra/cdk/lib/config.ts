@@ -28,6 +28,11 @@ export interface PipelineDefaults {
   query_max_neighbor_expand: number;
   cloudfront_url_ttl_seconds: number;
   api_gateway_stage_name: string;
+  remote_mcp_api_key_protection_enabled: boolean;
+  remote_mcp_api_throttle_rate_limit: number;
+  remote_mcp_api_throttle_burst_limit: number;
+  remote_mcp_api_quota_limit: number;
+  remote_mcp_api_quota_period: ApiGatewayQuotaPeriod;
   fail_on_job_error: boolean;
 }
 
@@ -54,6 +59,8 @@ export interface ResourceNames {
   embed_lambda: string;
   remote_mcp_lambda: string;
   remote_mcp_api_gateway: string;
+  remote_mcp_usage_plan: string;
+  remote_mcp_api_key: string;
   backfill_lambda: string;
   job_status_lambda: string;
   core_dependency_layer: string;
@@ -85,6 +92,8 @@ export interface LambdaRuntimeSettings {
   timeout_seconds: number;
 }
 
+export type ApiGatewayQuotaPeriod = 'DAY' | 'WEEK' | 'MONTH';
+
 export interface PipelineConfig {
   name_prefix: string;
   name_suffix?: string;
@@ -103,6 +112,7 @@ export interface DeploymentInputs {
   openaiEmbeddingModel?: string;
   paddleAllowedHosts?: string;
   remoteMcpDefaultTenantId?: string;
+  remoteMcpApiKeyValue?: string;
   cloudfrontDistributionDomain?: string;
   cloudfrontKeyPairId?: string;
   cloudfrontPrivateKeyPem?: string;
@@ -114,6 +124,7 @@ export function loadPipelineConfig(repoRoot: string, configPath: string): Pipeli
   if (!payload || typeof payload !== 'object') {
     throw new Error(`Pipeline config must be a JSON object: ${resolvedPath}`);
   }
+  validatePipelineConfig(payload, resolvedPath);
   return payload;
 }
 
@@ -128,6 +139,7 @@ export function resolveDeploymentInputs(env: NodeJS.ProcessEnv): DeploymentInput
     openaiEmbeddingModel: optionalEnv(env, 'OPENAI_EMBEDDING_MODEL'),
     paddleAllowedHosts: optionalEnv(env, 'PADDLE_OCR_ALLOWED_HOSTS'),
     remoteMcpDefaultTenantId: optionalEnv(env, 'REMOTE_MCP_DEFAULT_TENANT_ID'),
+    remoteMcpApiKeyValue: optionalEnv(env, 'REMOTE_MCP_API_KEY_VALUE'),
     cloudfrontDistributionDomain: optionalEnv(env, 'CLOUDFRONT_DISTRIBUTION_DOMAIN'),
     cloudfrontKeyPairId: optionalEnv(env, 'CLOUDFRONT_KEY_PAIR_ID'),
     cloudfrontPrivateKeyPem: optionalEnv(env, 'CLOUDFRONT_PRIVATE_KEY_PEM'),
@@ -137,6 +149,47 @@ export function resolveDeploymentInputs(env: NodeJS.ProcessEnv): DeploymentInput
 function optionalEnv(env: NodeJS.ProcessEnv, key: string): string | undefined {
   const value = env[key]?.trim();
   return value ? value : undefined;
+}
+
+function validatePipelineConfig(config: PipelineConfig, resolvedPath: string): void {
+  const defaults = config.defaults;
+  const errors: string[] = [];
+
+  if (!isPositiveNumber(defaults.remote_mcp_api_throttle_rate_limit)) {
+    errors.push('remote_mcp_api_throttle_rate_limit must be a positive number');
+  }
+  if (!isPositiveInteger(defaults.remote_mcp_api_throttle_burst_limit)) {
+    errors.push('remote_mcp_api_throttle_burst_limit must be a positive integer');
+  }
+  if (!isPositiveInteger(defaults.remote_mcp_api_quota_limit)) {
+    errors.push('remote_mcp_api_quota_limit must be a positive integer');
+  }
+  if (!isValidQuotaPeriod(defaults.remote_mcp_api_quota_period)) {
+    errors.push('remote_mcp_api_quota_period must be one of DAY, WEEK, or MONTH');
+  }
+  if (
+    isPositiveNumber(defaults.remote_mcp_api_throttle_rate_limit) &&
+    isPositiveInteger(defaults.remote_mcp_api_throttle_burst_limit) &&
+    defaults.remote_mcp_api_throttle_burst_limit < defaults.remote_mcp_api_throttle_rate_limit
+  ) {
+    errors.push('remote_mcp_api_throttle_burst_limit must be greater than or equal to remote_mcp_api_throttle_rate_limit');
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Invalid pipeline config at ${resolvedPath}:\n- ${errors.join('\n- ')}`);
+  }
+}
+
+function isPositiveNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function isValidQuotaPeriod(value: unknown): value is ApiGatewayQuotaPeriod {
+  return value === 'DAY' || value === 'WEEK' || value === 'MONTH';
 }
 
 // EN: Resolve the name_suffix config value into the actual suffix string appended to every AWS resource name.
@@ -176,6 +229,8 @@ const NAME_LENGTH_LIMITS: Record<string, number> = {
   embed_lambda: 64,
   remote_mcp_lambda: 64,
   remote_mcp_api_gateway: 255,
+  remote_mcp_usage_plan: 128,
+  remote_mcp_api_key: 128,
   backfill_lambda: 64,
   job_status_lambda: 64,
   core_dependency_layer: 140,
