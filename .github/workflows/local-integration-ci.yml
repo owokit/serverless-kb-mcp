@@ -290,94 +290,17 @@ jobs:
         if: matrix.scenario == 'ingest_stubbed_aws'
         run: uv run --project ocr-service python -m pytest -q ocr-service/ocr-pipeline/tests/local_integration/test_ingest_with_stubbed_aws.py --maxfail=1
 
+      # EN: Reuse the checked-in hosted-runner emulator contracts instead of duplicating the logic inline.
+      # CN: 复用仓库内的 hosted-runner 仿真契约测试，避免在 workflow 里重复实现同一套逻辑。
       - name: Run emulator roundtrip scenario
         id: emulator_roundtrip
         if: matrix.scenario == 'emulator_roundtrip'
         run: |
           set -euo pipefail
-          uv run --project ocr-service python <<'PY'
-          from __future__ import annotations
-
-          import os
-          import uuid
-
-          from botocore.exceptions import ClientError
-
-          from serverless_mcp.runtime.aws_clients import build_aws_client
-
-          region = os.environ.get('TEST_AWS_REGION', 'us-east-1')
-          s3_bucket = os.environ['TEST_S3_BUCKET']
-          object_state_table = os.environ['TEST_OBJECT_STATE_TABLE']
-          manifest_index_table = os.environ['TEST_MANIFEST_INDEX_TABLE']
-          queue_name = os.environ.get('TEST_SQS_QUEUE_NAME', 'local-roundtrip-queue')
-
-          s3_client = build_aws_client('s3', region_name=region)
-          dynamodb_client = build_aws_client('dynamodb', region_name=region)
-          sqs_client = build_aws_client('sqs', region_name=region)
-
-          try:
-              s3_client.create_bucket(Bucket=s3_bucket)
-          except ClientError as exc:
-              code = str(exc.response.get('Error', {}).get('Code') or '')
-              if code not in {'BucketAlreadyOwnedByYou', 'BucketAlreadyExists'}:
-                  raise
-          try:
-              s3_client.put_bucket_versioning(
-                  Bucket=s3_bucket,
-                  VersioningConfiguration={'Status': 'Enabled'},
-              )
-          except ClientError:
-              pass
-
-          s3_client.put_object(Bucket=s3_bucket, Key='checks/local-roundtrip.txt', Body=b'local roundtrip', ContentType='text/plain')
-          roundtrip_object = s3_client.get_object(Bucket=s3_bucket, Key='checks/local-roundtrip.txt')
-          if roundtrip_object['Body'].read() != b'local roundtrip':
-              raise SystemExit('S3 emulator roundtrip failed')
-
-          existing_tables = set(dynamodb_client.list_tables().get('TableNames') or [])
-          if object_state_table not in existing_tables:
-              dynamodb_client.create_table(
-                  TableName=object_state_table,
-                  KeySchema=[{'AttributeName': 'pk', 'KeyType': 'HASH'}],
-                  AttributeDefinitions=[
-                      {'AttributeName': 'pk', 'AttributeType': 'S'},
-                      {'AttributeName': 'record_type', 'AttributeType': 'S'},
-                  ],
-                  GlobalSecondaryIndexes=[
-                      {
-                          'IndexName': 'lookup-record-type-index',
-                          'KeySchema': [{'AttributeName': 'record_type', 'KeyType': 'HASH'}],
-                          'Projection': {'ProjectionType': 'ALL'},
-                      }
-                  ],
-                  BillingMode='PAY_PER_REQUEST',
-              )
-          if manifest_index_table not in existing_tables:
-              dynamodb_client.create_table(
-                  TableName=manifest_index_table,
-                  KeySchema=[
-                      {'AttributeName': 'pk', 'KeyType': 'HASH'},
-                      {'AttributeName': 'sk', 'KeyType': 'RANGE'},
-                  ],
-                  AttributeDefinitions=[
-                      {'AttributeName': 'pk', 'AttributeType': 'S'},
-                      {'AttributeName': 'sk', 'AttributeType': 'S'},
-                  ],
-                  BillingMode='PAY_PER_REQUEST',
-              )
-          dynamodb_client.put_item(TableName=object_state_table, Item={'pk': {'S': 'local#item'}, 'latest_version_id': {'S': 'v1'}})
-          stored = dynamodb_client.get_item(TableName=object_state_table, Key={'pk': {'S': 'local#item'}})
-          if stored.get('Item', {}).get('latest_version_id', {}).get('S') != 'v1':
-              raise SystemExit('DynamoDB emulator roundtrip failed')
-
-          queue_url = sqs_client.create_queue(QueueName=f"{queue_name}-{uuid.uuid4().hex[:8]}")["QueueUrl"]
-          sqs_client.send_message(QueueUrl=queue_url, MessageBody='local message')
-          message_response = sqs_client.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=1)
-          messages = message_response.get('Messages') or []
-          if len(messages) != 1 or messages[0]['Body'] != 'local message':
-              raise SystemExit('SQS emulator roundtrip failed')
-          sqs_client.delete_message(QueueUrl=queue_url, ReceiptHandle=messages[0]['ReceiptHandle'])
-          PY
+          uv run --project ocr-service python -m pytest -q \
+            ocr-service/ocr-pipeline/tests/integration/test_hosted_runner_aws_roundtrip.py \
+            ocr-service/ocr-pipeline/tests/integration/test_hosted_runner_storage_roundtrip.py \
+            --maxfail=1
 
       - name: Run SAM job status smoke
         id: sam_job_status
@@ -402,146 +325,9 @@ jobs:
         if: matrix.scenario == 'remote_mcp_frontdoor'
         run: |
           set -euo pipefail
-          uv run --project ocr-service python <<'PY'
-          from __future__ import annotations
-
-          import json
-
-          from starlette.testclient import TestClient
-
-          from serverless_mcp.domain.models import QueryResponse, QueryResultContext, QueryResultItem, S3ObjectRef
-          from serverless_mcp.entrypoints import remote_mcp
-
-          class FakeSettings:
-              query_max_top_k = 20
-              query_max_neighbor_expand = 2
-              allow_unauthenticated_query = True
-              query_tenant_claim = "tenant_id"
-              remote_mcp_default_tenant_id = None
-              cloudfront_distribution_domain = "cdn.example.com"
-              cloudfront_key_pair_id = "K123"
-              cloudfront_private_key_pem = "-----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY-----"
-              cloudfront_url_ttl_seconds = 900
-
-          class FakeQueryService:
-              def __init__(self) -> None:
-                  self.calls: list[dict[str, object]] = []
-
-              def search(self, **kwargs):
-                  self.calls.append(kwargs)
-                  source = S3ObjectRef(
-                      tenant_id="tenant-a",
-                      bucket="bucket-a",
-                      key="docs/guide.pdf",
-                      version_id="v2",
-                  )
-                  return QueryResponse(
-                      query=kwargs["query"],
-                      results=[
-                          QueryResultItem(
-                              key="hit-1",
-                              distance=0.01,
-                              source=source,
-                              manifest_s3_uri=None,
-                              metadata={"doc_type": "pdf", "__fusion_score__": 0.75, "__profile_hits__": 2},
-                              match=QueryResultContext(
-                                  chunk_id="chunk#1",
-                                  chunk_type="page_text_chunk",
-                                  text="hello",
-                              ),
-                          )
-                      ],
-                  )
-
-          class FakeDeliveryService:
-              def deliver_source_document(self, source):
-                  class Delivery:
-                      url = f"https://cdn.example.com/documents/{source.bucket}/{source.key}?versionId={source.version_id}"
-                      expires_at = "2026-03-17T00:00:00+00:00"
-
-                  return Delivery()
-
-          fake_service = FakeQueryService()
-          remote_mcp._build_service = lambda: fake_service
-          remote_mcp.load_settings = lambda: FakeSettings()
-          remote_mcp._build_delivery_service = lambda: FakeDeliveryService()
-
-          app = remote_mcp._build_mcp_server().streamable_http_app()
-          with TestClient(app) as client:
-              headers = {
-                  "accept": "application/json, text/event-stream",
-                  "content-type": "application/json",
-                  "mcp-protocol-version": "2025-11-25",
-              }
-
-              init_response = client.post(
-                  "/mcp",
-                  json={
-                      "jsonrpc": "2.0",
-                      "id": 1,
-                      "method": "initialize",
-                      "params": {
-                          "protocolVersion": "2025-11-25",
-                          "capabilities": {},
-                          "clientInfo": {"name": "ci", "version": "1.0.0"},
-                      },
-                  },
-                  headers=headers,
-              )
-              if init_response.status_code != 200:
-                  raise SystemExit(f"initialize failed: {init_response.status_code} {init_response.text}")
-              init_payload = init_response.json()
-              if init_payload["result"]["protocolVersion"] != "2025-11-25":
-                  raise SystemExit("initialize returned an unexpected protocol version")
-
-              list_response = client.post(
-                  "/mcp",
-                  json={
-                      "jsonrpc": "2.0",
-                      "id": 2,
-                      "method": "tools/list",
-                      "params": {},
-                  },
-                  headers=headers,
-              )
-              if list_response.status_code != 200:
-                  raise SystemExit(f"tools/list failed: {list_response.status_code} {list_response.text}")
-              list_payload = list_response.json()
-              tool_names = {tool["name"] for tool in list_payload["result"]["tools"]}
-              if "search_documents" not in tool_names:
-                  raise SystemExit("tools/list did not expose search_documents")
-
-              call_response = client.post(
-                  "/mcp",
-                  json={
-                      "jsonrpc": "2.0",
-                      "id": 3,
-                      "method": "tools/call",
-                      "params": {
-                          "name": "search_documents",
-                          "arguments": {
-                              "query": "hello",
-                              "tenant_id": "tenant-a",
-                              "top_k": 5,
-                              "neighbor_expand": 1,
-                          },
-                      },
-                  },
-                  headers=headers,
-              )
-              if call_response.status_code != 200:
-                  raise SystemExit(f"tools/call failed: {call_response.status_code} {call_response.text}")
-              call_payload = call_response.json()
-              if call_payload["result"]["isError"] is not False:
-                  raise SystemExit(f"tools/call returned error: {call_payload}")
-              result_payload = json.loads(call_payload["result"]["content"][0]["text"])
-              if result_payload["query"] != "hello":
-                  raise SystemExit("tools/call returned the wrong query payload")
-              if not result_payload["results"][0]["delivery"]["url"].startswith("https://cdn.example.com/"):
-                  raise SystemExit("tools/call did not return delivery metadata")
-              if fake_service.calls[0]["tenant_id"] != "tenant-a":
-                  raise SystemExit("tools/call did not forward the caller tenant_id")
-          PY
+          uv run --project ocr-service python -m pytest -q \
+            ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_remote_mcp_smoke.py \
+            --maxfail=1
 
       - name: Run Step Functions Local smoke
         id: stepfunctions_local
@@ -661,7 +447,10 @@ jobs:
               "ingest_stubbed_aws": [
                   "ocr-service/ocr-pipeline/tests/local_integration/test_ingest_with_stubbed_aws.py",
               ],
-              "emulator_roundtrip": [],
+              "emulator_roundtrip": [
+                  "ocr-service/ocr-pipeline/tests/integration/test_hosted_runner_aws_roundtrip.py",
+                  "ocr-service/ocr-pipeline/tests/integration/test_hosted_runner_storage_roundtrip.py",
+              ],
               "sam_job_status": [
                   ".github/ci/sam-local-staging",
                   ".github/ci/sam-job-status-template.yaml",

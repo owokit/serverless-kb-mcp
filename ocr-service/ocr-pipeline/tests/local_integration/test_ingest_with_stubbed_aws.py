@@ -16,10 +16,12 @@ from serverless_mcp.runtime.ingest import IngestWorkflowStarter
 class _ObjectStateRepo:
     def __init__(self) -> None:
         self.lookup = type("Lookup", (), {"object_pk": "lookup#source-bucket#docs/guide.pdf"})()
+        # EN: Keep the stored sequencer below the create event so the happy path starts one execution.
+        # CN: 让已存 sequencer 低于 create 事件，确保 happy path 会启动一次执行。
         self.state = ObjectStateRecord(
             pk=self.lookup.object_pk,
             latest_version_id="v0",
-            latest_sequencer="00000000000000000000000000000001",
+            latest_sequencer="00000000000000000000000000000000",
             extract_status="EXTRACTED",
             embed_status="INDEXED",
             latest_manifest_s3_uri="s3://manifest-bucket/manifests/example.json",

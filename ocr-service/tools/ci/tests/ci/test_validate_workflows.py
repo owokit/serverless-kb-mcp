@@ -262,7 +262,7 @@ def test_pr_path_conflict_guard_scans_parallel_prs() -> None:
     assert "name: PR Path Conflict Guard" in text
     assert "pull_request_target" in text
     assert "workflow_dispatch" in text
-    assert "actions/github-script@v8" in text
+    assert "actions/github-script@v9" in text
     assert "pr-path-conflict-report.json" in text
     assert "codex-pr-path-conflict-guard" in text
 
@@ -350,8 +350,9 @@ def test_python_workflows_target_the_mcp_project_explicitly() -> None:
         "local-integration-ci.yml": [
             "uv sync --locked --project ocr-service",
             "uv run --project ocr-service python <<'PY'",
-            "uv run --project ocr-service python -m pytest -q ocr-service/ocr-pipeline/tests/integration/test_hosted_runner_storage_roundtrip.py --maxfail=1",
-            "uv run --project ocr-service python -m pytest -q ocr-service/ocr-pipeline/tests/integration/test_hosted_runner_aws_roundtrip.py --maxfail=1",
+            "ocr-service/ocr-pipeline/tests/unit/serverless_mcp/test_remote_mcp_smoke.py",
+            "ocr-service/ocr-pipeline/tests/integration/test_hosted_runner_storage_roundtrip.py",
+            "ocr-service/ocr-pipeline/tests/integration/test_hosted_runner_aws_roundtrip.py",
         ],
         "security-ci.yml": [
             "uv sync --locked --project ocr-service",
@@ -384,8 +385,9 @@ def test_local_integration_ci_is_matrix_driven() -> None:
 
     assert "name: Local Integration CI" in text
     assert "name: Local Integration CI (${{ matrix.scenario }})" in text
-    assert "scenario: storage_roundtrip" in text
-    assert "scenario: aws_roundtrip" in text
+    assert "scenario: ingest_stubbed_aws" in text
+    assert "scenario: emulator_roundtrip" in text
+    assert "scenario: remote_mcp_frontdoor" in text
     assert "scenario: sam_job_status" in text
     assert "scenario: stepfunctions_local" in text
     assert "scenario: vector_backend" in text
@@ -393,3 +395,11 @@ def test_local_integration_ci_is_matrix_driven() -> None:
     assert "local-integration-summary" in text
     assert "pattern: local-integration-ci-*-report" in text
     assert "local-integration-ci-report" in text
+
+
+def test_pr_validate_shell_safety_scan_skips_self_file() -> None:
+    workflow_path = REPO_ROOT / ".github" / "workflows" / "pr-validate.yml"
+    text = workflow_path.read_text(encoding="utf-8")
+
+    assert "path.name == 'pr-validate.yml'" in text
+    assert "Unsafe workflow shell pattern(s) found" in text

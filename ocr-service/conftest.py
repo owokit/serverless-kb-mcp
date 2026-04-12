@@ -22,7 +22,9 @@ for path in (SRC_PATH, TESTS_PATH, PACKAGING_PATH):
         sys.path.insert(0, str(path))
 
 
-if "awslabs.mcp_lambda_handler" not in sys.modules:
+try:
+    import awslabs.mcp_lambda_handler  # type: ignore[unused-ignore]
+except Exception:
     awslabs_module = types.ModuleType("awslabs")
     mcp_lambda_handler_module = types.ModuleType("awslabs.mcp_lambda_handler")
     session_module = types.ModuleType("awslabs.mcp_lambda_handler.session")
@@ -56,6 +58,15 @@ if "awslabs.mcp_lambda_handler" not in sys.modules:
     sys.modules["awslabs.mcp_lambda_handler.session"] = session_module
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """
+    EN: Register repository-local markers used by reference workflow tests.
+    CN: 注册仓库内参考工作流测试使用的本地标记。
+    """
+    config.addinivalue_line("markers", "requires_network: Tests that require network access")
+    config.addinivalue_line("markers", "requires_aws: Tests that require AWS credentials")
+
+
 collect_ignore_glob = [
     "ocr-pipeline/tests/integration/*.py",
     "ocr-pipeline/tests/unit/runtime/*.py",
@@ -64,11 +75,16 @@ collect_ignore_glob = [
 
 
 @pytest.fixture(autouse=True)
-def _runtime_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+def _runtime_isolation(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest) -> None:
     """
     EN: Reset process-wide runtime caches and default environment between tests.
     CN: 在每个测试之间重置进程级运行时缓存和默认环境。
     """
+    integration_marker = request.node.get_closest_marker("integration")
+    aws_smoke_marker = request.node.get_closest_marker("aws_smoke")
+    if integration_marker or aws_smoke_marker:
+        return
+
     monkeypatch.setenv("OBJECT_STATE_TABLE", "object-state")
     monkeypatch.setenv("EXECUTION_STATE_TABLE", "execution-state")
     monkeypatch.delenv("SERVERLESS_MCP_PIPELINE_CONFIG_PATH", raising=False)
