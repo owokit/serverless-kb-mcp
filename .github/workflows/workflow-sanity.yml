@@ -36,7 +36,7 @@ jobs:
       # EN: Check out the exact repository snapshot under review.
       # CN: 拉取当前审查中的仓库快照。
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
