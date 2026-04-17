@@ -48,7 +48,7 @@ jobs:
           npm ci
 
       - name: Configure AWS credentials with OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ env.AWS_SMOKE_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
