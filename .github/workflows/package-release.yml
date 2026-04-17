@@ -156,7 +156,7 @@ jobs:
       # CN: 仅当元数据步骤判定合适时才发布 draft GitHub release。
       - name: Create draft GitHub release
         if: ${{ steps.metadata.outputs.should_publish == 'true' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ steps.metadata.outputs.release_tag }}
