@@ -39,7 +39,7 @@ jobs:
       # EN: Check out the full history so the graph and path checks see the real repository state.
       # CN: 拉取完整历史记录，确保图谱和路径检查看到真实的仓库状态。
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

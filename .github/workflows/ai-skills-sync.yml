@@ -24,7 +24,7 @@ jobs:
       # EN: Keep repository checkout consistent with the PR head commit.
       # CN: 保持仓库检出与 PR head commit 一致。
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Python
         uses: ./.github/actions/setup-runtime
