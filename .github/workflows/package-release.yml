@@ -40,7 +40,7 @@ jobs:
       # EN: Use the validated repository state as the packaging source of truth.
       # CN: 使用已验证的仓库状态作为打包依据。
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 

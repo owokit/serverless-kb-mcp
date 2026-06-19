@@ -64,7 +64,7 @@ jobs:
       # EN: Start from the same repository snapshot so teardown logic matches deploy naming.
       # CN: 从同一份仓库快照开始，确保销毁逻辑和部署命名一致。
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
