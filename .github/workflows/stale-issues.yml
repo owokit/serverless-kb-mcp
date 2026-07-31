@@ -20,7 +20,7 @@ jobs:
     name: Close stale issues and PRs
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v10
+      - uses: actions/stale@v11
         with:
           # EN: Days of inactivity before an issue is marked stale.
           # CN: issue 无活动多少天后标记为 stale。
