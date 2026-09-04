@@ -38,7 +38,7 @@ jobs:
       # EN: Initialize CodeQL with the repo-specific JS/TS configuration file.
       # CN: 使用仓库专属的 JS/TS 配置文件初始化 CodeQL。
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4.37.8
+        uses: github/codeql-action/init@v4.37.9
         with:
           languages: javascript-typescript
           config-file: ./.github/codeql/codeql-javascript-typescript.yml
@@ -46,7 +46,7 @@ jobs:
       # EN: Finalize the analysis and publish results to Code Scanning.
       # CN: 完成分析并将结果发布到 Code Scanning。
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v4.37.8
+        uses: github/codeql-action/analyze@v4.37.9
 
   analyze-python:
     # EN: Mirror the JS/TS lane with a Python-specific CodeQL pass for the service workspace.
@@ -66,11 +66,11 @@ jobs:
       # EN: Initialize CodeQL for Python without a repo-specific config file so the service tree is fully covered.
       # CN: 为 Python 初始化 CodeQL，不使用仓库专属配置文件，从而覆盖完整的服务目录。
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4.37.8
+        uses: github/codeql-action/init@v4.37.9
         with:
           languages: python
 
       # EN: Finalize the analysis and publish results to Code Scanning.
       # CN: 完成分析并将结果发布到 Code Scanning。
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v4.37.8
+        uses: github/codeql-action/analyze@v4.37.9
